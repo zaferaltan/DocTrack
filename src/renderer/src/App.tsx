@@ -2,6 +2,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useMemo,
   useState
 } from 'react';
 import {
@@ -1052,83 +1053,91 @@ function DocumentsView({
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All');
   const deferredSearch = useDeferredValue(search);
 
-  const filteredDocuments =
-    statusFilter === 'All'
-      ? workspace.documents
-      : workspace.documents.filter((document) => document.status === statusFilter);
+  const statusOptions = useMemo(() => ['All', ...workspace.statuses] as const, [workspace.statuses]);
 
-  const columns: Array<ColumnDef<DocumentListItem>> = [
-    {
-      accessorKey: 'documentId',
-      header: columnHeader('Document ID'),
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.documentId}</span>
-    },
-    {
-      accessorKey: 'title',
-      header: columnHeader('Title'),
-      cell: ({ row }) => (
-        <div>
-          <div className="font-medium">{row.original.title}</div>
-          <div className="text-xs text-muted-foreground">{row.original.typeName}</div>
-        </div>
-      )
-    },
-    {
-      accessorKey: 'typeName',
-      header: columnHeader('Type')
-    },
-    {
-      accessorKey: 'status',
-      header: columnHeader('Status'),
-      cell: ({ row }) => <StatusBadge status={row.original.status} />
-    },
-    {
-      accessorKey: 'latestVersion',
-      header: columnHeader('Latest Version'),
-      cell: ({ row }) => <span>v{row.original.latestVersion}</span>
-    },
-    {
-      accessorKey: 'modifiedDate',
-      header: columnHeader('Modified'),
-      cell: ({ row }) => <span>{formatDateShort(row.original.modifiedDate)}</span>
-    },
-    {
-      accessorKey: 'author',
-      header: columnHeader('Author')
-    },
-    {
-      id: 'actions',
-      header: () => <span className="text-right">Actions</span>,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              stopRowAction(event);
-              onSelectDocument(row.original.id);
-              onRequestStatusChange();
-            }}
-          >
-            <CircleDot className="h-4 w-4" />
-            Status
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              stopRowAction(event);
-              onOpenFileForRow(row.original, selectedDocumentDetail, onOpenFile, onSelectDocument);
-            }}
-          >
-            <FolderOpen className="h-4 w-4" />
-            Open
-          </Button>
-        </div>
-      )
-    }
-  ];
+  const filteredDocuments = useMemo(
+    () =>
+      statusFilter === 'All'
+        ? workspace.documents
+        : workspace.documents.filter((document) => document.status === statusFilter),
+    [statusFilter, workspace.documents]
+  );
+
+  const columns = useMemo<Array<ColumnDef<DocumentListItem>>>(
+    () => [
+      {
+        accessorKey: 'documentId',
+        header: columnHeader('Document ID'),
+        cell: ({ row }) => <span className="font-mono text-xs">{row.original.documentId}</span>
+      },
+      {
+        accessorKey: 'title',
+        header: columnHeader('Title'),
+        cell: ({ row }) => (
+          <div>
+            <div className="font-medium">{row.original.title}</div>
+            <div className="text-xs text-muted-foreground">{row.original.typeName}</div>
+          </div>
+        )
+      },
+      {
+        accessorKey: 'typeName',
+        header: columnHeader('Type')
+      },
+      {
+        accessorKey: 'status',
+        header: columnHeader('Status'),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />
+      },
+      {
+        accessorKey: 'latestVersion',
+        header: columnHeader('Latest Version'),
+        cell: ({ row }) => <span>v{row.original.latestVersion}</span>
+      },
+      {
+        accessorKey: 'modifiedDate',
+        header: columnHeader('Modified'),
+        cell: ({ row }) => <span>{formatDateShort(row.original.modifiedDate)}</span>
+      },
+      {
+        accessorKey: 'author',
+        header: columnHeader('Author')
+      },
+      {
+        id: 'actions',
+        header: () => <span className="text-right">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(event) => {
+                stopRowAction(event);
+                onSelectDocument(row.original.id);
+                onRequestStatusChange();
+              }}
+            >
+              <CircleDot className="h-4 w-4" />
+              Status
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(event) => {
+                stopRowAction(event);
+                onOpenFileForRow(row.original, selectedDocumentDetail, onOpenFile, onSelectDocument);
+              }}
+            >
+              <FolderOpen className="h-4 w-4" />
+              Open
+            </Button>
+          </div>
+        )
+      }
+    ],
+    [onOpenFile, onRequestStatusChange, onSelectDocument, selectedDocumentDetail]
+  );
 
   const table = useReactTable({
     data: filteredDocuments,
@@ -1192,9 +1201,10 @@ function DocumentsView({
             />
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {(['All', ...workspace.statuses] as const).map((status) => (
+            {statusOptions.map((status) => (
               <button
                 key={status}
+                type="button"
                 className={cn(
                   'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
                   statusFilter === status
@@ -2035,6 +2045,7 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 function columnHeader(label: string) {
   return ({ column }: { column: { getIsSorted: () => false | 'asc' | 'desc'; toggleSorting: (desc?: boolean) => void } }) => (
     <button
+      type="button"
       className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:text-foreground"
       onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
     >
