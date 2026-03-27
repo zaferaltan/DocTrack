@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   buildDocumentFolderRelativePath,
@@ -90,6 +90,29 @@ export class FileStorageService {
     return resolvedPath;
   }
 
+  moveDocumentFolder(rootPath: string, currentDocumentFolderPath: string, nextDocumentFolderPath: string): void {
+    const normalizedCurrent = currentDocumentFolderPath.split(/[\\/]/).join('/');
+    const normalizedNext = nextDocumentFolderPath.split(/[\\/]/).join('/');
+
+    if (normalizedCurrent === normalizedNext) {
+      return;
+    }
+
+    const currentAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedCurrent);
+    if (!existsSync(currentAbsolutePath)) {
+      throw new Error('A managed document folder could not be found on disk during layout migration.');
+    }
+
+    const nextAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedNext, true);
+    if (existsSync(nextAbsolutePath)) {
+      throw new Error('A target document folder already exists, so the workspace layout could not be migrated.');
+    }
+
+    mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
+    renameSync(currentAbsolutePath, nextAbsolutePath);
+    this.cleanupEmptyDirectories(path.dirname(currentAbsolutePath), this.getWorkspaceDocumentsDirectory(rootPath));
+  }
+
   cleanupManagedPath(absolutePath: string): void {
     if (existsSync(absolutePath)) {
       rmSync(absolutePath, { force: true });
@@ -101,6 +124,20 @@ export class FileStorageService {
       if (existsSync(directoryPath) && readdirSync(directoryPath).length === 0) {
         rmSync(directoryPath, { recursive: true, force: true });
       }
+    }
+  }
+
+  private cleanupEmptyDirectories(startPath: string, stopBeforePath: string): void {
+    const resolvedStopPath = path.resolve(stopBeforePath);
+    let currentPath = path.resolve(startPath);
+
+    while (currentPath.startsWith(resolvedStopPath) && currentPath !== resolvedStopPath) {
+      if (!existsSync(currentPath) || readdirSync(currentPath).length > 0) {
+        break;
+      }
+
+      rmSync(currentPath, { recursive: true, force: true });
+      currentPath = path.dirname(currentPath);
     }
   }
 }

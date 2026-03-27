@@ -90,7 +90,7 @@ describe('document workflow integration', () => {
     expect(list[0]?.status).toBe('Draft');
   });
 
-  it('uses updated settings only for newly created documents while keeping existing document versions in place', () => {
+  it('migrates existing documents into the new layout when workspace settings change', () => {
     const v1File = path.join(tempRoot, 'incoming', 'procedure-v1.md');
     const v2File = path.join(tempRoot, 'incoming', 'procedure-v2.md');
     const nextDocumentFile = path.join(tempRoot, 'incoming', 'checklist.md');
@@ -106,11 +106,13 @@ describe('document workflow integration', () => {
       notes: 'Initial release candidate',
       sourceFilePath: v1File
     });
-    const originalDocumentFolderPath = created.versions[0]?.filePath.replace(/\/v1\/[^/]+$/, '') ?? '';
+    const originalDocumentFilePath = created.versions[0]?.filePath ?? '';
+    const originalAbsolutePath = path.join(workspaceRootPath, ...originalDocumentFilePath.split('/'));
 
     const updatedWorkspace = workspaceService.updateSettings(workspaceRootPath, {
       storageLayoutPreset: 'friendly-id'
     });
+    const migratedDocument = documentService.getDetail(workspaceRootPath, created.id);
     const createdAfterSettingsChange = documentService.create(workspaceRootPath, {
       title: 'Supplier Audit Checklist',
       documentTypeId: 2,
@@ -124,18 +126,28 @@ describe('document workflow integration', () => {
       sourceFilePath: v2File
     });
 
+    const migratedDocumentPath = migratedDocument.versions[0]?.filePath ?? '';
     const newDocumentPath = createdAfterSettingsChange.versions[0]?.filePath ?? '';
     const newVersionFolderPath = newVersion.versions[0]?.filePath.replace(/\/v2\/[^/]+$/, '') ?? '';
+    const migratedDocumentFolderPath = migratedDocumentPath.replace(/\/v1\/[^/]+$/, '');
+    const migratedAbsolutePath = path.join(workspaceRootPath, ...migratedDocumentPath.split('/'));
 
     expect(updatedWorkspace.summary.settings.storageLayoutPreset).toBe('friendly-id');
+    expect(existsSync(originalAbsolutePath)).toBe(false);
+    expect(migratedDocumentPath).toMatch(
+      /^Documents\/Procedure\/0220\d{2}\d{5} - Operating Procedure\/v1\/procedure-v1\.md$/
+    );
+    expect(existsSync(migratedAbsolutePath)).toBe(true);
     expect(createdAfterSettingsChange.documentId).toMatch(/^0220\d{2}\d{5}$/);
     expect(newDocumentPath).toMatch(
       /^Documents\/Procedure\/0220\d{2}\d{5} - Supplier Audit Checklist\/v1\/checklist\.md$/
     );
     expect(newVersion.documentId).toBe(created.documentId);
     expect(newVersion.versions[0]?.versionNumber).toBe(2);
-    expect(newVersionFolderPath).toBe(originalDocumentFolderPath);
-    expect(newVersion.versions[0]?.filePath).toMatch(/^Documents\/Procedure\/0220\d{2}\d{5}\/v2\/procedure-v2\.md$/);
+    expect(newVersionFolderPath).toBe(migratedDocumentFolderPath);
+    expect(newVersion.versions[0]?.filePath).toMatch(
+      /^Documents\/Procedure\/0220\d{2}\d{5} - Operating Procedure\/v2\/procedure-v2\.md$/
+    );
 
     const overviewRow = documentService.list(workspaceRootPath)[0];
     expect(overviewRow?.latestVersion).toBe(2);

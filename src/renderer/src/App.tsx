@@ -1554,7 +1554,7 @@ function WorkspaceSettingsDialog({
         <DialogHeader>
           <DialogTitle>Workspace Settings</DialogTitle>
           <DialogDescription>
-            Update how new documents are stored for this workspace. Existing files stay where they are.
+            Update how documents are stored for this workspace. Saving will migrate existing managed document folders to the new layout.
           </DialogDescription>
         </DialogHeader>
 
@@ -1639,7 +1639,7 @@ function WorkspaceStorageSettingsFields({
           {previewWorkspaceName}/{previewRelativePath}
         </div>
         <div className="mt-3 text-xs text-muted-foreground">
-          Later settings updates affect newly created documents only. Existing document folders are not moved.
+          Saving these settings migrates existing managed document folders and updates future document writes to use the new layout.
         </div>
       </div>
     </div>
