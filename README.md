@@ -1,6 +1,6 @@
 # DocTrack
 
-DocTrack is a cross-platform desktop application for managing documents, document versions, statuses, and workspace files.
+DocTrack is a cross-platform desktop application for managing document shells, document versions, statuses, and workspace files.
 
 It is built with:
 
@@ -22,37 +22,40 @@ DocTrack lets you:
 - Open an existing workspace
 - Keep multiple workspaces open at the same time
 - Create documents with automatically generated numeric document IDs
-- Add new versions to existing documents
+- Create document shells before the actual files exist
+- Add new versions to existing documents with configurable version label formats
 - Change document status
 - Manage document types and their number prefixes
 - Search, sort, and filter documents in a table view
-- Store document files locally next to the workspace
+- Store and reconcile document files locally next to the workspace
 
 ## How Workspaces Work
 
-A workspace is a SQLite database file on disk.
+A workspace is a folder on disk that contains a SQLite database plus managed document folders.
 
 Example:
 
 ```text
-Quality.sqlite
-Quality.files/
+Quality/
+  Database/workspace.sqlite
+  Documents/
 ```
 
-The `.sqlite` file stores metadata such as:
+The SQLite database stores metadata such as:
 
 - documents
 - document versions
+- document version files
 - document types
 - statuses
 - workspace information
 
-The `.files` folder stores copied document files for that workspace.
+The `Documents/` tree stores the physical files for that workspace.
 
 Example managed file path:
 
 ```text
-Quality.files/documents/01202600001/v2/specification.pdf
+Quality/Documents/Procedure/02202600001/001/procedure.docx
 ```
 
 This means:
@@ -60,6 +63,7 @@ This means:
 - the workspace stays portable
 - the app works offline
 - file paths inside the database can stay relative
+- users can still work in the folders outside the app
 
 ## Document ID Format
 
@@ -91,7 +95,7 @@ Important rules:
 - document IDs are generated automatically
 - document IDs are unique
 - document IDs stay the same across versions
-- only the version number changes when you create a new version
+- version labels change when you create a new version
 
 ## Versioning Model
 
@@ -99,12 +103,15 @@ DocTrack separates the document record from the version records.
 
 At a high level:
 
-- `Documents` stores the main identity of a document
-- `DocumentVersions` stores each uploaded version of that document
+- `Documents` stores the main identity and folder for a document shell
+- `DocumentVersions` stores each logical revision of that document
+- `DocumentVersionFiles` stores the actual physical files discovered for each version
 
 That means:
 
 - one document can have many versions
+- one version can have many files
+- files can live flat in the version folder or inside role subfolders, depending on workspace settings
 - creating a new version adds a new row to `DocumentVersions`
 - changing status updates the latest version
 - changing status does not create a new version
@@ -204,13 +211,14 @@ npm run typecheck
 1. Launch the app
 2. Click `New Workspace`
 3. Enter a workspace name
-4. Choose where to save the SQLite file
+4. Choose where to save the workspace folder
 5. Optionally keep example data enabled
 6. Create the workspace
 
 When a workspace is created:
 
-- the SQLite file is created
+- the workspace folder is created
+- the SQLite file is created inside `Database/`
 - the database schema is initialized
 - the four fixed statuses are seeded
 - starter document types are seeded
@@ -219,7 +227,7 @@ When a workspace is created:
 ### Open an existing workspace
 
 1. Click `Open Workspace`
-2. Choose an existing `.sqlite` workspace file
+2. Choose an existing workspace folder
 3. The workspace opens in a new tab
 
 ### Create a document
@@ -230,32 +238,42 @@ When a workspace is created:
    - title
    - author
    - document type
-   - notes
-   - source file
+   - version scheme
 4. Save
 
 DocTrack will:
 
 - generate a new `DocumentID`
-- copy the selected file into the workspace-managed files folder
 - create the document record
-- create version `1`
-- set the initial status to `Draft`
+- create the physical document folder on disk
+- leave the document in a `Not started` state until the first version exists
 
 ### Create a new version
 
 1. Select an existing document
 2. Click `New Version`
-3. Choose a new file
-4. Add notes
+3. Add notes
+4. If needed, choose the major/minor bump for `1.0` style documents
 5. Save
 
 DocTrack will:
 
 - keep the same document ID
-- increment the version number
-- copy the new file into the managed storage folder
+- create the next version label and physical version folder
 - create a new `DocumentVersions` row
+
+### Show files for a version
+
+1. Select a document
+2. Click `Show Files`
+3. Open files, open the folder, refresh disk state, or add files
+
+DocTrack will:
+
+- rescan the version folder and recognized role subfolders
+- import new files found on disk
+- remove deleted files from the database view
+- preserve file metadata across manual renames and moves when possible
 
 ### Change document status
 
@@ -467,7 +485,7 @@ This helps keep the app consistent because both sides agree on the same types.
 
 This is the most useful mental model for understanding the project.
 
-### Example: creating a document
+### Example: creating a document shell
 
 1. The user fills in the `Create Document` dialog in React
 2. React calls `window.docTrack.documents.create(...)`
@@ -475,8 +493,8 @@ This is the most useful mental model for understanding the project.
 4. `src/main/ipc.ts` receives the request
 5. `DocumentService` runs the business logic
 6. `DocumentIdGeneratorService` generates the new document ID
-7. `FileStorageService` copies the selected file into managed workspace storage
-8. SQLite rows are inserted into `Documents` and `DocumentVersions`
+7. `FileStorageService` creates the physical document folder
+8. SQLite rows are inserted into `Documents`
 9. The updated document list is returned to the UI
 10. React refreshes the table and detail panel
 
@@ -497,6 +515,7 @@ Main tables:
 - `DocumentTypes`
 - `Documents`
 - `DocumentVersions`
+- `DocumentVersionFiles`
 
 High-level relationships:
 
@@ -511,8 +530,9 @@ The repository includes automated tests for core business rules:
 - document ID generation
 - file storage path behavior
 - workspace lifecycle
-- document creation
+- document shell creation
 - version creation
+- version file sync and migration
 - status updates
 
 Test files live under:

@@ -1,17 +1,23 @@
+import { DOCUMENT_VERSION_FILE_ROLES, isDocumentVersionFileRole } from '@shared/documentModel';
+
 export const WORKSPACE_DATABASE_DIRECTORY_NAME = 'Database';
 export const WORKSPACE_DATABASE_FILE_NAME = 'workspace.sqlite';
 export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
+export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
 
 export type WorkspaceStorageLayoutPreset = (typeof WORKSPACE_STORAGE_LAYOUT_PRESETS)[number];
+export type WorkspaceFileOrganizationMode = (typeof WORKSPACE_FILE_ORGANIZATION_MODES)[number];
 
 export interface WorkspaceSettings {
   storageLayoutPreset: WorkspaceStorageLayoutPreset;
+  fileOrganizationMode: WorkspaceFileOrganizationMode;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
-  storageLayoutPreset: 'stable-id'
+  storageLayoutPreset: 'stable-id',
+  fileOrganizationMode: 'flat'
 };
 
 export const WORKSPACE_STORAGE_LAYOUT_OPTIONS: Array<{
@@ -28,6 +34,23 @@ export const WORKSPACE_STORAGE_LAYOUT_OPTIONS: Array<{
     value: 'friendly-id',
     label: 'Friendly document folders',
     description: 'Documents/<Type>/<DocumentId> - <Title>/v<Version>/<File>'
+  }
+];
+
+export const WORKSPACE_FILE_ORGANIZATION_OPTIONS: Array<{
+  value: WorkspaceFileOrganizationMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'flat',
+    label: 'Flat version folders',
+    description: '<Version>/<File>'
+  },
+  {
+    value: 'role-subfolders',
+    label: 'Role subfolders',
+    description: '<Version>/<Role>/<File>'
   }
 ];
 
@@ -53,6 +76,11 @@ export const sanitizeStoragePathSegment = (value: string, fallback = 'Untitled')
 export const isWorkspaceStorageLayoutPreset = (
   value: string
 ): value is WorkspaceStorageLayoutPreset => WORKSPACE_STORAGE_LAYOUT_PRESETS.includes(value as WorkspaceStorageLayoutPreset);
+
+export const isWorkspaceFileOrganizationMode = (
+  value: string
+): value is WorkspaceFileOrganizationMode =>
+  WORKSPACE_FILE_ORGANIZATION_MODES.includes(value as WorkspaceFileOrganizationMode);
 
 export const getWorkspaceDatabaseRelativePath = (): string =>
   joinRelativeSegments(WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
@@ -80,11 +108,24 @@ export const buildDocumentFolderRelativePath = (
 
 export const buildDocumentVersionRelativePath = (
   documentFolderPath: string,
-  versionNumber: number,
+  versionLabel: string
+): string => joinRelativeSegments(documentFolderPath, sanitizeStoragePathSegment(versionLabel, 'version'));
+
+export const buildVersionFileRelativePath = (
+  settings: WorkspaceSettings,
+  versionFolderPath: string,
+  role: string,
   fileName: string
 ): string =>
   joinRelativeSegments(
-    documentFolderPath,
-    `v${versionNumber}`,
+    versionFolderPath,
+    settings.fileOrganizationMode === 'role-subfolders' && isDocumentVersionFileRole(role)
+      ? role
+      : '',
     sanitizeStoragePathSegment(fileName, 'document.bin')
   );
+
+export const getRecognizedRoleDirectoryNames = (): string[] => [...DOCUMENT_VERSION_FILE_ROLES];
+
+export const isRecognizedRoleDirectoryName = (value: string): boolean =>
+  isDocumentVersionFileRole(value);

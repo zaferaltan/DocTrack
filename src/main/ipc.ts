@@ -50,13 +50,13 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
-  ipcMain.handle(IPC_CHANNELS.dialogPickDocumentFile, async () => {
+  ipcMain.handle(IPC_CHANNELS.dialogPickDocumentFiles, async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Select Document File',
-      properties: ['openFile']
+      title: 'Select Document Files',
+      properties: ['openFile', 'multiSelections']
     });
 
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    return result.canceled ? [] : result.filePaths;
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsList, (_event, rootPath: string) =>
@@ -71,11 +71,32 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (_event, rootPath: string, input) =>
     services.documentService.createVersion(rootPath, input)
   );
+  ipcMain.handle(IPC_CHANNELS.documentsAddVersionFiles, (_event, rootPath: string, input) =>
+    services.documentService.addVersionFiles(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsRenameVersionFile, (_event, rootPath: string, input) =>
+    services.documentService.renameVersionFile(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsDeleteVersionFile, (_event, rootPath: string, input) =>
+    services.documentService.deleteVersionFile(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsChangeVersionFileRole, (_event, rootPath: string, input) =>
+    services.documentService.changeVersionFileRole(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsSyncVersionFiles, (_event, rootPath: string, documentVersionId: number) =>
+    services.documentService.syncVersionFiles(rootPath, documentVersionId)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsUpdateStatus, (_event, rootPath: string, input) =>
     services.documentService.updateStatus(rootPath, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsOpenFile, (_event, rootPath: string, documentVersionId: number) =>
-    services.documentService.openFile(rootPath, documentVersionId)
+  ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFile, (_event, rootPath: string, fileId: number) =>
+    services.documentService.openVersionFile(rootPath, fileId)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsOpenDocumentFolder, (_event, rootPath: string, documentRecordId: number) =>
+    services.documentService.openDocumentFolder(rootPath, documentRecordId)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFolder, (_event, rootPath: string, documentVersionId: number) =>
+    services.documentService.openVersionFolder(rootPath, documentVersionId)
   );
 
   ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, rootPath: string) =>

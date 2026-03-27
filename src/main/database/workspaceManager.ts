@@ -13,6 +13,7 @@ import {
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -86,15 +87,24 @@ export class WorkspaceManager {
       applyMigrations(db);
       db.prepare(
         `
-          INSERT INTO Workspaces (Id, Name, FilePath, RootPath, CreatedDate, StorageLayoutPreset)
-          VALUES (1, ?, ?, ?, ?, ?)
+          INSERT INTO Workspaces (
+            Id,
+            Name,
+            FilePath,
+            RootPath,
+            CreatedDate,
+            StorageLayoutPreset,
+            FileOrganizationMode
+          )
+          VALUES (1, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
         databaseFilePath,
         resolvedRootPath,
         nowIso(),
-        settings.storageLayoutPreset
+        settings.storageLayoutPreset,
+        settings.fileOrganizationMode
       );
 
       const context = this.buildContext(db, resolvedRootPath);
@@ -218,25 +228,35 @@ export class WorkspaceManager {
 
   private readWorkspaceSettings(db: Database.Database): WorkspaceSettings {
     const row = db
-      .prepare('SELECT StorageLayoutPreset FROM Workspaces WHERE Id = 1')
-      .get() as { StorageLayoutPreset: string } | undefined;
+      .prepare('SELECT StorageLayoutPreset, FileOrganizationMode FROM Workspaces WHERE Id = 1')
+      .get() as { StorageLayoutPreset: string; FileOrganizationMode: string } | undefined;
 
-    if (!row || !isWorkspaceStorageLayoutPreset(row.StorageLayoutPreset)) {
+    if (
+      !row ||
+      !isWorkspaceStorageLayoutPreset(row.StorageLayoutPreset) ||
+      !isWorkspaceFileOrganizationMode(row.FileOrganizationMode)
+    ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
 
     return {
-      storageLayoutPreset: row.StorageLayoutPreset
+      storageLayoutPreset: row.StorageLayoutPreset,
+      fileOrganizationMode: row.FileOrganizationMode
     };
   }
 
   private normalizeWorkspaceSettings(settings: WorkspaceCreateInput['settings']): WorkspaceSettings {
-    if (!settings || !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset)) {
+    if (
+      !settings ||
+      !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
+      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode)
+    ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
 
     return {
-      storageLayoutPreset: settings.storageLayoutPreset
+      storageLayoutPreset: settings.storageLayoutPreset,
+      fileOrganizationMode: settings.fileOrganizationMode
     };
   }
 

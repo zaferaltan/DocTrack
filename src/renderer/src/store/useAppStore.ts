@@ -84,6 +84,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   createWorkspace: async (input) => {
     const result = await window.docTrack.workspace.create(input);
     const recentWorkspaces = await window.docTrack.workspace.listRecent();
+    const warningSuffix =
+      result.warnings && result.warnings.length > 0
+        ? ` ${result.warnings.length} storage warning${result.warnings.length === 1 ? '' : 's'} recorded.`
+        : '';
     set((state) => ({
       openWorkspaces: {
         ...state.openWorkspaces,
@@ -96,7 +100,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       recentWorkspaces,
       notification: {
         tone: 'success',
-        message: `Workspace "${result.workspace.name}" is ready.`
+        message: `Workspace "${result.workspace.name}" is ready.${warningSuffix}`
       }
     }));
   },
@@ -150,6 +154,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   updateWorkspaceSettings: async (rootPath, settings) => {
     const result = await window.docTrack.workspace.updateSettings(rootPath, settings);
+    const warningSuffix =
+      result.warnings && result.warnings.length > 0
+        ? ` ${result.warnings.length} unmanaged path warning${result.warnings.length === 1 ? '' : 's'} recorded.`
+        : '';
     set((state) => ({
       openWorkspaces: {
         ...state.openWorkspaces,
@@ -160,7 +168,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       notification: {
         tone: 'success',
-        message: `Workspace settings saved for "${result.workspace.name}".`
+        message: `Workspace settings saved for "${result.workspace.name}".${warningSuffix}`
       }
     }));
   },

@@ -1,3 +1,8 @@
+import type {
+  DocumentVersionFileRole,
+  DocumentVersionScheme,
+  VersionBumpType
+} from '@shared/documentModel';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived'] as const;
@@ -26,21 +31,36 @@ export interface DocumentListItem {
   title: string;
   typeId: number;
   typeName: string;
-  status: DocumentStatus;
-  latestVersion: number;
+  versionScheme: DocumentVersionScheme;
+  status: DocumentStatus | null;
+  latestVersionLabel: string | null;
   modifiedDate: string;
   createdDate: string;
   author: string;
 }
 
+export interface DocumentVersionFile {
+  id: number;
+  documentVersionId: number;
+  role: DocumentVersionFileRole;
+  fileName: string;
+  filePath: string;
+  contentHash: string;
+  fileSize: number;
+  modifiedDate: string;
+  createdDate: string;
+}
+
 export interface DocumentVersion {
   id: number;
   documentId: number;
-  versionNumber: number;
+  sequenceNumber: number;
+  versionLabel: string;
   status: DocumentStatus;
-  filePath: string;
   createdDate: string;
   notes: string;
+  files: DocumentVersionFile[];
+  unmanagedPaths: string[];
 }
 
 export interface DocumentDetail {
@@ -49,6 +69,8 @@ export interface DocumentDetail {
   title: string;
   typeId: number;
   typeName: string;
+  versionScheme: DocumentVersionScheme;
+  documentFolderPath: string;
   createdDate: string;
   modifiedDate: string;
   author: string;
@@ -59,14 +81,13 @@ export interface CreateDocumentInput {
   title: string;
   documentTypeId: number;
   author: string;
-  notes: string;
-  sourceFilePath: string;
+  versionScheme: DocumentVersionScheme;
 }
 
 export interface CreateVersionInput {
   documentRecordId: number;
   notes: string;
-  sourceFilePath: string;
+  bumpType?: VersionBumpType;
 }
 
 export interface UpdateDocumentStatusInput {
@@ -77,6 +98,26 @@ export interface UpdateDocumentStatusInput {
 export interface DocumentTypeInput {
   name: string;
   numberPrefix: string;
+}
+
+export interface AddDocumentVersionFilesInput {
+  documentVersionId: number;
+  role: DocumentVersionFileRole;
+  sourceFilePaths: string[];
+}
+
+export interface RenameDocumentVersionFileInput {
+  fileId: number;
+  nextFileName: string;
+}
+
+export interface DeleteDocumentVersionFileInput {
+  fileId: number;
+}
+
+export interface ChangeDocumentVersionFileRoleInput {
+  fileId: number;
+  role: DocumentVersionFileRole;
 }
 
 export interface WorkspaceSummary {
@@ -90,6 +131,7 @@ export interface WorkspaceSummary {
 export interface OpenWorkspaceResult {
   workspace: WorkspaceInfo;
   summary: WorkspaceSummary;
+  warnings?: string[];
 }
 
 export interface WorkspaceCreateInput {

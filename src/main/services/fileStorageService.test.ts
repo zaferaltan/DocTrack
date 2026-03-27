@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,64 +22,133 @@ afterEach(() => {
 });
 
 describe('FileStorageService', () => {
-  it('copies a file into managed workspace storage under the stable-id layout', () => {
-    const root = createTempRoot();
+  it('builds flat version file paths', () => {
     const service = new FileStorageService();
-    const workspaceRootPath = path.join(root, 'Quality');
-    const sourceFile = path.join(root, 'source.txt');
-    writeFileSync(sourceFile, 'hello world', 'utf8');
 
     const documentFolderPath = service.getDocumentFolderRelativePath(
-      { storageLayoutPreset: 'stable-id' },
+      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       'Procedure',
       '01202600001',
       'Internal Audit Procedure'
     );
-    const stored = service.copyManagedFile(workspaceRootPath, documentFolderPath, 1, sourceFile);
+    const storedPath = service.getStoredRelativePath(
+      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      documentFolderPath,
+      '001',
+      'working',
+      'procedure.docx'
+    );
 
-    expect(stored.relativePath).toBe('Documents/Procedure/01202600001/v1/source.txt');
-    expect(path.isAbsolute(stored.absolutePath)).toBe(true);
-    expect(existsSync(stored.absolutePath)).toBe(true);
+    expect(documentFolderPath).toBe('Documents/Procedure/01202600001');
+    expect(storedPath).toBe('Documents/Procedure/01202600001/001/procedure.docx');
   });
 
-  it('builds friendly-id document folders with the document title', () => {
+  it('builds role-subfolder version file paths', () => {
     const service = new FileStorageService();
 
     const documentFolderPath = service.getDocumentFolderRelativePath(
-      { storageLayoutPreset: 'friendly-id' },
+      { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
       'Procedure',
       '01202600001',
       'Supplier Audit Checklist'
     );
-    const versionPath = service.getStoredRelativePath(documentFolderPath, 2, 'checklist.pdf');
+    const storedPath = service.getStoredRelativePath(
+      { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
+      documentFolderPath,
+      'v2',
+      'concept-pdf',
+      'checklist.pdf'
+    );
 
     expect(documentFolderPath).toBe('Documents/Procedure/01202600001 - Supplier Audit Checklist');
-    expect(versionPath).toBe(
-      'Documents/Procedure/01202600001 - Supplier Audit Checklist/v2/checklist.pdf'
+    expect(storedPath).toBe(
+      'Documents/Procedure/01202600001 - Supplier Audit Checklist/v2/concept-pdf/checklist.pdf'
     );
   });
 
-  it('cleans up empty version and document folders after rollback cleanup', () => {
+  it('creates role directories for role-subfolder version folders', () => {
+    const root = createTempRoot();
+    const service = new FileStorageService();
+    const versionPath = service.ensureVersionFolder(
+      root,
+      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'role-subfolders' },
+      'Documents/Procedure/01202600001',
+      '001'
+    );
+
+    expect(existsSync(path.join(versionPath, 'working'))).toBe(true);
+    expect(existsSync(path.join(versionPath, 'concept-pdf'))).toBe(true);
+    expect(existsSync(path.join(versionPath, 'final-pdf'))).toBe(true);
+    expect(existsSync(path.join(versionPath, 'other'))).toBe(true);
+  });
+
+  it('scans root files, role subfolders, and unmanaged deep paths', () => {
+    const root = createTempRoot();
+    const service = new FileStorageService();
+    const workspaceRootPath = path.join(root, 'Quality');
+    const versionFolderPath = 'Documents/Procedure/01202600001/001';
+    const versionAbsolutePath = service.ensureVersionFolder(
+      workspaceRootPath,
+      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      'Documents/Procedure/01202600001',
+      '001'
+    );
+
+    writeFileSync(path.join(versionAbsolutePath, 'procedure.docx'), 'working', 'utf8');
+    mkdirSync(path.join(versionAbsolutePath, 'concept-pdf'), { recursive: true });
+    writeFileSync(path.join(versionAbsolutePath, 'concept-pdf', 'procedure.pdf'), 'concept', 'utf8');
+    mkdirSync(path.join(versionAbsolutePath, 'nested', 'deep'), { recursive: true });
+    writeFileSync(path.join(versionAbsolutePath, 'nested', 'deep', 'ignored.txt'), 'ignored', 'utf8');
+    mkdirSync(path.join(versionAbsolutePath, 'working', 'drafts'), { recursive: true });
+
+    const scan = service.scanVersionFolder(workspaceRootPath, versionFolderPath);
+
+    expect(
+      scan.files
+        .map((file) => [file.inferredRole, file.relativePath] as const)
+        .sort((left, right) => left[1].localeCompare(right[1]))
+    ).toEqual([
+      ['concept-pdf', 'Documents/Procedure/01202600001/001/concept-pdf/procedure.pdf'],
+      ['other', 'Documents/Procedure/01202600001/001/procedure.docx']
+    ]);
+    expect(scan.unmanagedPaths).toEqual([
+      'Documents/Procedure/01202600001/001/nested',
+      'Documents/Procedure/01202600001/001/working/drafts'
+    ]);
+  });
+
+  it('moves managed files and cleans up empty role folders', () => {
     const root = createTempRoot();
     const service = new FileStorageService();
     const workspaceRootPath = path.join(root, 'Quality');
     const sourceFile = path.join(root, 'source.txt');
     writeFileSync(sourceFile, 'hello world', 'utf8');
 
-    const documentFolderPath = service.getDocumentFolderRelativePath(
-      { storageLayoutPreset: 'stable-id' },
-      'Procedure',
-      '01202600001',
-      'Internal Audit Procedure'
+    const [storedFile] = service.importManagedFiles(
+      workspaceRootPath,
+      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'role-subfolders' },
+      'Documents/Procedure/01202600001',
+      '001',
+      'working',
+      [sourceFile]
     );
-    const stored = service.copyManagedFile(workspaceRootPath, documentFolderPath, 1, sourceFile);
-    const documentDirectoryPath = path.dirname(path.dirname(stored.absolutePath));
-    const typeDirectoryPath = path.dirname(documentDirectoryPath);
+    const moved = service.moveManagedFile(
+      workspaceRootPath,
+      storedFile.relativePath,
+      'Documents/Procedure/01202600001/001/other/source.txt'
+    );
 
-    service.cleanupManagedPath(stored.absolutePath);
+    expect(moved.relativePath).toBe('Documents/Procedure/01202600001/001/other/source.txt');
+    expect(existsSync(path.join(workspaceRootPath, ...moved.relativePath.split('/')))).toBe(true);
+    expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).toContain(
+      'other'
+    );
+    expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).not.toContain(
+      'working'
+    );
 
-    expect(existsSync(documentDirectoryPath)).toBe(false);
-    expect(existsSync(typeDirectoryPath)).toBe(true);
-    expect(readdirSync(typeDirectoryPath)).toHaveLength(0);
+    service.deleteManagedFile(workspaceRootPath, moved.relativePath);
+
+    expect(existsSync(path.join(workspaceRootPath, ...moved.relativePath.split('/')))).toBe(false);
   });
 });

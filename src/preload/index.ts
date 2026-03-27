@@ -16,7 +16,7 @@ const api: DocTrackApi = {
     pickWorkspaceCreatePath: (workspaceName) =>
       ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceCreatePath, workspaceName),
     pickWorkspaceOpenPath: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceOpenPath),
-    pickDocumentFile: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickDocumentFile)
+    pickDocumentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickDocumentFiles)
   },
   documents: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentsList, filePath),
@@ -25,10 +25,24 @@ const api: DocTrackApi = {
     create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.documentsCreate, filePath, input),
     createVersion: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsCreateVersion, filePath, input),
+    addVersionFiles: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsAddVersionFiles, filePath, input),
+    renameVersionFile: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsRenameVersionFile, filePath, input),
+    deleteVersionFile: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsDeleteVersionFile, filePath, input),
+    changeVersionFileRole: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsChangeVersionFileRole, filePath, input),
+    syncVersionFiles: (filePath, documentVersionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsSyncVersionFiles, filePath, documentVersionId),
     updateStatus: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateStatus, filePath, input),
-    openFile: (filePath, documentVersionId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenFile, filePath, documentVersionId)
+    openVersionFile: (filePath, fileId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFile, filePath, fileId),
+    openDocumentFolder: (filePath, documentRecordId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenDocumentFolder, filePath, documentRecordId),
+    openVersionFolder: (filePath, documentVersionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFolder, filePath, documentVersionId)
   },
   documentTypes: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesList, filePath),

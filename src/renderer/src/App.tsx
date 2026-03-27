@@ -15,8 +15,10 @@ import {
   LayoutPanelLeft,
   Loader2,
   Moon,
+  Pencil,
   PencilLine,
   Plus,
+  RefreshCcw,
   Search,
   Settings2,
   Sparkles,
@@ -52,12 +54,21 @@ import { Textarea } from '@renderer/components/ui/textarea';
 import { cn, formatDateShort, formatDateTime } from '@renderer/lib/utils';
 import { useAppStore } from '@renderer/store/useAppStore';
 import {
+  DOCUMENT_VERSION_FILE_ROLE_LABELS,
+  DOCUMENT_VERSION_FILE_ROLES,
+  DOCUMENT_VERSION_SCHEME_LABELS,
+  type DocumentVersionFileRole,
+  type DocumentVersionScheme,
+  type VersionBumpType
+} from '@shared/documentModel';
+import {
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
+  buildVersionFileRelativePath,
   DEFAULT_WORKSPACE_SETTINGS,
+  WORKSPACE_FILE_ORGANIZATION_OPTIONS,
   WORKSPACE_STORAGE_LAYOUT_OPTIONS,
-  type WorkspaceSettings,
-  type WorkspaceStorageLayoutPreset
+  type WorkspaceSettings
 } from '@shared/workspaceLayout';
 import type {
   CreateDocumentInput,
@@ -65,6 +76,8 @@ import type {
   DocumentDetail,
   DocumentListItem,
   DocumentStatus,
+  DocumentVersion,
+  DocumentVersionFile,
   DocumentType,
   ThemeMode
 } from '@shared/types';
@@ -95,8 +108,6 @@ const applyTheme = (themeMode: ThemeMode): void => {
   root.classList.toggle('dark', effectiveTheme === 'dark');
 };
 
-const extractDroppedFilePath = (file: File | undefined): string | null => file?.path ?? null;
-
 interface WorkspaceDialogState {
   open: boolean;
   name: string;
@@ -119,15 +130,21 @@ interface DocumentDialogState {
   title: string;
   documentTypeId: string;
   author: string;
-  notes: string;
-  sourceFilePath: string;
+  versionScheme: DocumentVersionScheme;
   isSubmitting: boolean;
 }
 
 interface VersionDialogState {
   open: boolean;
   notes: string;
-  sourceFilePath: string;
+  bumpType: VersionBumpType;
+  isSubmitting: boolean;
+}
+
+interface FilesDialogState {
+  open: boolean;
+  versionId?: number;
+  addRole: DocumentVersionFileRole;
   isSubmitting: boolean;
 }
 
@@ -167,15 +184,21 @@ const defaultDocumentDialogState: DocumentDialogState = {
   title: '',
   documentTypeId: '',
   author: '',
-  notes: '',
-  sourceFilePath: '',
+  versionScheme: 'numeric-3',
   isSubmitting: false
 };
 
 const defaultVersionDialogState: VersionDialogState = {
   open: false,
   notes: '',
-  sourceFilePath: '',
+  bumpType: 'minor',
+  isSubmitting: false
+};
+
+const defaultFilesDialogState: FilesDialogState = {
+  open: false,
+  versionId: undefined,
+  addRole: 'working',
   isSubmitting: false
 };
 
@@ -221,6 +244,7 @@ function App() {
   );
   const [documentDialog, setDocumentDialog] = useState(defaultDocumentDialogState);
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
+  const [filesDialog, setFilesDialog] = useState(defaultFilesDialogState);
   const [statusDialog, setStatusDialog] = useState(defaultStatusDialogState);
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
   const [selectedDocumentDetail, setSelectedDocumentDetail] = useState<DocumentDetail | null>(null);
@@ -229,6 +253,8 @@ function App() {
 
   const workspaceTabs = Object.values(openWorkspaces);
   const activeWorkspace = activeWorkspacePath ? openWorkspaces[activeWorkspacePath] : undefined;
+  const activeFilesVersion =
+    selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ?? null;
 
   useEffect(() => {
     let isMounted = true;
@@ -278,27 +304,58 @@ function App() {
   }, [themeMode]);
 
   useEffect(() => {
+    const loadSelectedDocumentDetail = async () => {
+      if (!activeWorkspacePath || !activeWorkspace?.selectedDocumentRecordId) {
+        setSelectedDocumentDetail(null);
+        return;
+      }
+
+      setIsDetailLoading(true);
+      try {
+        const detail = await window.docTrack.documents.detail(
+          activeWorkspacePath,
+          activeWorkspace.selectedDocumentRecordId
+        );
+        setSelectedDocumentDetail(detail);
+      } catch (error) {
+        setNotification({
+          tone: 'error',
+          message: error instanceof Error ? error.message : 'Unable to load the selected document.'
+        });
+      } finally {
+        setIsDetailLoading(false);
+      }
+    };
+
+    void loadSelectedDocumentDetail();
+  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, setNotification]);
+
+  const loadDocumentDetail = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
+    const detail = await window.docTrack.documents.detail(rootPath, documentRecordId);
+    setSelectedDocument(rootPath, documentRecordId);
+    setSelectedDocumentDetail(detail);
+    return detail;
+  };
+
+  const refreshSelectedDocument = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
+    const [detail] = await Promise.all([loadDocumentDetail(rootPath, documentRecordId), refreshWorkspace(rootPath)]);
+    return detail;
+  };
+
+  useEffect(() => {
     if (!activeWorkspacePath || !activeWorkspace?.selectedDocumentRecordId) {
       setSelectedDocumentDetail(null);
       return;
     }
 
-    setIsDetailLoading(true);
-    void window.docTrack.documents
-      .detail(activeWorkspacePath, activeWorkspace.selectedDocumentRecordId)
-      .then((detail) => {
-        setSelectedDocumentDetail(detail);
-      })
-      .catch((error: Error) => {
-        setNotification({
-          tone: 'error',
-          message: error.message
-        });
-      })
-      .finally(() => {
-        setIsDetailLoading(false);
-      });
-  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, setNotification]);
+    if (
+      filesDialog.versionId &&
+      selectedDocumentDetail &&
+      !selectedDocumentDetail.versions.some((version) => version.id === filesDialog.versionId)
+    ) {
+      setFilesDialog(defaultFilesDialogState);
+    }
+  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, filesDialog.versionId, selectedDocumentDetail]);
 
   const openWorkspacePicker = async () => {
     const rootPath = await window.docTrack.dialogs.pickWorkspaceOpenPath();
@@ -403,8 +460,7 @@ function App() {
         title: documentDialog.title,
         documentTypeId: Number(documentDialog.documentTypeId),
         author: documentDialog.author,
-        notes: documentDialog.notes,
-        sourceFilePath: documentDialog.sourceFilePath
+        versionScheme: documentDialog.versionScheme
       } satisfies CreateDocumentInput);
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
@@ -429,7 +485,7 @@ function App() {
       const detail = await window.docTrack.documents.createVersion(activeWorkspacePath, {
         documentRecordId: selectedDocumentDetail.id,
         notes: versionDialog.notes,
-        sourceFilePath: versionDialog.sourceFilePath
+        bumpType: versionDialog.bumpType
       } satisfies CreateVersionInput);
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
@@ -437,7 +493,7 @@ function App() {
       setVersionDialog(defaultVersionDialogState);
       setNotification({
         tone: 'success',
-        message: `Version ${detail.versions[0]?.versionNumber ?? ''} created for ${detail.documentId}.`
+        message: `Version ${detail.versions[0]?.versionLabel ?? ''} created for ${detail.documentId}.`
       });
     } catch (error) {
       setNotification({
@@ -529,6 +585,165 @@ function App() {
         tone: 'error',
         message: error instanceof Error ? error.message : 'Unable to delete document type.'
       });
+    }
+  };
+
+  const handleShowFilesForDocument = async (documentRecordId: number) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      const detail =
+        selectedDocumentDetail?.id === documentRecordId
+          ? selectedDocumentDetail
+          : await loadDocumentDetail(activeWorkspacePath, documentRecordId);
+      const latestVersion = detail?.versions[0];
+
+      if (!latestVersion) {
+        setNotification({
+          tone: 'error',
+          message: 'Create a version before showing version files.'
+        });
+        return;
+      }
+
+      setFilesDialog({
+        open: true,
+        versionId: latestVersion.id,
+        addRole: 'working',
+        isSubmitting: false
+      });
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to load version files.'
+      });
+    }
+  };
+
+  const handleRefreshVersionFiles = async (documentVersionId: number) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.syncVersionFiles(activeWorkspacePath, documentVersionId);
+      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to refresh version files.'
+      });
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleAddFilesToVersion = async (documentVersionId: number) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    const sourceFilePaths = await window.docTrack.dialogs.pickDocumentFiles();
+    if (sourceFilePaths.length === 0) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.addVersionFiles(activeWorkspacePath, {
+        documentVersionId,
+        role: filesDialog.addRole,
+        sourceFilePaths
+      });
+      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to add files to this version.'
+      });
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleRenameVersionFile = async (file: DocumentVersionFile) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    const nextFileName = window.prompt('Rename file', file.fileName)?.trim();
+    if (!nextFileName || nextFileName === file.fileName) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.renameVersionFile(activeWorkspacePath, {
+        fileId: file.id,
+        nextFileName
+      });
+      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to rename the selected file.'
+      });
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleDeleteVersionFile = async (file: DocumentVersionFile) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${file.fileName}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.deleteVersionFile(activeWorkspacePath, {
+        fileId: file.id
+      });
+      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to delete the selected file.'
+      });
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleChangeVersionFileRole = async (
+    file: DocumentVersionFile,
+    role: DocumentVersionFileRole
+  ) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail || role === file.role) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.changeVersionFileRole(activeWorkspacePath, {
+        fileId: file.id,
+        role
+      });
+      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to change the selected file role.'
+      });
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
@@ -749,16 +964,7 @@ function App() {
               onSelectDocument={(documentRecordId) =>
                 setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
               }
-              onOpenFile={(documentVersionId) => {
-                void window.docTrack.documents
-                  .openFile(activeWorkspace.workspace.rootPath, documentVersionId)
-                  .catch((error: Error) => {
-                    setNotification({
-                      tone: 'error',
-                      message: error.message
-                    });
-                  });
-              }}
+              onShowFiles={handleShowFilesForDocument}
               onRequestNewDocument={() => setDocumentDialog((state) => ({ ...state, open: true }))}
               onRequestNewVersion={() => {
                 if (selectedDocumentDetail) {
@@ -777,6 +983,28 @@ function App() {
                   });
                 }
               }}
+              onShowDocumentFolder={() => {
+                if (!activeWorkspacePath || !selectedDocumentDetail) {
+                  return;
+                }
+
+                void window.docTrack.documents
+                  .openDocumentFolder(activeWorkspacePath, selectedDocumentDetail.id)
+                  .catch((error: Error) => {
+                    setNotification({
+                      tone: 'error',
+                      message: error.message
+                    });
+                  });
+              }}
+              onShowVersionFiles={(documentVersionId) =>
+                setFilesDialog({
+                  open: true,
+                  versionId: documentVersionId,
+                  addRole: 'working',
+                  isSubmitting: false
+                })
+              }
             />
           ) : (
             <DocumentTypesView
@@ -853,6 +1081,50 @@ function App() {
         state={typeDialog}
         onStateChange={setTypeDialog}
         onSubmit={handleSaveDocumentType}
+      />
+
+      <VersionFilesDialog
+        open={filesDialog.open}
+        onOpenChange={(open) => setFilesDialog(open ? { ...filesDialog, open } : defaultFilesDialogState)}
+        state={filesDialog}
+        onStateChange={setFilesDialog}
+        version={activeFilesVersion}
+        canEdit={Boolean(
+          selectedDocumentDetail &&
+            activeFilesVersion &&
+            selectedDocumentDetail.versions[0]?.id === activeFilesVersion.id
+        )}
+        onRefresh={handleRefreshVersionFiles}
+        onAddFiles={handleAddFilesToVersion}
+        onOpenFile={(fileId) => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          void window.docTrack.documents.openVersionFile(activeWorkspacePath, fileId).catch((error: Error) => {
+            setNotification({
+              tone: 'error',
+              message: error.message
+            });
+          });
+        }}
+        onOpenFolder={(documentVersionId) => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          void window.docTrack.documents
+            .openVersionFolder(activeWorkspacePath, documentVersionId)
+            .catch((error: Error) => {
+              setNotification({
+                tone: 'error',
+                message: error.message
+              });
+            });
+        }}
+        onRenameFile={handleRenameVersionFile}
+        onDeleteFile={handleDeleteVersionFile}
+        onChangeRole={handleChangeVersionFileRole}
       />
     </div>
   );
@@ -1033,19 +1305,23 @@ function DocumentsView({
   selectedDocumentDetail,
   isDetailLoading,
   onSelectDocument,
-  onOpenFile,
+  onShowFiles,
   onRequestNewDocument,
   onRequestNewVersion,
-  onRequestStatusChange
+  onRequestStatusChange,
+  onShowDocumentFolder,
+  onShowVersionFiles
 }: {
   workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
   selectedDocumentDetail: DocumentDetail | null;
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
-  onOpenFile: (documentVersionId: number) => void;
+  onShowFiles: (documentRecordId: number) => void;
   onRequestNewDocument: () => void;
   onRequestNewVersion: () => void;
   onRequestStatusChange: () => void;
+  onShowDocumentFolder: () => void;
+  onShowVersionFiles: (documentVersionId: number) => void;
 }) {
   const [search, setSearch] = useState('');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'modifiedDate', desc: true }]);
@@ -1087,12 +1363,12 @@ function DocumentsView({
       {
         accessorKey: 'status',
         header: columnHeader('Status'),
-        cell: ({ row }) => <StatusBadge status={row.original.status} />
+        cell: ({ row }) => <DocumentProgressBadge status={row.original.status} />
       },
       {
-        accessorKey: 'latestVersion',
+        accessorKey: 'latestVersionLabel',
         header: columnHeader('Latest Version'),
-        cell: ({ row }) => <span>v{row.original.latestVersion}</span>
+        cell: ({ row }) => <span>{row.original.latestVersionLabel ?? '—'}</span>
       },
       {
         accessorKey: 'modifiedDate',
@@ -1112,6 +1388,7 @@ function DocumentsView({
             <Button
               variant="ghost"
               size="sm"
+              disabled={!row.original.latestVersionLabel}
               onClick={(event) => {
                 stopRowAction(event);
                 onSelectDocument(row.original.id);
@@ -1124,19 +1401,20 @@ function DocumentsView({
             <Button
               variant="ghost"
               size="sm"
+              disabled={!row.original.latestVersionLabel}
               onClick={(event) => {
                 stopRowAction(event);
-                onOpenFileForRow(row.original, selectedDocumentDetail, onOpenFile, onSelectDocument);
+                void onShowFiles(row.original.id);
               }}
             >
               <FolderOpen className="h-4 w-4" />
-              Open
+              Show Files
             </Button>
           </div>
         )
       }
     ],
-    [onOpenFile, onRequestStatusChange, onSelectDocument, selectedDocumentDetail]
+    [onRequestStatusChange, onSelectDocument, onShowFiles]
   );
 
   const table = useReactTable({
@@ -1179,8 +1457,8 @@ function DocumentsView({
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onRequestNewDocument}>
-              <Upload className="h-4 w-4" />
-              Upload Document
+              <FilePlus2 className="h-4 w-4" />
+              New Document
             </Button>
           </div>
         </div>
@@ -1306,15 +1584,17 @@ function DocumentsView({
           <div>
             <div className="text-base font-semibold">Version Detail</div>
             <div className="text-[13px] text-muted-foreground">
-              Inspect the selected document and act on the latest version
+              Inspect the selected document, its versions, and managed folders
             </div>
           </div>
-          {selectedDocumentDetail ? <StatusBadge status={selectedDocumentDetail.versions[0]?.status ?? 'Draft'} /> : null}
+          {selectedDocumentDetail ? (
+            <DocumentProgressBadge status={selectedDocumentDetail.versions[0]?.status ?? null} />
+          ) : null}
         </div>
 
         {!selectedDocumentDetail && !isDetailLoading ? (
           <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background p-5 text-center text-[13px] text-muted-foreground">
-            Select a document from the table to view version history, open files, or update status.
+            Select a document from the table to view versions, show files, or open its folder.
           </div>
         ) : null}
 
@@ -1337,13 +1617,22 @@ function DocumentsView({
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={onRequestStatusChange}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedDocumentDetail.versions.length === 0}
+                    onClick={onRequestStatusChange}
+                  >
                     <CircleDot className="h-4 w-4" />
                     Change Status
                   </Button>
+                  <Button variant="outline" size="sm" onClick={onShowDocumentFolder}>
+                    <FolderOpen className="h-4 w-4" />
+                    Show Folder
+                  </Button>
                   <Button size="sm" onClick={onRequestNewVersion}>
                     <PencilLine className="h-4 w-4" />
-                    New Version
+                    {selectedDocumentDetail.versions.length === 0 ? 'Create First Version' : 'New Version'}
                   </Button>
                 </div>
               </div>
@@ -1358,33 +1647,45 @@ function DocumentsView({
                 <div className="text-[13px] font-semibold">Versions</div>
                 <Badge variant="outline">{selectedDocumentDetail.versions.length} total</Badge>
               </div>
-              <div className="space-y-2.5">
-                {selectedDocumentDetail.versions.map((version) => (
-                  <div
-                    key={version.id}
-                    className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm font-semibold">Version {version.versionNumber}</div>
-                          <StatusBadge status={version.status} />
+              {selectedDocumentDetail.versions.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                  This document shell has no versions yet. Create the first version to start tracking files.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {selectedDocumentDetail.versions.map((version) => (
+                    <div
+                      key={version.id}
+                      className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-semibold">Version {version.versionLabel}</div>
+                            <StatusBadge status={version.status} />
+                            <Badge variant="outline">{version.files.length} files</Badge>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Created {formatDateTime(version.createdDate)}
+                          </div>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Created {formatDateTime(version.createdDate)}
-                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(version.id)}>
+                          <FolderOpen className="h-4 w-4" />
+                          Show Files
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => onOpenFile(version.id)}>
-                        <FolderOpen className="h-4 w-4" />
-                        Open File
-                      </Button>
+                      <div className="mt-3 rounded-lg bg-background p-2.5 text-[13px] text-muted-foreground">
+                        {version.notes || 'No notes recorded for this version.'}
+                      </div>
+                      {version.unmanagedPaths.length > 0 ? (
+                        <div className="mt-3 rounded-lg border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                          Unmanaged paths: {version.unmanagedPaths.join(', ')}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="mt-3 rounded-lg bg-background p-2.5 text-[13px] text-muted-foreground">
-                      {version.notes || 'No notes recorded for this version.'}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : null}
@@ -1607,19 +1908,23 @@ function WorkspaceStorageSettingsFields({
   settings: WorkspaceSettings;
   onSettingsChange: (settings: WorkspaceSettings) => void;
 }) {
-  const selectedOption =
+  const selectedStorageOption =
     WORKSPACE_STORAGE_LAYOUT_OPTIONS.find((option) => option.value === settings.storageLayoutPreset) ??
     WORKSPACE_STORAGE_LAYOUT_OPTIONS[0];
+  const selectedFileOrganizationOption =
+    WORKSPACE_FILE_ORGANIZATION_OPTIONS.find(
+      (option) => option.value === settings.fileOrganizationMode
+    ) ?? WORKSPACE_FILE_ORGANIZATION_OPTIONS[0];
   const previewWorkspaceName = workspaceName.trim() || 'Quality Operations';
-  const previewRelativePath = buildDocumentVersionRelativePath(
-    buildDocumentFolderRelativePath(
-      settings,
-      'Procedure',
-      '02202600001',
-      'Operating Procedure'
-    ),
-    2,
-    'procedure.pdf'
+  const previewVersionFolderPath = buildDocumentVersionRelativePath(
+    buildDocumentFolderRelativePath(settings, 'Procedure', '02202600001', 'Operating Procedure'),
+    '001'
+  );
+  const previewRelativePath = buildVersionFileRelativePath(
+    settings,
+    previewVersionFolderPath,
+    'working',
+    'procedure.docx'
   );
 
   return (
@@ -1629,7 +1934,8 @@ function WorkspaceStorageSettingsFields({
           value={settings.storageLayoutPreset}
           onChange={(event) =>
             onSettingsChange({
-              storageLayoutPreset: event.target.value as WorkspaceStorageLayoutPreset
+              ...settings,
+              storageLayoutPreset: event.target.value as WorkspaceSettings['storageLayoutPreset']
             })
           }
         >
@@ -1641,9 +1947,29 @@ function WorkspaceStorageSettingsFields({
         </Select>
       </Field>
 
+      <Field label="Version File Organization">
+        <Select
+          value={settings.fileOrganizationMode}
+          onChange={(event) =>
+            onSettingsChange({
+              ...settings,
+              fileOrganizationMode: event.target.value as WorkspaceSettings['fileOrganizationMode']
+            })
+          }
+        >
+          {WORKSPACE_FILE_ORGANIZATION_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
       <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
-        <div className="font-medium">{selectedOption.label}</div>
-        <div className="mt-1 text-muted-foreground">{selectedOption.description}</div>
+        <div className="font-medium">{selectedStorageOption.label}</div>
+        <div className="mt-1 text-muted-foreground">{selectedStorageOption.description}</div>
+        <div className="mt-2 font-medium">{selectedFileOrganizationOption.label}</div>
+        <div className="mt-1 text-muted-foreground">{selectedFileOrganizationOption.description}</div>
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Example Path
         </div>
@@ -1651,7 +1977,7 @@ function WorkspaceStorageSettingsFields({
           {previewWorkspaceName}/{previewRelativePath}
         </div>
         <div className="mt-3 text-xs text-muted-foreground">
-          Saving these settings migrates existing managed document folders and updates future document writes to use the new layout.
+          Saving these settings migrates managed document folders and version files to the new workspace layout.
         </div>
       </div>
     </div>
@@ -1679,7 +2005,7 @@ function DocumentDialog({
         <DialogHeader>
           <DialogTitle>Create Document</DialogTitle>
           <DialogDescription>
-            Upload the first file version and DocTrack will generate the structured numeric document ID automatically.
+            Create the document shell first. DocTrack will generate the document ID and physical folder immediately, and you can add versions and files afterward.
           </DialogDescription>
         </DialogHeader>
 
@@ -1720,19 +2046,25 @@ function DocumentDialog({
             </Select>
           </Field>
 
-          <Field label="Version Notes">
-            <Textarea
-              placeholder="Describe what this initial version contains."
-              value={state.notes}
-              onChange={(event) => onStateChange((current) => ({ ...current, notes: event.target.value }))}
-            />
-          </Field>
-
-          <Field label="Source File">
-            <FileDropField
-              value={state.sourceFilePath}
-              onChange={(value) => onStateChange((current) => ({ ...current, sourceFilePath: value }))}
-            />
+          <Field label="Version Scheme">
+            <Select
+              value={state.versionScheme}
+              onChange={(event) =>
+                onStateChange((current) => ({
+                  ...current,
+                  versionScheme: event.target.value as DocumentVersionScheme
+                }))
+              }
+            >
+              {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+            <div className="text-xs text-muted-foreground">
+              This controls how version folders are labeled for this document.
+            </div>
           </Field>
         </div>
 
@@ -1741,7 +2073,7 @@ function DocumentDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
             Create Document
           </Button>
         </DialogFooter>
@@ -1771,7 +2103,7 @@ function VersionDialog({
         <DialogHeader>
           <DialogTitle>Create New Version</DialogTitle>
           <DialogDescription>
-            The document ID stays fixed while the version number increments for the selected document.
+            Create the next version folder first, then manage the actual files from Show Files.
           </DialogDescription>
         </DialogHeader>
 
@@ -1780,7 +2112,7 @@ function VersionDialog({
             <div className="font-mono text-xs text-primary">{documentDetail.documentId}</div>
             <div className="mt-1.5 text-base font-semibold">{documentDetail.title}</div>
             <div className="mt-1 text-muted-foreground">
-              Next version: v{(documentDetail.versions[0]?.versionNumber ?? 0) + 1}
+              Next version: {getNextVersionLabelPreview(documentDetail, state.bumpType)}
             </div>
           </div>
         ) : null}
@@ -1793,12 +2125,22 @@ function VersionDialog({
           />
         </Field>
 
-        <Field label="Source File">
-          <FileDropField
-            value={state.sourceFilePath}
-            onChange={(value) => onStateChange((current) => ({ ...current, sourceFilePath: value }))}
-          />
-        </Field>
+        {documentDetail?.versionScheme === 'major-minor' && documentDetail.versions.length > 0 ? (
+          <Field label="Version Bump">
+            <Select
+              value={state.bumpType}
+              onChange={(event) =>
+                onStateChange((current) => ({
+                  ...current,
+                  bumpType: event.target.value as VersionBumpType
+                }))
+              }
+            >
+              <option value="minor">Minor</option>
+              <option value="major">Major</option>
+            </Select>
+          </Field>
+        ) : null}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -1938,60 +2280,176 @@ function DocumentTypeDialog({
   );
 }
 
-function FileDropField({
-  value,
-  onChange
+function VersionFilesDialog({
+  open,
+  onOpenChange,
+  state,
+  onStateChange,
+  version,
+  canEdit,
+  onRefresh,
+  onAddFiles,
+  onOpenFile,
+  onOpenFolder,
+  onRenameFile,
+  onDeleteFile,
+  onChangeRole
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  state: FilesDialogState;
+  onStateChange: React.Dispatch<React.SetStateAction<FilesDialogState>>;
+  version: DocumentVersion | null;
+  canEdit: boolean;
+  onRefresh: (documentVersionId: number) => Promise<void>;
+  onAddFiles: (documentVersionId: number) => Promise<void>;
+  onOpenFile: (fileId: number) => void;
+  onOpenFolder: (documentVersionId: number) => void;
+  onRenameFile: (file: DocumentVersionFile) => Promise<void>;
+  onDeleteFile: (file: DocumentVersionFile) => Promise<void>;
+  onChangeRole: (file: DocumentVersionFile, role: DocumentVersionFileRole) => Promise<void>;
 }) {
-  const [isDragging, setIsDragging] = useState(false);
-
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-dashed p-3.5 transition',
-        isDragging
-          ? 'border-[#2383E2]/40 bg-[#2383E2]/5 dark:border-[#4C8DFF]/40 dark:bg-[#4C8DFF]/10'
-          : 'border-border bg-background'
-      )}
-      onDragOver={(event) => {
-        event.preventDefault();
-        setIsDragging(true);
-      }}
-      onDragLeave={() => setIsDragging(false)}
-      onDrop={(event) => {
-        event.preventDefault();
-        setIsDragging(false);
-        const filePath = extractDroppedFilePath(event.dataTransfer.files[0]);
-        if (filePath) {
-          onChange(filePath);
-        }
-      }}
-    >
-      <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="font-medium">Drag and drop a file here</div>
-          <div className="mt-1 text-[13px] text-muted-foreground">
-            Or browse to select a source file from disk.
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[760px]">
+        <DialogHeader>
+          <DialogTitle>Show Files</DialogTitle>
+          <DialogDescription>
+            Browse the physical files for one version, open them directly, or open the version folder.
+          </DialogDescription>
+        </DialogHeader>
+
+        {version ? (
+          <div className="grid gap-4">
+            <div className="rounded-xl border border-border bg-background p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold">Version {version.versionLabel}</div>
+                  <div className="mt-1 text-[13px] text-muted-foreground">
+                    {version.files.length} files tracked in this version
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <DocumentProgressBadge status={version.status} />
+                  <Button variant="outline" size="sm" onClick={() => void onRefresh(version.id)}>
+                    <RefreshCcw className="h-4 w-4" />
+                    Refresh
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => onOpenFolder(version.id)}>
+                    <FolderOpen className="h-4 w-4" />
+                    Open Folder
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="New File Role">
+                  <Select
+                    value={state.addRole}
+                    onChange={(event) =>
+                      onStateChange((current) => ({
+                        ...current,
+                        addRole: event.target.value as DocumentVersionFileRole
+                      }))
+                    }
+                  >
+                    {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Button
+                  disabled={!canEdit || state.isSubmitting}
+                  onClick={() => void onAddFiles(version.id)}
+                >
+                  {state.isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  Add Files
+                </Button>
+              </div>
+              {!canEdit ? (
+                <div className="mt-3 text-xs text-muted-foreground">
+                  Older versions are read-only. Use the latest version to add, rename, delete, or reclassify files.
+                </div>
+              ) : null}
+            </div>
+
+            {version.unmanagedPaths.length > 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                Unmanaged paths: {version.unmanagedPaths.join(', ')}
+              </div>
+            ) : null}
+
+            <div className="max-h-[360px] space-y-2 overflow-auto rounded-xl border border-border bg-background p-3">
+              {version.files.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                  No files in this version yet.
+                </div>
+              ) : (
+                version.files.map((file) => (
+                  <div key={file.id} className="rounded-xl border border-border bg-card p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">{file.fileName}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {formatFileSize(file.fileSize)} • Modified {formatDateTime(file.modifiedDate)}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canEdit ? (
+                          <Select
+                            value={file.role}
+                            onChange={(event) =>
+                              void onChangeRole(file, event.target.value as DocumentVersionFileRole)
+                            }
+                          >
+                            {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                              <option key={role} value={role}>
+                                {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <Badge variant="outline">{DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}</Badge>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => onOpenFile(file.id)}>
+                          Open
+                        </Button>
+                        {canEdit ? (
+                          <Button variant="ghost" size="sm" onClick={() => void onRenameFile(file)}>
+                            <Pencil className="h-4 w-4" />
+                            Rename
+                          </Button>
+                        ) : null}
+                        {canEdit ? (
+                          <Button variant="ghost" size="sm" onClick={() => void onDeleteFile(file)}>
+                            Delete
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-lg bg-background px-2.5 py-2 text-xs text-primary">
+                      {file.filePath}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          {value ? <div className="mt-3 rounded-lg bg-card px-2.5 py-2 text-xs text-primary">{value}</div> : null}
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            void window.docTrack.dialogs.pickDocumentFile().then((filePath) => {
-              if (filePath) {
-                onChange(filePath);
-              }
-            });
-          }}
-        >
-          <Upload className="h-4 w-4" />
-          Browse File
-        </Button>
-      </div>
-    </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+            Select a version to view its files.
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2040,8 +2498,56 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function DocumentProgressBadge({ status }: { status: DocumentStatus | null }) {
+  if (!status) {
+    return <Badge variant="outline">Not started</Badge>;
+  }
+
+  return <StatusBadge status={status} />;
+}
+
 function StatusBadge({ status }: { status: DocumentStatus }) {
   return <Badge variant={STATUS_VARIANTS[status]}>{status}</Badge>;
+}
+
+function getNextVersionLabelPreview(
+  documentDetail: DocumentDetail,
+  bumpType: VersionBumpType
+): string {
+  const latestVersion = documentDetail.versions[0];
+
+  if (documentDetail.versionScheme === 'numeric-3') {
+    return String((latestVersion?.sequenceNumber ?? 0) + 1).padStart(3, '0');
+  }
+
+  if (documentDetail.versionScheme === 'v-prefix') {
+    return `v${(latestVersion?.sequenceNumber ?? 0) + 1}`;
+  }
+
+  if (!latestVersion) {
+    return '1.0';
+  }
+
+  const match = latestVersion.versionLabel.match(/^(\d+)\.(\d+)$/);
+  if (!match) {
+    return '1.0';
+  }
+
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return bumpType === 'major' ? `${major + 1}.0` : `${major}.${minor + 1}`;
+}
+
+function formatFileSize(fileSize: number): string {
+  if (fileSize < 1024) {
+    return `${fileSize} B`;
+  }
+
+  if (fileSize < 1024 * 1024) {
+    return `${(fileSize / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function columnHeader(label: string) {
@@ -2055,23 +2561,6 @@ function columnHeader(label: string) {
       <ArrowUpDown className="h-3.5 w-3.5" />
     </button>
   );
-}
-
-function onOpenFileForRow(
-  row: DocumentListItem,
-  selectedDetail: DocumentDetail | null,
-  onOpenFile: (documentVersionId: number) => void,
-  onSelectDocument: (documentRecordId: number) => void
-) {
-  if (selectedDetail?.id === row.id) {
-    const latestVersionId = selectedDetail.versions[0]?.id;
-    if (latestVersionId) {
-      onOpenFile(latestVersionId);
-    }
-    return;
-  }
-
-  onSelectDocument(row.id);
 }
 
 export default App;

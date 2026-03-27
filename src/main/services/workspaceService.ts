@@ -9,6 +9,7 @@ import { DOCUMENT_STATUSES } from '@shared/types';
 import type { DocumentType, OpenWorkspaceResult, WorkspaceCreateInput } from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
+  isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -66,7 +67,7 @@ export class WorkspaceService {
     return this.catalogService.listRecentWorkspaces();
   }
 
-  getSummary(rootPath: string): OpenWorkspaceResult {
+  getSummary(rootPath: string, warnings: string[] = []): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
     const typeRows = context.db
       .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes ORDER BY NumberPrefix ASC')
@@ -80,7 +81,8 @@ export class WorkspaceService {
         documents: this.documentService.list(rootPath),
         documentTypes: this.mapTypeRows(typeRows),
         statuses: [...DOCUMENT_STATUSES]
-      }
+      },
+      warnings
     };
   }
 
@@ -88,14 +90,17 @@ export class WorkspaceService {
     const context = this.workspaceManager.getContext(rootPath);
     const nextSettings = this.normalizeWorkspaceSettings(settings);
 
-    if (context.settings.storageLayoutPreset === nextSettings.storageLayoutPreset) {
+    if (
+      context.settings.storageLayoutPreset === nextSettings.storageLayoutPreset &&
+      context.settings.fileOrganizationMode === nextSettings.fileOrganizationMode
+    ) {
       return this.getSummary(rootPath);
     }
 
-    this.migrateWorkspaceStorageLayout(context, nextSettings);
+    const warnings = this.migrateWorkspaceStorageLayout(context, nextSettings);
     context.settings = nextSettings;
     this.ensureDocumentTypeDirectories(context);
-    return this.getSummary(rootPath);
+    return this.getSummary(rootPath, warnings);
   }
 
   private mapTypeRows(rows: Array<{ Id: number; Name: string; NumberPrefix: string }>): DocumentType[] {
@@ -128,7 +133,21 @@ export class WorkspaceService {
   private migrateWorkspaceStorageLayout(
     context: WorkspaceContext,
     nextSettings: WorkspaceSettings
-  ): void {
+  ): string[] {
+    const versionRows = context.db
+      .prepare('SELECT Id FROM DocumentVersions ORDER BY Id ASC')
+      .all() as Array<{ Id: number }>;
+    const warnings: string[] = [];
+
+    for (const versionRow of versionRows) {
+      const version = this.documentService.syncVersionFiles(context.rootPath, versionRow.Id);
+      if (version.unmanagedPaths.length > 0) {
+        warnings.push(
+          `Version ${version.versionLabel} contains unmanaged paths: ${version.unmanagedPaths.join(', ')}`
+        );
+      }
+    }
+
     const documentRows = context.db
       .prepare(
         `
@@ -150,87 +169,158 @@ export class WorkspaceService {
       DocumentFolderPath: string;
       TypeName: string;
     }>;
-    const versionRows = context.db
-      .prepare('SELECT Id, DocumentId, FilePath FROM DocumentVersions ORDER BY DocumentId ASC, VersionNumber ASC')
-      .all() as Array<{ Id: number; DocumentId: number; FilePath: string }>;
-    const versionsByDocumentId = new Map<number, Array<{ Id: number; DocumentId: number; FilePath: string }>>();
+    const dbVersionRows = context.db
+      .prepare('SELECT Id, DocumentId, VersionLabel FROM DocumentVersions ORDER BY Id ASC')
+      .all() as Array<{ Id: number; DocumentId: number; VersionLabel: string }>;
+    const fileRows = context.db
+      .prepare(
+        `
+          SELECT
+            Id,
+            DocumentVersionId,
+            Role,
+            FileName,
+            FilePath
+          FROM DocumentVersionFiles
+          ORDER BY Id ASC
+        `
+      )
+      .all() as Array<{
+      Id: number;
+      DocumentVersionId: number;
+      Role: 'working' | 'concept-pdf' | 'final-pdf' | 'other';
+      FileName: string;
+      FilePath: string;
+    }>;
 
-    for (const versionRow of versionRows) {
-      const versions = versionsByDocumentId.get(versionRow.DocumentId) ?? [];
-      versions.push(versionRow);
-      versionsByDocumentId.set(versionRow.DocumentId, versions);
+    const documentMoves = documentRows.map((documentRow) => ({
+      documentId: documentRow.Id,
+      currentFolderPath: documentRow.DocumentFolderPath.trim(),
+      nextFolderPath: this.fileStorageService.getDocumentFolderRelativePath(
+        nextSettings,
+        documentRow.TypeName,
+        documentRow.DocumentID,
+        documentRow.Title
+      )
+    }));
+    const documentMoveById = new Map(documentMoves.map((move) => [move.documentId, move]));
+    const versionById = new Map(dbVersionRows.map((versionRow) => [versionRow.Id, versionRow]));
+    const fileMoves = fileRows.map((fileRow) => {
+      const versionRow = versionById.get(fileRow.DocumentVersionId);
+      if (!versionRow) {
+        throw new Error('A version file is missing its version record.');
+      }
+
+      const documentMove = documentMoveById.get(versionRow.DocumentId);
+      if (!documentMove) {
+        throw new Error('A version file is missing its document record.');
+      }
+
+      const rewrittenCurrentFilePath = this.rewriteRelativePathPrefix(
+        fileRow.FilePath,
+        documentMove.currentFolderPath,
+        documentMove.nextFolderPath
+      );
+      const nextFilePath = this.fileStorageService.getStoredRelativePath(
+        nextSettings,
+        documentMove.nextFolderPath,
+        versionRow.VersionLabel,
+        fileRow.Role,
+        fileRow.FileName
+      );
+
+      return {
+        fileId: fileRow.Id,
+        currentFilePath: rewrittenCurrentFilePath,
+        nextFilePath
+      };
+    });
+
+    const seenNextPaths = new Map<string, number>();
+    for (const move of fileMoves) {
+      const normalizedNextPath = this.fileStorageService.normalizeRelativePath(move.nextFilePath);
+      const existingFileId = seenNextPaths.get(normalizedNextPath);
+      if (existingFileId && existingFileId !== move.fileId) {
+        throw new Error(
+          `Workspace migration would create two files at "${normalizedNextPath}". Resolve the filename collision first.`
+        );
+      }
+
+      seenNextPaths.set(normalizedNextPath, move.fileId);
     }
 
-    const folderMigrations = documentRows
-      .map((documentRow) => {
-        const currentFolderPath =
-          documentRow.DocumentFolderPath.trim() ||
-          this.fileStorageService.getDocumentFolderRelativePath(
-            context.settings,
-            documentRow.TypeName,
-            documentRow.DocumentID,
-            documentRow.Title
-          );
-        const nextFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
-          nextSettings,
-          documentRow.TypeName,
-          documentRow.DocumentID,
-          documentRow.Title
-        );
-        const versionUpdates = (versionsByDocumentId.get(documentRow.Id) ?? []).map((versionRow) => ({
-          id: versionRow.Id,
-          nextFilePath: this.rewriteDocumentVersionPath(
-            versionRow.FilePath,
-            currentFolderPath,
-            nextFolderPath
-          )
-        }));
-
-        return {
-          documentId: documentRow.Id,
-          currentFolderPath,
-          nextFolderPath,
-          versionUpdates
-        };
-      })
-      .filter((migration) => migration.currentFolderPath !== migration.nextFolderPath);
-
-    const appliedMigrations: typeof folderMigrations = [];
+    const appliedDocumentMoves: Array<{ currentFolderPath: string; nextFolderPath: string }> = [];
+    const appliedFileMoves: Array<{ currentFilePath: string; nextFilePath: string }> = [];
 
     try {
-      for (const migration of folderMigrations) {
+      for (const move of documentMoves) {
+        if (move.currentFolderPath === move.nextFolderPath) {
+          continue;
+        }
+
         this.fileStorageService.moveDocumentFolder(
           context.rootPath,
-          migration.currentFolderPath,
-          migration.nextFolderPath
+          move.currentFolderPath,
+          move.nextFolderPath
         );
-        appliedMigrations.push(migration);
+        appliedDocumentMoves.push(move);
+      }
+
+      for (const move of fileMoves) {
+        if (move.currentFilePath === move.nextFilePath) {
+          continue;
+        }
+
+        this.fileStorageService.moveManagedFile(
+          context.rootPath,
+          move.currentFilePath,
+          move.nextFilePath
+        );
+        appliedFileMoves.push(move);
       }
 
       context.db.transaction(() => {
         context.db
-          .prepare('UPDATE Workspaces SET StorageLayoutPreset = ? WHERE Id = 1')
-          .run(nextSettings.storageLayoutPreset);
+          .prepare(
+            `
+              UPDATE Workspaces
+              SET StorageLayoutPreset = ?, FileOrganizationMode = ?
+              WHERE Id = 1
+            `
+          )
+          .run(nextSettings.storageLayoutPreset, nextSettings.fileOrganizationMode);
 
-        for (const migration of folderMigrations) {
+        for (const move of documentMoves) {
           context.db
             .prepare('UPDATE Documents SET DocumentFolderPath = ? WHERE Id = ?')
-            .run(migration.nextFolderPath, migration.documentId);
-
-          for (const versionUpdate of migration.versionUpdates) {
-            context.db
-              .prepare('UPDATE DocumentVersions SET FilePath = ? WHERE Id = ?')
-              .run(versionUpdate.nextFilePath, versionUpdate.id);
-          }
+            .run(move.nextFolderPath, move.documentId);
         }
-      }).immediate();
+
+        for (const move of fileMoves) {
+          context.db
+            .prepare('UPDATE DocumentVersionFiles SET FilePath = ? WHERE Id = ?')
+            .run(move.nextFilePath, move.fileId);
+        }
+      })();
     } catch (error) {
-      for (const migration of appliedMigrations.reverse()) {
+      for (const move of appliedFileMoves.reverse()) {
+        try {
+          this.fileStorageService.moveManagedFile(
+            context.rootPath,
+            move.nextFilePath,
+            move.currentFilePath
+          );
+        } catch {
+          break;
+        }
+      }
+
+      for (const move of appliedDocumentMoves.reverse()) {
         try {
           this.fileStorageService.moveDocumentFolder(
             context.rootPath,
-            migration.nextFolderPath,
-            migration.currentFolderPath
+            move.nextFolderPath,
+            move.currentFolderPath
           );
         } catch {
           break;
@@ -239,6 +329,8 @@ export class WorkspaceService {
 
       throw error;
     }
+
+    return warnings;
   }
 
   private seedExampleData(context: WorkspaceContext): void {
@@ -257,11 +349,13 @@ export class WorkspaceService {
         prefix: '01',
         versions: [
           {
-            versionNumber: 1,
+            versionLabel: '001',
+            sequenceNumber: 1,
             status: 'Draft',
             notes: 'Initial scope and process baseline.',
-            fileName: 'quality-manual-v1.md',
-            content: '# Quality Manual\n\nInitial quality manual draft for the workspace.'
+            role: 'working',
+            fileName: 'quality-manual.docx',
+            content: 'Quality manual working draft.'
           }
         ]
       });
@@ -272,18 +366,22 @@ export class WorkspaceService {
         prefix: '02',
         versions: [
           {
-            versionNumber: 1,
+            versionLabel: '001',
+            sequenceNumber: 1,
             status: 'In Review',
             notes: 'Drafted for review by QA leads.',
-            fileName: 'audit-procedure-v1.md',
-            content: '# Internal Audit Procedure\n\nVersion 1 submitted for review.'
+            role: 'working',
+            fileName: 'audit-procedure.docx',
+            content: 'Version 001 working document.'
           },
           {
-            versionNumber: 2,
+            versionLabel: '002',
+            sequenceNumber: 2,
             status: 'Released',
             notes: 'Approved release after stakeholder review.',
-            fileName: 'audit-procedure-v2.md',
-            content: '# Internal Audit Procedure\n\nVersion 2 released to production teams.'
+            role: 'final-pdf',
+            fileName: 'audit-procedure.pdf',
+            content: 'Released version PDF.'
           }
         ]
       });
@@ -294,11 +392,13 @@ export class WorkspaceService {
         prefix: '03',
         versions: [
           {
-            versionNumber: 1,
+            versionLabel: '001',
+            sequenceNumber: 1,
             status: 'Archived',
             notes: 'Historical supplier baseline report.',
-            fileName: 'supplier-report-v1.md',
-            content: '# Supplier Assessment Report\n\nArchived report for prior supplier onboarding.'
+            role: 'final-pdf',
+            fileName: 'supplier-report.pdf',
+            content: 'Archived supplier report.'
           }
         ]
       });
@@ -314,9 +414,11 @@ export class WorkspaceService {
       author: string;
       prefix: string;
       versions: Array<{
-        versionNumber: number;
+        versionLabel: string;
+        sequenceNumber: number;
         status: 'Draft' | 'In Review' | 'Released' | 'Archived';
         notes: string;
+        role: 'working' | 'concept-pdf' | 'final-pdf' | 'other';
         fileName: string;
         content: string;
       }>;
@@ -342,6 +444,7 @@ export class WorkspaceService {
       documentId,
       input.title
     );
+    this.fileStorageService.ensureDocumentFolder(context.rootPath, documentFolderPath);
 
     const documentInsert = context.db
       .prepare(
@@ -350,78 +453,114 @@ export class WorkspaceService {
             DocumentID,
             Title,
             DocumentTypeId,
+            VersionScheme,
             DocumentFolderPath,
             CreatedDate,
             ModifiedDate,
             Author
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
-      .run(documentId, input.title, type.Id, documentFolderPath, createdDate, createdDate, input.author);
+      .run(
+        documentId,
+        input.title,
+        type.Id,
+        'numeric-3',
+        documentFolderPath,
+        createdDate,
+        createdDate,
+        input.author
+      );
 
     const documentRecordId = Number(documentInsert.lastInsertRowid);
     const insertVersion = context.db.prepare(
       `
         INSERT INTO DocumentVersions (
           DocumentId,
-          VersionNumber,
+          SequenceNumber,
+          VersionLabel,
           Status,
-          FilePath,
           CreatedDate,
           Notes
         ) VALUES (?, ?, ?, ?, ?, ?)
       `
     );
+    const insertFile = context.db.prepare(
+      `
+        INSERT INTO DocumentVersionFiles (
+          DocumentVersionId,
+          Role,
+          FileName,
+          FilePath,
+          ContentHash,
+          FileSize,
+          ModifiedDate,
+          CreatedDate
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    );
 
     for (const version of input.versions) {
+      const versionInsert = insertVersion.run(
+        documentRecordId,
+        version.sequenceNumber,
+        version.versionLabel,
+        version.status,
+        createdDate,
+        version.notes
+      );
+      const versionRecordId = Number(versionInsert.lastInsertRowid);
       const storedFile = this.fileStorageService.writeManagedTextFile(
         context.rootPath,
+        context.settings,
         documentFolderPath,
-        version.versionNumber,
+        version.versionLabel,
+        version.role,
         version.fileName,
         version.content
       );
 
-      insertVersion.run(
-        documentRecordId,
-        version.versionNumber,
-        version.status,
+      insertFile.run(
+        versionRecordId,
+        version.role,
+        storedFile.fileName,
         storedFile.relativePath,
-        createdDate,
-        version.notes
+        storedFile.contentHash,
+        storedFile.fileSize,
+        storedFile.modifiedDate,
+        createdDate
       );
     }
-
-    context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
-      createdDate,
-      documentRecordId
-    );
   }
 
   private normalizeWorkspaceSettings(settings: WorkspaceSettings): WorkspaceSettings {
-    if (!isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset)) {
+    if (
+      !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
+      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode)
+    ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
 
     return {
-      storageLayoutPreset: settings.storageLayoutPreset
+      storageLayoutPreset: settings.storageLayoutPreset,
+      fileOrganizationMode: settings.fileOrganizationMode
     };
   }
 
-  private rewriteDocumentVersionPath(
-    filePath: string,
+  private rewriteRelativePathPrefix(
+    relativePath: string,
     currentFolderPath: string,
     nextFolderPath: string
   ): string {
-    const normalizedFilePath = filePath.split(/[\\/]/).join('/');
-    const normalizedCurrentFolderPath = currentFolderPath.split(/[\\/]/).join('/');
-    const normalizedNextFolderPath = nextFolderPath.split(/[\\/]/).join('/');
+    const normalizedRelativePath = this.fileStorageService.normalizeRelativePath(relativePath);
+    const normalizedCurrentFolderPath = this.fileStorageService.normalizeRelativePath(currentFolderPath);
+    const normalizedNextFolderPath = this.fileStorageService.normalizeRelativePath(nextFolderPath);
     const prefix = `${normalizedCurrentFolderPath}/`;
 
-    if (!normalizedFilePath.startsWith(prefix)) {
-      throw new Error('A managed document file could not be migrated to the new workspace layout.');
+    if (!normalizedRelativePath.startsWith(prefix)) {
+      return normalizedRelativePath;
     }
 
-    return `${normalizedNextFolderPath}/${normalizedFilePath.slice(prefix.length)}`;
+    return `${normalizedNextFolderPath}/${normalizedRelativePath.slice(prefix.length)}`;
   }
 }

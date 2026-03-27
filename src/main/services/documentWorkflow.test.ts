@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -49,7 +49,7 @@ describe('document workflow integration', () => {
     workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id' },
+      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       includeExampleData: false
     });
 
@@ -61,96 +61,254 @@ describe('document workflow integration', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates a document with version 1 inside the stable-id folder layout', () => {
-    const sourceFile = path.join(tempRoot, 'incoming', 'audit.md');
-    mkdirSync(path.dirname(sourceFile), { recursive: true });
-    writeFileSync(sourceFile, '# Audit Procedure', 'utf8');
-
+  it('creates a metadata-only document shell with a physical document folder', () => {
     const detail = documentService.create(workspaceRootPath, {
       title: 'Internal Audit Procedure',
       documentTypeId: 2,
       author: 'Jordan Singh',
-      notes: 'Initial draft',
-      sourceFilePath: sourceFile
+      versionScheme: 'numeric-3'
     });
 
-    const storedFilePath = detail.versions[0]?.filePath ?? '';
-    const absoluteStoredFilePath = path.join(workspaceRootPath, ...storedFilePath.split('/'));
+    const absoluteDocumentFolderPath = path.join(
+      workspaceRootPath,
+      ...detail.documentFolderPath.split('/')
+    );
 
     expect(detail.documentId).toMatch(/^0220\d{2}\d{5}$/);
-    expect(detail.versions).toHaveLength(1);
-    expect(detail.versions[0]?.versionNumber).toBe(1);
-    expect(detail.versions[0]?.status).toBe('Draft');
-    expect(storedFilePath).toMatch(/^Documents\/Procedure\/0220\d{2}\d{5}\/v1\/audit\.md$/);
-    expect(existsSync(absoluteStoredFilePath)).toBe(true);
+    expect(detail.versions).toHaveLength(0);
+    expect(existsSync(absoluteDocumentFolderPath)).toBe(true);
 
     const list = documentService.list(workspaceRootPath);
     expect(list).toHaveLength(1);
-    expect(list[0]?.latestVersion).toBe(1);
-    expect(list[0]?.status).toBe('Draft');
+    expect(list[0]?.latestVersionLabel).toBeNull();
+    expect(list[0]?.status).toBeNull();
   });
 
-  it('migrates existing documents into the new layout when workspace settings change', () => {
-    const v1File = path.join(tempRoot, 'incoming', 'procedure-v1.md');
-    const v2File = path.join(tempRoot, 'incoming', 'procedure-v2.md');
-    const nextDocumentFile = path.join(tempRoot, 'incoming', 'checklist.md');
-    mkdirSync(path.dirname(v1File), { recursive: true });
-    writeFileSync(v1File, '# Procedure v1', 'utf8');
-    writeFileSync(v2File, '# Procedure v2', 'utf8');
-    writeFileSync(nextDocumentFile, '# Supplier Audit Checklist', 'utf8');
+  it('creates versions using numeric, prefixed, and major-minor version labels', () => {
+    const numeric = documentService.create(workspaceRootPath, {
+      title: 'Numeric Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const numericV1 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: numeric.id,
+      notes: 'First numeric version'
+    });
+    const numericV2 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: numeric.id,
+      notes: 'Second numeric version'
+    });
 
+    const prefixed = documentService.create(workspaceRootPath, {
+      title: 'Prefixed Specification',
+      documentTypeId: 1,
+      author: 'Morgan Ellis',
+      versionScheme: 'v-prefix'
+    });
+    const prefixedV1 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: prefixed.id,
+      notes: 'First prefixed version'
+    });
+
+    const majorMinor = documentService.create(workspaceRootPath, {
+      title: 'Major Minor Report',
+      documentTypeId: 3,
+      author: 'Avery Chen',
+      versionScheme: 'major-minor'
+    });
+    const majorMinorV1 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: majorMinor.id,
+      notes: 'Initial report version'
+    });
+    const majorMinorV2 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: majorMinor.id,
+      notes: 'Minor update',
+      bumpType: 'minor'
+    });
+    const majorMinorV3 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: majorMinor.id,
+      notes: 'Major release',
+      bumpType: 'major'
+    });
+
+    expect(numericV1.versions[0]?.versionLabel).toBe('001');
+    expect(numericV2.versions[0]?.versionLabel).toBe('002');
+    expect(prefixedV1.versions[0]?.versionLabel).toBe('v1');
+    expect(majorMinorV1.versions[0]?.versionLabel).toBe('1.0');
+    expect(majorMinorV2.versions[0]?.versionLabel).toBe('1.1');
+    expect(majorMinorV3.versions[0]?.versionLabel).toBe('2.0');
+
+    const versionFolderPath = path.join(
+      workspaceRootPath,
+      ...majorMinorV3.documentFolderPath.split('/'),
+      '2.0'
+    );
+    expect(existsSync(versionFolderPath)).toBe(true);
+  });
+
+  it('adds files, syncs manual filesystem changes, and preserves role metadata across rename', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',
       documentTypeId: 2,
       author: 'Taylor Reed',
-      notes: 'Initial release candidate',
-      sourceFilePath: v1File
+      versionScheme: 'numeric-3'
     });
-    const originalDocumentFilePath = created.versions[0]?.filePath ?? '';
-    const originalAbsolutePath = path.join(workspaceRootPath, ...originalDocumentFilePath.split('/'));
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      notes: 'Initial version'
+    });
 
-    const updatedWorkspace = workspaceService.updateSettings(workspaceRootPath, {
-      storageLayoutPreset: 'friendly-id'
+    const workingSourceFile = path.join(tempRoot, 'incoming', 'procedure.docx');
+    const conceptPdfSourceFile = path.join(tempRoot, 'incoming', 'procedure-concept.pdf');
+    mkdirSync(path.dirname(workingSourceFile), { recursive: true });
+    writeFileSync(workingSourceFile, 'working document', 'utf8');
+    writeFileSync(conceptPdfSourceFile, 'concept pdf', 'utf8');
+
+    const afterAdd = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [workingSourceFile]
     });
-    const migratedDocument = documentService.getDetail(workspaceRootPath, created.id);
-    const createdAfterSettingsChange = documentService.create(workspaceRootPath, {
-      title: 'Supplier Audit Checklist',
+    const workingFile = afterAdd.files[0]!;
+    const workingAbsolutePath = path.join(workspaceRootPath, ...workingFile.filePath.split('/'));
+    const renamedAbsolutePath = path.join(path.dirname(workingAbsolutePath), 'procedure-renamed.docx');
+    renameSync(workingAbsolutePath, renamedAbsolutePath);
+
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+    mkdirSync(path.join(versionFolderAbsolutePath, 'concept-pdf'), { recursive: true });
+    writeFileSync(path.join(versionFolderAbsolutePath, 'concept-pdf', 'procedure-concept.pdf'), 'concept pdf', 'utf8');
+    mkdirSync(path.join(versionFolderAbsolutePath, 'custom', 'deep'), { recursive: true });
+    writeFileSync(path.join(versionFolderAbsolutePath, 'custom', 'deep', 'ignored.txt'), 'ignored', 'utf8');
+
+    const afterRenameAndManualAdd = documentService.syncVersionFiles(
+      workspaceRootPath,
+      versioned.versions[0]!.id
+    );
+    const renamedWorkingFile = afterRenameAndManualAdd.files.find((file) => file.role === 'working');
+    const conceptPdfFile = afterRenameAndManualAdd.files.find((file) => file.role === 'concept-pdf');
+
+    expect(renamedWorkingFile?.fileName).toBe('procedure-renamed.docx');
+    expect(conceptPdfFile?.fileName).toBe('procedure-concept.pdf');
+    expect(afterRenameAndManualAdd.unmanagedPaths).toContain(
+      'Documents/Procedure/02202600001/001/custom'
+    );
+
+    rmSync(renamedAbsolutePath, { force: true });
+    const afterDelete = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+
+    expect(afterDelete.files.map((file) => file.role)).toEqual(['concept-pdf']);
+  });
+
+  it('migrates managed files between flat and role-subfolder layouts', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Migration Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      notes: 'Migration test version'
+    });
+    const workingFile = path.join(tempRoot, 'incoming', 'migration.docx');
+    const conceptPdf = path.join(tempRoot, 'incoming', 'migration.pdf');
+    const extraNote = path.join(tempRoot, 'incoming', 'notes.txt');
+    mkdirSync(path.dirname(workingFile), { recursive: true });
+    writeFileSync(workingFile, 'working', 'utf8');
+    writeFileSync(conceptPdf, 'concept', 'utf8');
+    writeFileSync(extraNote, 'notes', 'utf8');
+
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [workingFile]
+    });
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'concept-pdf',
+      sourceFilePaths: [conceptPdf]
+    });
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'other',
+      sourceFilePaths: [extraNote]
+    });
+
+    const migrated = workspaceService.updateSettings(workspaceRootPath, {
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'role-subfolders'
+    });
+    const migratedDetail = documentService.getDetail(workspaceRootPath, created.id);
+
+    expect(migrated.summary.settings.fileOrganizationMode).toBe('role-subfolders');
+    expect(migratedDetail.versions[0]?.files.map((file) => file.filePath)).toEqual([
+      'Documents/Procedure/02202600001/001/working/migration.docx',
+      'Documents/Procedure/02202600001/001/concept-pdf/migration.pdf',
+      'Documents/Procedure/02202600001/001/other/notes.txt'
+    ]);
+  });
+
+  it('fails safely when migrating from role subfolders to flat layout would collide', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'role-subfolders'
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Collision Procedure',
       documentTypeId: 2,
       author: 'Avery Chen',
-      notes: 'Checklist draft',
-      sourceFilePath: nextDocumentFile
+      versionScheme: 'numeric-3'
     });
-    const newVersion = documentService.createVersion(workspaceRootPath, {
+    const versioned = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
-      notes: 'Second draft after review',
-      sourceFilePath: v2File
+      notes: 'Collision version'
+    });
+    const workingFile = path.join(tempRoot, 'incoming', 'duplicate-name.txt');
+    const conceptFile = path.join(tempRoot, 'incoming', 'duplicate-name-copy.txt');
+    mkdirSync(path.dirname(workingFile), { recursive: true });
+    writeFileSync(workingFile, 'working duplicate', 'utf8');
+    writeFileSync(conceptFile, 'concept duplicate', 'utf8');
+
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [workingFile]
+    });
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'concept-pdf',
+      sourceFilePaths: [conceptFile]
     });
 
-    const migratedDocumentPath = migratedDocument.versions[0]?.filePath ?? '';
-    const newDocumentPath = createdAfterSettingsChange.versions[0]?.filePath ?? '';
-    const newVersionFolderPath = newVersion.versions[0]?.filePath.replace(/\/v2\/[^/]+$/, '') ?? '';
-    const migratedDocumentFolderPath = migratedDocumentPath.replace(/\/v1\/[^/]+$/, '');
-    const migratedAbsolutePath = path.join(workspaceRootPath, ...migratedDocumentPath.split('/'));
+    const workingStoredPath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001',
+      'working',
+      'duplicate-name.txt'
+    );
+    const conceptStoredPath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001',
+      'concept-pdf',
+      'duplicate-name-copy.txt'
+    );
+    renameSync(conceptStoredPath, path.join(path.dirname(conceptStoredPath), 'duplicate-name.txt'));
 
-    expect(updatedWorkspace.summary.settings.storageLayoutPreset).toBe('friendly-id');
-    expect(existsSync(originalAbsolutePath)).toBe(false);
-    expect(migratedDocumentPath).toMatch(
-      /^Documents\/Procedure\/0220\d{2}\d{5} - Operating Procedure\/v1\/procedure-v1\.md$/
-    );
-    expect(existsSync(migratedAbsolutePath)).toBe(true);
-    expect(createdAfterSettingsChange.documentId).toMatch(/^0220\d{2}\d{5}$/);
-    expect(newDocumentPath).toMatch(
-      /^Documents\/Procedure\/0220\d{2}\d{5} - Supplier Audit Checklist\/v1\/checklist\.md$/
-    );
-    expect(newVersion.documentId).toBe(created.documentId);
-    expect(newVersion.versions[0]?.versionNumber).toBe(2);
-    expect(newVersionFolderPath).toBe(migratedDocumentFolderPath);
-    expect(newVersion.versions[0]?.filePath).toMatch(
-      /^Documents\/Procedure\/0220\d{2}\d{5} - Operating Procedure\/v2\/procedure-v2\.md$/
-    );
+    expect(() =>
+      workspaceService.updateSettings(workspaceRootPath, {
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      })
+    ).toThrow('Workspace migration would create two files');
 
-    const overviewRow = documentService.list(workspaceRootPath)[0];
-    expect(overviewRow?.latestVersion).toBe(2);
-    expect(overviewRow?.status).toBe('Draft');
+    expect(existsSync(workingStoredPath)).toBe(true);
   });
 });

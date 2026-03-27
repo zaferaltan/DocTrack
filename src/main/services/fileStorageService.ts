@@ -1,13 +1,45 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
+  buildVersionFileRelativePath,
   getDocumentTypeDirectoryRelativePath,
+  getRecognizedRoleDirectoryNames,
+  isRecognizedRoleDirectoryName,
   sanitizeStoragePathSegment,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
+
+export interface ManagedFileInfo {
+  absolutePath: string;
+  relativePath: string;
+  fileName: string;
+  contentHash: string;
+  fileSize: number;
+  modifiedDate: string;
+}
+
+export interface DiscoveredVersionFile extends ManagedFileInfo {
+  inferredRole: string;
+}
+
+export interface VersionFolderScanResult {
+  files: DiscoveredVersionFile[];
+  unmanagedPaths: string[];
+}
 
 export class FileStorageService {
   getWorkspaceDocumentsDirectory(rootPath: string): string {
@@ -39,48 +71,236 @@ export class FileStorageService {
     return buildDocumentFolderRelativePath(settings, documentTypeName, documentId, title);
   }
 
-  getStoredRelativePath(documentFolderPath: string, versionNumber: number, fileName: string): string {
-    return buildDocumentVersionRelativePath(
-      documentFolderPath,
-      versionNumber,
+  getDocumentFolderAbsolutePath(rootPath: string, documentFolderPath: string): string {
+    return this.resolveStoredFilePath(rootPath, documentFolderPath, true);
+  }
+
+  ensureDocumentFolder(rootPath: string, documentFolderPath: string): string {
+    const documentFolderAbsolutePath = this.getDocumentFolderAbsolutePath(rootPath, documentFolderPath);
+    mkdirSync(documentFolderAbsolutePath, { recursive: true });
+    return documentFolderAbsolutePath;
+  }
+
+  getVersionFolderRelativePath(documentFolderPath: string, versionLabel: string): string {
+    return buildDocumentVersionRelativePath(documentFolderPath, versionLabel);
+  }
+
+  getVersionFolderAbsolutePath(
+    rootPath: string,
+    documentFolderPath: string,
+    versionLabel: string
+  ): string {
+    return this.resolveStoredFilePath(
+      rootPath,
+      this.getVersionFolderRelativePath(documentFolderPath, versionLabel),
+      true
+    );
+  }
+
+  ensureVersionFolder(
+    rootPath: string,
+    settings: WorkspaceSettings,
+    documentFolderPath: string,
+    versionLabel: string
+  ): string {
+    const versionFolderPath = this.getVersionFolderAbsolutePath(rootPath, documentFolderPath, versionLabel);
+    mkdirSync(versionFolderPath, { recursive: true });
+
+    if (settings.fileOrganizationMode === 'role-subfolders') {
+      for (const roleDirectoryName of getRecognizedRoleDirectoryNames()) {
+        mkdirSync(path.join(versionFolderPath, roleDirectoryName), { recursive: true });
+      }
+    }
+
+    return versionFolderPath;
+  }
+
+  getStoredRelativePath(
+    settings: WorkspaceSettings,
+    documentFolderPath: string,
+    versionLabel: string,
+    role: string,
+    fileName: string
+  ): string {
+    const versionFolderPath = this.getVersionFolderRelativePath(documentFolderPath, versionLabel);
+    return buildVersionFileRelativePath(
+      settings,
+      versionFolderPath,
+      role,
       sanitizeStoragePathSegment(path.basename(fileName), 'document.bin')
     );
   }
 
-  copyManagedFile(
+  importManagedFiles(
     rootPath: string,
+    settings: WorkspaceSettings,
     documentFolderPath: string,
-    versionNumber: number,
-    sourceFilePath: string
-  ): { absolutePath: string; relativePath: string } {
-    if (!existsSync(sourceFilePath)) {
-      throw new Error('Selected source file could not be found.');
+    versionLabel: string,
+    role: string,
+    sourceFilePaths: string[]
+  ): ManagedFileInfo[] {
+    if (sourceFilePaths.length === 0) {
+      return [];
     }
 
-    const relativePath = this.getStoredRelativePath(documentFolderPath, versionNumber, sourceFilePath);
-    const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
-    mkdirSync(path.dirname(absolutePath), { recursive: true });
-    copyFileSync(sourceFilePath, absolutePath);
+    this.ensureVersionFolder(rootPath, settings, documentFolderPath, versionLabel);
 
-    return { absolutePath, relativePath };
+    return sourceFilePaths.map((sourceFilePath) => {
+      if (!existsSync(sourceFilePath)) {
+        throw new Error('Selected source file could not be found.');
+      }
+
+      const fileName = sanitizeStoragePathSegment(path.basename(sourceFilePath), 'document.bin');
+      const relativePath = this.getStoredRelativePath(
+        settings,
+        documentFolderPath,
+        versionLabel,
+        role,
+        fileName
+      );
+      const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
+      mkdirSync(path.dirname(absolutePath), { recursive: true });
+
+      if (existsSync(absolutePath)) {
+        throw new Error(`A file named "${fileName}" already exists in this version folder.`);
+      }
+
+      copyFileSync(sourceFilePath, absolutePath);
+      return this.readManagedFileInfo(rootPath, relativePath);
+    });
   }
 
   writeManagedTextFile(
     rootPath: string,
+    settings: WorkspaceSettings,
     documentFolderPath: string,
-    versionNumber: number,
+    versionLabel: string,
+    role: string,
     fileName: string,
     content: string
-  ): { absolutePath: string; relativePath: string } {
-    const relativePath = this.getStoredRelativePath(documentFolderPath, versionNumber, fileName);
+  ): ManagedFileInfo {
+    this.ensureVersionFolder(rootPath, settings, documentFolderPath, versionLabel);
+    const relativePath = this.getStoredRelativePath(
+      settings,
+      documentFolderPath,
+      versionLabel,
+      role,
+      fileName
+    );
     const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
     mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeFileSync(absolutePath, content, 'utf8');
-    return { absolutePath, relativePath };
+    return this.readManagedFileInfo(rootPath, relativePath);
+  }
+
+  readManagedFileInfo(rootPath: string, relativePath: string): ManagedFileInfo {
+    const absolutePath = this.resolveStoredFilePath(rootPath, relativePath);
+    const stats = statSync(absolutePath);
+
+    return {
+      absolutePath,
+      relativePath: this.normalizeRelativePath(relativePath),
+      fileName: path.basename(absolutePath),
+      contentHash: this.hashFile(absolutePath),
+      fileSize: stats.size,
+      modifiedDate: new Date(stats.mtimeMs).toISOString()
+    };
+  }
+
+  scanVersionFolder(rootPath: string, versionFolderPath: string): VersionFolderScanResult {
+    const normalizedVersionFolderPath = this.normalizeRelativePath(versionFolderPath);
+    const versionFolderAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedVersionFolderPath, true);
+    mkdirSync(versionFolderAbsolutePath, { recursive: true });
+
+    const files: DiscoveredVersionFile[] = [];
+    const unmanagedPaths: string[] = [];
+    const entries = readdirSync(versionFolderAbsolutePath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const entryRelativePath = this.normalizeRelativePath(
+        path.posix.join(normalizedVersionFolderPath, entry.name)
+      );
+      const entryAbsolutePath = path.join(versionFolderAbsolutePath, entry.name);
+
+      if (entry.isFile()) {
+        files.push(this.createDiscoveredFile(rootPath, entryRelativePath, 'other'));
+        continue;
+      }
+
+      if (!entry.isDirectory()) {
+        unmanagedPaths.push(entryRelativePath);
+        continue;
+      }
+
+      if (!isRecognizedRoleDirectoryName(entry.name)) {
+        unmanagedPaths.push(entryRelativePath);
+        continue;
+      }
+
+      const roleEntries = readdirSync(entryAbsolutePath, { withFileTypes: true });
+      for (const roleEntry of roleEntries) {
+        const roleRelativePath = this.normalizeRelativePath(
+          path.posix.join(entryRelativePath, roleEntry.name)
+        );
+
+        if (roleEntry.isFile()) {
+          files.push(this.createDiscoveredFile(rootPath, roleRelativePath, entry.name));
+          continue;
+        }
+
+        unmanagedPaths.push(roleRelativePath);
+      }
+    }
+
+    return {
+      files,
+      unmanagedPaths: unmanagedPaths.sort((left, right) => left.localeCompare(right))
+    };
+  }
+
+  renameManagedFile(rootPath: string, currentRelativePath: string, nextRelativePath: string): ManagedFileInfo {
+    const currentAbsolutePath = this.resolveStoredFilePath(rootPath, currentRelativePath);
+    const nextAbsolutePath = this.resolveStoredFilePath(rootPath, nextRelativePath, true);
+    mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
+
+    if (existsSync(nextAbsolutePath)) {
+      throw new Error(`A file named "${path.basename(nextAbsolutePath)}" already exists.`);
+    }
+
+    renameSync(currentAbsolutePath, nextAbsolutePath);
+    this.cleanupEmptyRoleDirectory(path.dirname(currentAbsolutePath));
+    return this.readManagedFileInfo(rootPath, nextRelativePath);
+  }
+
+  moveManagedFile(rootPath: string, currentRelativePath: string, nextRelativePath: string): ManagedFileInfo {
+    const currentAbsolutePath = this.resolveStoredFilePath(rootPath, currentRelativePath);
+    const nextAbsolutePath = this.resolveStoredFilePath(rootPath, nextRelativePath, true);
+    mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
+
+    if (
+      this.normalizeRelativePath(currentRelativePath) !== this.normalizeRelativePath(nextRelativePath) &&
+      existsSync(nextAbsolutePath)
+    ) {
+      throw new Error(`A file named "${path.basename(nextAbsolutePath)}" already exists.`);
+    }
+
+    renameSync(currentAbsolutePath, nextAbsolutePath);
+    this.cleanupEmptyRoleDirectory(path.dirname(currentAbsolutePath));
+    return this.readManagedFileInfo(rootPath, nextRelativePath);
+  }
+
+  deleteManagedFile(rootPath: string, relativePath: string): void {
+    const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
+
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { force: true });
+    }
+
+    this.cleanupEmptyRoleDirectory(path.dirname(absolutePath));
   }
 
   resolveStoredFilePath(rootPath: string, relativePath: string, allowMissing = false): string {
-    const normalized = relativePath.split(/[\\/]/).join('/');
+    const normalized = this.normalizeRelativePath(relativePath);
     const resolvedPath = path.resolve(rootPath, normalized);
 
     if (allowMissing || existsSync(resolvedPath)) {
@@ -91,19 +311,20 @@ export class FileStorageService {
   }
 
   moveDocumentFolder(rootPath: string, currentDocumentFolderPath: string, nextDocumentFolderPath: string): void {
-    const normalizedCurrent = currentDocumentFolderPath.split(/[\\/]/).join('/');
-    const normalizedNext = nextDocumentFolderPath.split(/[\\/]/).join('/');
+    const normalizedCurrent = this.normalizeRelativePath(currentDocumentFolderPath);
+    const normalizedNext = this.normalizeRelativePath(nextDocumentFolderPath);
 
     if (normalizedCurrent === normalizedNext) {
       return;
     }
 
     const currentAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedCurrent);
+    const nextAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedNext, true);
+
     if (!existsSync(currentAbsolutePath)) {
       throw new Error('A managed document folder could not be found on disk during layout migration.');
     }
 
-    const nextAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedNext, true);
     if (existsSync(nextAbsolutePath)) {
       throw new Error('A target document folder already exists, so the workspace layout could not be migrated.');
     }
@@ -113,18 +334,39 @@ export class FileStorageService {
     this.cleanupEmptyDirectories(path.dirname(currentAbsolutePath), this.getWorkspaceDocumentsDirectory(rootPath));
   }
 
-  cleanupManagedPath(absolutePath: string): void {
-    if (existsSync(absolutePath)) {
-      rmSync(absolutePath, { force: true });
+  normalizeRelativePath(relativePath: string): string {
+    return relativePath.split(/[\\/]/).join('/').replace(/^[/\\]+|[/\\]+$/g, '');
+  }
+
+  private createDiscoveredFile(
+    rootPath: string,
+    relativePath: string,
+    inferredRole: string
+  ): DiscoveredVersionFile {
+    const fileInfo = this.readManagedFileInfo(rootPath, relativePath);
+    return {
+      ...fileInfo,
+      inferredRole
+    };
+  }
+
+  private hashFile(absolutePath: string): string {
+    const hash = createHash('sha256');
+    hash.update(readFileSync(absolutePath));
+    return hash.digest('hex');
+  }
+
+  private cleanupEmptyRoleDirectory(directoryPath: string): void {
+    if (!existsSync(directoryPath)) {
+      return;
     }
 
-    const cleanupDirectories = [path.dirname(absolutePath), path.dirname(path.dirname(absolutePath))];
-
-    for (const directoryPath of cleanupDirectories) {
-      if (existsSync(directoryPath) && readdirSync(directoryPath).length === 0) {
-        rmSync(directoryPath, { recursive: true, force: true });
-      }
+    const directoryName = path.basename(directoryPath);
+    if (readdirSync(directoryPath).length > 0 || !isRecognizedRoleDirectoryName(directoryName)) {
+      return;
     }
+
+    rmSync(directoryPath, { recursive: true, force: true });
   }
 
   private cleanupEmptyDirectories(startPath: string, stopBeforePath: string): void {

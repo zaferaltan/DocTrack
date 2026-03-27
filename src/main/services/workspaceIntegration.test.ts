@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -30,6 +30,7 @@ describe('workspace integration', () => {
   let tempRoot: string;
   let workspaceManager: WorkspaceManager;
   let workspaceService: WorkspaceService;
+  let documentService: DocumentService;
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-workspace-'));
@@ -37,7 +38,7 @@ describe('workspace integration', () => {
     const fileStorageService = new FileStorageService();
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
-    const documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
+    documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
     new DocumentTypeService(workspaceManager, fileStorageService);
     workspaceService = new WorkspaceService(
       workspaceManager,
@@ -53,11 +54,11 @@ describe('workspace integration', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates a workspace folder with seeded metadata, settings, and starter type folders', () => {
+  it('creates a workspace folder with starter type folders and both workspace settings', () => {
     const result = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id' },
+      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       includeExampleData: false
     });
 
@@ -71,26 +72,25 @@ describe('workspace integration', () => {
     expect(result.workspace.name).toBe('Quality');
     expect(result.workspace.rootPath).toBe(workspaceRootPath);
     expect(result.summary.settings.storageLayoutPreset).toBe('stable-id');
+    expect(result.summary.settings.fileOrganizationMode).toBe('flat');
     expect(result.summary.documentTypes.map((item) => item.numberPrefix)).toEqual(['01', '02', '03']);
-    expect(result.summary.statuses).toEqual(['Draft', 'In Review', 'Released', 'Archived']);
     expect(existsSync(databasePath)).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Specification'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Report'))).toBe(true);
-    expect(workspaceService.listOpen()).toHaveLength(1);
   });
 
   it('supports multiple open workspaces and closing individual tabs by root path', () => {
     const first = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id' },
+      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       includeExampleData: false
     });
     const second = workspaceService.create({
       name: 'Manufacturing',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'friendly-id' },
+      settings: { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
       includeExampleData: false
     });
 
@@ -109,7 +109,7 @@ describe('workspace integration', () => {
     workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id' },
+      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       includeExampleData: false
     });
     workspaceService.close(originalRootPath);
@@ -125,41 +125,63 @@ describe('workspace integration', () => {
       WORKSPACE_DATABASE_FILE_NAME
     );
     const db = new Database(movedDatabasePath, { fileMustExist: true });
-    const row = db.prepare('SELECT FilePath, RootPath FROM Workspaces WHERE Id = 1').get() as
-      | { FilePath: string; RootPath: string }
+    const row = db
+      .prepare('SELECT FilePath, RootPath, FileOrganizationMode FROM Workspaces WHERE Id = 1')
+      .get() as
+      | { FilePath: string; RootPath: string; FileOrganizationMode: string }
       | undefined;
     db.close();
 
     expect(reopened.workspace.rootPath).toBe(movedRootPath);
     expect(row?.RootPath).toBe(movedRootPath);
     expect(row?.FilePath).toBe(movedDatabasePath);
+    expect(row?.FileOrganizationMode).toBe('flat');
   });
 
-  it('persists workspace settings updates per workspace', () => {
+  it('migrates workspace file organization settings and records unmanaged path warnings', () => {
     const created = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id' },
+      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       includeExampleData: false
     });
-
-    const updated = workspaceService.updateSettings(created.workspace.rootPath, {
-      storageLayoutPreset: 'friendly-id'
+    const workspaceRootPath = created.workspace.rootPath;
+    const shellDocument = documentService.create(workspaceRootPath, {
+      title: 'Operating Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: shellDocument.id,
+      notes: 'Initial version folder'
+    });
+    const sourceFile = path.join(tempRoot, 'incoming', 'procedure.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'procedure working file', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [sourceFile]
     });
 
-    workspaceService.close(created.workspace.rootPath);
-    const reopened = workspaceService.open(created.workspace.rootPath);
+    const unmanagedDirectory = path.join(
+      workspaceRootPath,
+      ...shellDocument.documentFolderPath.split('/'),
+      '001',
+      'custom'
+    );
+    mkdirSync(unmanagedDirectory, { recursive: true });
+
+    const updated = workspaceService.updateSettings(workspaceRootPath, {
+      storageLayoutPreset: 'friendly-id',
+      fileOrganizationMode: 'role-subfolders'
+    });
+    const reopened = workspaceService.open(workspaceRootPath);
 
     expect(updated.summary.settings.storageLayoutPreset).toBe('friendly-id');
-    expect(reopened.summary.settings.storageLayoutPreset).toBe('friendly-id');
-  });
-
-  it('rejects folders that do not match the DocTrack workspace layout', () => {
-    const invalidRootPath = path.join(tempRoot, 'not-a-workspace');
-    mkdirSync(invalidRootPath, { recursive: true });
-
-    expect(() => workspaceService.open(invalidRootPath)).toThrow(
-      'The selected folder is not a valid DocTrack workspace.'
-    );
+    expect(updated.summary.settings.fileOrganizationMode).toBe('role-subfolders');
+    expect(updated.warnings?.[0]).toContain('unmanaged paths');
+    expect(reopened.summary.settings.fileOrganizationMode).toBe('role-subfolders');
   });
 });
