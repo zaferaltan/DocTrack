@@ -535,10 +535,12 @@ function App() {
     return (
       <div className="app-surface flex h-full items-center justify-center">
         {bootError ? (
-          <div className="max-w-xl rounded-[28px] border border-rose-500/30 bg-card/95 px-8 py-7 shadow-panel">
-            <div className="text-lg font-semibold text-rose-300">DocTrack could not start</div>
-            <div className="mt-3 text-sm text-muted-foreground">{bootError}</div>
-            <div className="mt-5 flex gap-3">
+          <div className="max-w-xl rounded-2xl border border-rose-500/30 bg-card px-6 py-5 shadow-sm">
+            <div className="text-base font-semibold text-rose-600 dark:text-rose-300">
+              DocTrack could not start
+            </div>
+            <div className="mt-2 text-sm text-muted-foreground">{bootError}</div>
+            <div className="mt-4 flex gap-2">
               <Button
                 onClick={() => {
                   setBootError(null);
@@ -560,8 +562,8 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="rounded-[28px] border border-border bg-card/90 px-8 py-7 shadow-panel">
-            <div className="flex items-center gap-3 text-lg font-semibold">
+          <div className="rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
+            <div className="flex items-center gap-2.5 text-base font-semibold">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
               Loading DocTrack workspace shell
             </div>
@@ -573,21 +575,21 @@ function App() {
 
   return (
     <div className="app-surface flex h-full flex-col">
-      <header className="border-b border-border/80 bg-card/70 px-5 pb-3 pt-4 backdrop-blur-xl">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <header className="border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-workspace text-workspace-contrast shadow-panel">
-              <FileStack className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-workspace text-workspace-contrast shadow-sm">
+              <FileStack className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-lg font-semibold tracking-tight">DocTrack</div>
-              <div className="text-sm text-muted-foreground">
+              <div className="text-base font-semibold tracking-tight">DocTrack</div>
+              <div className="text-[13px] text-muted-foreground">
                 Offline document workspaces with version control
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <ThemeToggle
               themeMode={themeMode}
               onChange={(nextTheme) => {
@@ -637,9 +639,9 @@ function App() {
           </div>
         </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
           {workspaceTabs.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">
               No workspace open yet. Create one or open an existing workspace folder.
             </div>
           ) : (
@@ -647,10 +649,10 @@ function App() {
               <button
                 key={workspaceTab.workspace.rootPath}
                 className={cn(
-                  'group flex min-w-[220px] items-center gap-3 rounded-2xl border px-4 py-3 text-left transition',
+                  'group flex min-w-[190px] items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition',
                   activeWorkspacePath === workspaceTab.workspace.rootPath
-                    ? 'border-primary/30 bg-primary/10 text-foreground'
-                    : 'border-border bg-background/70 text-muted-foreground hover:bg-accent'
+                    ? 'border-primary/20 bg-primary/5 text-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent'
                 )}
                 onClick={() => {
                   startTransition(() => {
@@ -659,13 +661,13 @@ function App() {
                 }}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold">{workspaceTab.workspace.name}</div>
+                  <div className="truncate text-[13px] font-semibold">{workspaceTab.workspace.name}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {workspaceTab.documents.length} docs
                   </div>
                 </div>
                 <button
-                  className="rounded-full p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                  className="rounded-md p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
                     void closeWorkspace(workspaceTab.workspace.rootPath);
@@ -688,9 +690,9 @@ function App() {
       ) : null}
 
       <main className="flex min-h-0 flex-1">
-        <aside className="hidden w-[240px] border-r border-border/80 bg-card/50 p-4 lg:block">
-          <div className="rounded-[24px] border border-border bg-background/70 p-3 shadow-sm">
-            <div className="mb-3 px-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <aside className="hidden w-[220px] border-r border-border/80 bg-card/60 p-3 lg:block">
+          <div className="rounded-xl border border-border bg-background p-2.5 shadow-sm">
+            <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Workspace Views
             </div>
             <SidebarButton
@@ -709,12 +711,12 @@ function App() {
             />
           </div>
 
-          <div className="mt-4 rounded-[24px] border border-border bg-workspace px-4 py-5 text-workspace-contrast shadow-panel">
-            <div className="flex items-center gap-2 text-sm font-semibold">
+          <div className="mt-3 rounded-xl border border-border bg-workspace px-3.5 py-4 text-workspace-contrast shadow-sm">
+            <div className="flex items-center gap-2 text-[13px] font-semibold">
               <Sparkles className="h-4 w-4 text-workspace-accent" />
               Keyboard Shortcuts
             </div>
-            <div className="mt-4 space-y-3 text-sm text-slate-200/80">
+            <div className="mt-3 space-y-2.5 text-[13px] text-slate-200/80">
               <Shortcut hint="Ctrl/Cmd + Shift + N" label="New workspace" />
               <Shortcut hint="Ctrl/Cmd + O" label="Open workspace" />
               <Shortcut hint="Ctrl/Cmd + N" label="New document" />
@@ -723,7 +725,7 @@ function App() {
           </div>
         </aside>
 
-        <section className="min-w-0 flex-1 p-4">
+        <section className="min-w-0 flex-1 p-3">
           {!activeWorkspace ? (
             <WelcomeView
               recentWorkspaces={recentWorkspaces}
@@ -863,14 +865,14 @@ function ThemeToggle({
   onChange: (value: ThemeMode) => void;
 }) {
   return (
-    <div className="flex rounded-2xl border border-border bg-background/80 p-1 shadow-sm">
+    <div className="flex rounded-xl border border-border bg-background p-0.5 shadow-sm">
       {themeOptions.map((option) => {
         const Icon = option.icon;
         return (
           <button
             key={option.value}
             className={cn(
-              'flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition',
+              'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition',
               themeMode === option.value
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -898,10 +900,10 @@ function NotificationBar({
   return (
     <div
       className={cn(
-        'mx-4 mt-4 flex items-center justify-between rounded-2xl border px-4 py-3 text-sm shadow-sm',
+        'mx-3 mt-3 flex items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-sm',
         tone === 'success'
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-          : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
       )}
     >
       <div>{message}</div>
@@ -928,7 +930,7 @@ function SidebarButton({
   return (
     <button
       className={cn(
-        'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition',
         active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-50'
       )}
@@ -945,7 +947,7 @@ function Shortcut({ hint, label }: { hint: string; label: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span>{label}</span>
-      <span className="rounded-full bg-white/10 px-2 py-1 font-mono text-xs text-slate-100">
+      <span className="rounded-md bg-white/10 px-1.5 py-1 font-mono text-[11px] text-slate-100">
         {hint}
       </span>
     </div>
@@ -964,20 +966,20 @@ function WelcomeView({
   onOpenRecent: (rootPath: string) => void;
 }) {
   return (
-    <div className="grid h-full gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="rounded-[32px] border border-border bg-card/80 p-8 shadow-panel">
-        <Badge variant="outline" className="mb-6 w-fit gap-2">
+    <div className="grid h-full gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <Badge variant="outline" className="mb-4 w-fit gap-1.5">
           <Sparkles className="h-3.5 w-3.5" />
           Workspace-first document operations
         </Badge>
-        <h1 className="max-w-2xl text-4xl font-semibold tracking-tight">
+        <h1 className="max-w-2xl text-3xl font-semibold tracking-tight">
           Keep every document, version, and status inside a portable offline workspace.
         </h1>
-        <p className="mt-4 max-w-2xl text-base text-muted-foreground">
+        <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
           Create a new workspace folder or reopen an existing one. Each workspace opens in its own
           tab, with document tables, version history, and type configuration ready to go.
         </p>
-        <div className="mt-8 flex flex-wrap gap-3">
+        <div className="mt-6 flex flex-wrap gap-2">
           <Button size="lg" onClick={onCreateWorkspace}>
             <Plus className="h-4 w-4" />
             Create Workspace
@@ -989,31 +991,31 @@ function WelcomeView({
         </div>
       </div>
 
-      <div className="rounded-[32px] border border-border bg-card/80 p-6 shadow-panel">
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-lg font-semibold">Recent Workspaces</div>
-            <div className="text-sm text-muted-foreground">
+            <div className="text-base font-semibold">Recent Workspaces</div>
+            <div className="text-[13px] text-muted-foreground">
               Fast re-entry into the last offline projects you touched
             </div>
           </div>
           <History className="h-5 w-5 text-muted-foreground" />
         </div>
-        <div className="mt-6 space-y-3">
+        <div className="mt-4 space-y-2">
           {recentWorkspaces.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-background/70 px-4 py-6 text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border bg-background px-3 py-4 text-[13px] text-muted-foreground">
               No recent workspaces yet. Your newly created workspaces will appear here.
             </div>
           ) : (
             recentWorkspaces.map((workspace) => (
               <button
                 key={workspace.rootPath}
-                className="w-full rounded-2xl border border-border bg-background/70 p-4 text-left transition hover:border-primary/40 hover:bg-accent"
+                className="w-full rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary/20 hover:bg-accent"
                 onClick={() => onOpenRecent(workspace.rootPath)}
               >
-                <div className="truncate text-sm font-semibold">{workspace.name}</div>
+                <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.rootPath}</div>
-                <div className="mt-3 text-xs text-muted-foreground">
+                <div className="mt-2 text-xs text-muted-foreground">
                   Last opened {formatDateTime(workspace.lastOpenedDate)}
                 </div>
               </button>
@@ -1157,12 +1159,12 @@ function DocumentsView({
   });
 
   return (
-    <div className="grid h-full gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="flex min-h-0 flex-col rounded-[30px] border border-border bg-card/80 p-4 shadow-panel">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/80 px-2 pb-4">
+    <div className="grid h-full gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
           <div>
-            <div className="text-xl font-semibold">{workspace.workspace.name}</div>
-            <div className="mt-1 text-sm text-muted-foreground">
+            <div className="text-lg font-semibold">{workspace.workspace.name}</div>
+            <div className="mt-1 text-[13px] text-muted-foreground">
               {workspace.documents.length} documents tracked in this workspace
             </div>
           </div>
@@ -1174,7 +1176,7 @@ function DocumentsView({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2.5">
           <div className="relative min-w-[240px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -1189,15 +1191,15 @@ function DocumentsView({
               }}
             />
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {(['All', ...workspace.statuses] as const).map((status) => (
               <button
                 key={status}
                 className={cn(
-                  'rounded-full border px-3 py-2 text-sm font-medium transition',
+                  'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
                   statusFilter === status
-                    ? 'border-primary/30 bg-primary/10 text-primary'
-                    : 'border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground'
+                    ? 'border-primary/20 bg-primary text-primary-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
                 onClick={() => setStatusFilter(status)}
               >
@@ -1207,7 +1209,7 @@ function DocumentsView({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-4">
           <ColumnFilter
             label="Document ID"
             value={String(table.getColumn('documentId')?.getFilterValue() ?? '')}
@@ -1230,17 +1232,17 @@ function DocumentsView({
           />
         </div>
 
-        <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-[24px] border border-border">
+        <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
           <div className="h-full overflow-auto">
-            <table className="min-w-full border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+            <table className="min-w-full border-collapse text-[13px]">
+              <thead className="sticky top-0 z-10 bg-card/95">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id} className="border-b border-border">
                     {headerGroup.headers.map((header) => (
                       <th
                         key={header.id}
                         className={cn(
-                          'whitespace-nowrap px-4 py-3 text-left font-semibold text-muted-foreground',
+                          'whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground',
                           header.id === 'actions' && 'text-right'
                         )}
                       >
@@ -1255,7 +1257,7 @@ function DocumentsView({
               <tbody>
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={columns.length} className="px-6 py-16 text-center text-muted-foreground">
+                    <td colSpan={columns.length} className="px-6 py-12 text-center text-muted-foreground">
                       No documents match the current search and filter settings.
                     </td>
                   </tr>
@@ -1273,7 +1275,7 @@ function DocumentsView({
                         <td
                           key={cell.id}
                           className={cn(
-                            'px-4 py-3 align-middle',
+                            'px-3 py-2.5 align-middle',
                             cell.column.id === 'actions' && 'min-w-[180px]'
                           )}
                         >
@@ -1289,11 +1291,11 @@ function DocumentsView({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-col rounded-[30px] border border-border bg-card/80 p-4 shadow-panel">
-        <div className="flex items-center justify-between border-b border-border/80 pb-4">
+      <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+        <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <div>
-            <div className="text-lg font-semibold">Version Detail</div>
-            <div className="text-sm text-muted-foreground">
+            <div className="text-base font-semibold">Version Detail</div>
+            <div className="text-[13px] text-muted-foreground">
               Inspect the selected document and act on the latest version
             </div>
           </div>
@@ -1301,7 +1303,7 @@ function DocumentsView({
         </div>
 
         {!selectedDocumentDetail && !isDetailLoading ? (
-          <div className="flex flex-1 items-center justify-center rounded-[24px] border border-dashed border-border bg-background/70 p-6 text-center text-sm text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background p-5 text-center text-[13px] text-muted-foreground">
             Select a document from the table to view version history, open files, or update status.
           </div>
         ) : null}
@@ -1314,13 +1316,13 @@ function DocumentsView({
         ) : null}
 
         {selectedDocumentDetail ? (
-          <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-            <div className="rounded-[24px] border border-border bg-background/70 p-4">
+          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+            <div className="rounded-xl border border-border bg-background p-3.5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="font-mono text-xs text-primary">{selectedDocumentDetail.documentId}</div>
-                  <div className="mt-2 text-xl font-semibold">{selectedDocumentDetail.title}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
+                  <div className="mt-1.5 text-lg font-semibold">{selectedDocumentDetail.title}</div>
+                  <div className="mt-1 text-[13px] text-muted-foreground">
                     {selectedDocumentDetail.typeName} • {selectedDocumentDetail.author}
                   </div>
                 </div>
@@ -1335,27 +1337,27 @@ function DocumentsView({
                   </Button>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <InfoCard label="Created" value={formatDateTime(selectedDocumentDetail.createdDate)} />
                 <InfoCard label="Modified" value={formatDateTime(selectedDocumentDetail.modifiedDate)} />
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-[24px] border border-border bg-background/70 p-4">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="text-sm font-semibold">Versions</div>
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-background p-3.5">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-[13px] font-semibold">Versions</div>
                 <Badge variant="outline">{selectedDocumentDetail.versions.length} total</Badge>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {selectedDocumentDetail.versions.map((version) => (
                   <div
                     key={version.id}
-                    className="rounded-2xl border border-border bg-card/80 p-4 transition hover:border-primary/30"
+                    className="rounded-xl border border-border bg-card p-3 transition hover:border-primary/20"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <div className="text-base font-semibold">Version {version.versionNumber}</div>
+                          <div className="text-sm font-semibold">Version {version.versionNumber}</div>
                           <StatusBadge status={version.status} />
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
@@ -1367,7 +1369,7 @@ function DocumentsView({
                         Open File
                       </Button>
                     </div>
-                    <div className="mt-3 rounded-2xl bg-background/80 p-3 text-sm text-muted-foreground">
+                    <div className="mt-3 rounded-lg bg-background p-2.5 text-[13px] text-muted-foreground">
                       {version.notes || 'No notes recorded for this version.'}
                     </div>
                   </div>
@@ -1393,11 +1395,11 @@ function DocumentTypesView({
   onDeleteType: (type: DocumentType) => void;
 }) {
   return (
-    <div className="rounded-[30px] border border-border bg-card/80 p-6 shadow-panel">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/80 pb-4">
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
         <div>
-          <div className="text-xl font-semibold">Document Types</div>
-          <div className="mt-1 text-sm text-muted-foreground">
+          <div className="text-lg font-semibold">Document Types</div>
+          <div className="mt-1 text-[13px] text-muted-foreground">
             Prefix-managed document categories for structured numeric IDs
           </div>
         </div>
@@ -1407,20 +1409,20 @@ function DocumentTypesView({
         </Button>
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-4 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
         {workspace.documentTypes.map((type) => (
           <div
             key={type.id}
-            className="rounded-[24px] border border-border bg-background/70 p-5 shadow-sm"
+            className="rounded-xl border border-border bg-background p-4 shadow-sm"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-mono text-xs text-primary">{type.numberPrefix}</div>
-                <div className="mt-2 text-lg font-semibold">{type.name}</div>
+                <div className="mt-1.5 text-base font-semibold">{type.name}</div>
               </div>
               <Badge variant="outline">2-digit prefix</Badge>
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-3 flex gap-2">
               <Button variant="outline" size="sm" onClick={() => onEditType(type)}>
                 <PencilLine className="h-4 w-4" />
                 Edit
@@ -1499,7 +1501,7 @@ function WorkspaceDialog({
             }
           />
 
-          <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm">
+          <label className="flex items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5 text-[13px]">
             <input
               checked={state.includeExampleData}
               className="mt-1"
@@ -1629,13 +1631,13 @@ function WorkspaceStorageSettingsFields({
         </Select>
       </Field>
 
-      <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm">
+      <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
         <div className="font-medium">{selectedOption.label}</div>
         <div className="mt-1 text-muted-foreground">{selectedOption.description}</div>
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Example Path
         </div>
-        <div className="mt-2 rounded-xl bg-card px-3 py-2 font-mono text-xs text-primary">
+        <div className="mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
           {previewWorkspaceName}/{previewRelativePath}
         </div>
         <div className="mt-3 text-xs text-muted-foreground">
@@ -1764,9 +1766,9 @@ function VersionDialog({
         </DialogHeader>
 
         {documentDetail ? (
-          <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
+          <div className="rounded-xl border border-border bg-background p-3 text-[13px]">
             <div className="font-mono text-xs text-primary">{documentDetail.documentId}</div>
-            <div className="mt-2 text-lg font-semibold">{documentDetail.title}</div>
+            <div className="mt-1.5 text-base font-semibold">{documentDetail.title}</div>
             <div className="mt-1 text-muted-foreground">
               Next version: v{(documentDetail.versions[0]?.versionNumber ?? 0) + 1}
             </div>
@@ -1828,9 +1830,9 @@ function StatusDialog({
         </DialogHeader>
 
         {documentDetail ? (
-          <div className="rounded-2xl border border-border bg-background/70 p-4">
+          <div className="rounded-xl border border-border bg-background p-3">
             <div className="font-mono text-xs text-primary">{documentDetail.documentId}</div>
-            <div className="mt-2 text-lg font-semibold">{documentDetail.title}</div>
+            <div className="mt-1.5 text-base font-semibold">{documentDetail.title}</div>
           </div>
         ) : null}
 
@@ -1938,8 +1940,8 @@ function FileDropField({
   return (
     <div
       className={cn(
-        'rounded-[24px] border border-dashed p-4 transition',
-        isDragging ? 'border-primary bg-primary/5' : 'border-border bg-background/70'
+        'rounded-xl border border-dashed p-3.5 transition',
+        isDragging ? 'border-primary bg-primary/5' : 'border-border bg-background'
       )}
       onDragOver={(event) => {
         event.preventDefault();
@@ -1955,13 +1957,13 @@ function FileDropField({
         }
       }}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="font-medium">Drag and drop a file here</div>
-          <div className="mt-1 text-sm text-muted-foreground">
+          <div className="mt-1 text-[13px] text-muted-foreground">
             Or browse to select a source file from disk.
           </div>
-          {value ? <div className="mt-3 rounded-xl bg-card px-3 py-2 text-xs text-primary">{value}</div> : null}
+          {value ? <div className="mt-3 rounded-lg bg-card px-2.5 py-2 text-xs text-primary">{value}</div> : null}
         </div>
         <Button
           variant="outline"
@@ -1989,8 +1991,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid gap-2">
-      <span className="text-sm font-medium">{label}</span>
+    <label className="grid gap-1.5">
+      <span className="text-[13px] font-medium text-foreground/90">{label}</span>
       {children}
     </label>
   );
@@ -2006,8 +2008,8 @@ function ColumnFilter({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+    <label className="grid gap-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </span>
       <Input value={value} onChange={(event) => onChange(event.target.value)} />
@@ -2017,11 +2019,11 @@ function ColumnFilter({
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-card/70 p-3">
-      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+    <div className="rounded-xl border border-border bg-card p-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </div>
-      <div className="mt-2 text-sm">{value}</div>
+      <div className="mt-1.5 text-[13px]">{value}</div>
     </div>
   );
 }
@@ -2033,11 +2035,11 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 function columnHeader(label: string) {
   return ({ column }: { column: { getIsSorted: () => false | 'asc' | 'desc'; toggleSorting: (desc?: boolean) => void } }) => (
     <button
-      className="inline-flex items-center gap-2 transition hover:text-foreground"
+      className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:text-foreground"
       onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
     >
       {label}
-      <ArrowUpDown className="h-4 w-4" />
+      <ArrowUpDown className="h-3.5 w-3.5" />
     </button>
   );
 }

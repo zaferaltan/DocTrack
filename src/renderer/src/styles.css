@@ -3,44 +3,44 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 33% 98%;
-  --foreground: 222 47% 11%;
+  --background: 36 18% 97%;
+  --foreground: 220 14% 16%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 200 98% 39%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 94%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 214 32% 91%;
-  --muted-foreground: 215 16% 38%;
-  --accent: 201 94% 93%;
-  --accent-foreground: 201 86% 22%;
+  --card-foreground: 220 14% 16%;
+  --primary: 220 12% 18%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 18% 95%;
+  --secondary-foreground: 220 12% 20%;
+  --muted: 220 16% 94%;
+  --muted-foreground: 220 9% 42%;
+  --accent: 220 18% 95%;
+  --accent-foreground: 220 12% 18%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 87%;
-  --input: 214 32% 87%;
-  --ring: 200 98% 39%;
-  --radius: 1.1rem;
+  --border: 220 14% 89%;
+  --input: 220 14% 89%;
+  --ring: 220 12% 18%;
+  --radius: 0.8rem;
 }
 
 .dark {
-  --background: 224 42% 7%;
-  --foreground: 210 40% 96%;
-  --card: 224 38% 11%;
-  --card-foreground: 210 40% 96%;
-  --primary: 191 91% 46%;
-  --primary-foreground: 224 42% 7%;
-  --secondary: 219 26% 18%;
-  --secondary-foreground: 210 40% 96%;
-  --muted: 222 20% 18%;
-  --muted-foreground: 215 20% 72%;
-  --accent: 224 31% 17%;
-  --accent-foreground: 210 40% 96%;
+  --background: 225 8% 12%;
+  --foreground: 210 17% 92%;
+  --card: 225 8% 15%;
+  --card-foreground: 210 17% 92%;
+  --primary: 210 18% 94%;
+  --primary-foreground: 225 8% 12%;
+  --secondary: 225 7% 20%;
+  --secondary-foreground: 210 17% 92%;
+  --muted: 225 7% 18%;
+  --muted-foreground: 215 10% 72%;
+  --accent: 225 8% 21%;
+  --accent-foreground: 210 17% 92%;
   --destructive: 0 78% 59%;
   --destructive-foreground: 0 0% 100%;
-  --border: 222 20% 22%;
-  --input: 222 20% 22%;
-  --ring: 191 91% 46%;
+  --border: 225 7% 24%;
+  --input: 225 7% 24%;
+  --ring: 210 18% 94%;
 }
 
 * {
@@ -56,14 +56,12 @@ body,
 body {
   @apply bg-background text-foreground antialiased;
   margin: 0;
-  background-image:
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 32%),
-    radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.08), transparent 28%);
+  background: hsl(var(--background));
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -71,20 +69,18 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
+  background: rgba(120, 126, 143, 0.28);
   border-radius: 999px;
 }
 
 .app-surface {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 22%),
-    radial-gradient(circle at top, rgba(14, 165, 233, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0)),
     hsl(var(--background));
 }
 
 .dark .app-surface {
   background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.55), transparent 22%),
-    radial-gradient(circle at top, rgba(14, 165, 233, 0.16), transparent 32%),
+    linear-gradient(180deg, rgba(40, 40, 43, 0.5), rgba(40, 40, 43, 0)),
     hsl(var(--background));
 }

@@ -36,10 +36,10 @@ const config: Config = {
           foreground: 'hsl(var(--card-foreground))'
         },
         workspace: {
-          DEFAULT: '#0f172a',
-          contrast: '#f8fafc',
-          muted: '#1e293b',
-          accent: '#0ea5e9'
+          DEFAULT: '#191919',
+          contrast: '#f7f6f3',
+          muted: '#2a2a2a',
+          accent: '#d6d3d1'
         }
       },
       borderRadius: {
@@ -48,11 +48,18 @@ const config: Config = {
         sm: 'calc(var(--radius) - 4px)'
       },
       boxShadow: {
-        panel: '0 18px 46px -30px rgba(15, 23, 42, 0.45)'
+        panel: '0 10px 24px -18px rgba(15, 23, 42, 0.28)'
       },
       fontFamily: {
-        sans: ['"DM Sans"', '"Segoe UI"', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'monospace']
+        sans: [
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"Segoe UI"',
+          'sans-serif'
+        ],
+        mono: ['ui-monospace', '"SFMono-Regular"', '"Cascadia Code"', '"JetBrains Mono"', 'monospace']
       },
       backgroundImage: {
         grid: 'radial-gradient(circle at top, rgba(14, 165, 233, 0.12), transparent 32%), linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px)'
