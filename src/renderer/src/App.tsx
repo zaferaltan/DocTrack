@@ -536,8 +536,8 @@ function App() {
     return (
       <div className="app-surface flex h-full items-center justify-center">
         {bootError ? (
-          <div className="max-w-xl rounded-2xl border border-rose-500/30 bg-card px-6 py-5 shadow-sm">
-            <div className="text-base font-semibold text-rose-600 dark:text-rose-300">
+          <div className="max-w-xl rounded-2xl border border-[#F0D5D3] bg-[#FFF7F6] px-6 py-5 shadow-sm dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60">
+            <div className="text-base font-semibold text-[#C4554D] dark:text-[#FFB7B2]">
               DocTrack could not start
             </div>
             <div className="mt-2 text-sm text-muted-foreground">{bootError}</div>
@@ -652,7 +652,7 @@ function App() {
                 className={cn(
                   'group flex min-w-[190px] items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition',
                   activeWorkspacePath === workspaceTab.workspace.rootPath
-                    ? 'border-primary/20 bg-primary/5 text-foreground'
+                    ? 'border-border bg-secondary text-foreground'
                     : 'border-border bg-background text-muted-foreground hover:bg-accent'
                 )}
                 onClick={() => {
@@ -668,7 +668,7 @@ function App() {
                   </div>
                 </div>
                 <button
-                  className="rounded-md p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                  className="rounded-md p-1 text-muted-foreground transition hover:bg-card hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
                     void closeWorkspace(workspaceTab.workspace.rootPath);
@@ -875,7 +875,7 @@ function ThemeToggle({
             className={cn(
               'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition',
               themeMode === option.value
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
             onClick={() => onChange(option.value)}
@@ -903,12 +903,12 @@ function NotificationBar({
       className={cn(
         'mx-3 mt-3 flex items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-sm',
         tone === 'success'
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-          : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+          ? 'border-[#CFE3D5] bg-[#F6FBF7] text-[#2F6B48] dark:border-[#35503F] dark:bg-[#1F2E25] dark:text-[#8FD9A8]'
+          : 'border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21] dark:text-[#FFB7B2]'
       )}
     >
       <div>{message}</div>
-      <button className="rounded-full p-1 hover:bg-black/10" onClick={onClose}>
+      <button className="rounded-full p-1 hover:bg-black/5 dark:hover:bg-white/10" onClick={onClose}>
         <X className="h-4 w-4" />
       </button>
     </div>
@@ -932,7 +932,7 @@ function SidebarButton({
     <button
       className={cn(
         'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition',
-        active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-50'
       )}
       disabled={disabled}
@@ -948,7 +948,7 @@ function Shortcut({ hint, label }: { hint: string; label: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span>{label}</span>
-      <span className="rounded-md bg-white/10 px-1.5 py-1 font-mono text-[11px] text-slate-100">
+      <span className="rounded-md border border-border bg-card px-1.5 py-1 font-mono text-[11px] text-muted-foreground">
         {hint}
       </span>
     </div>
@@ -1011,7 +1011,7 @@ function WelcomeView({
             recentWorkspaces.map((workspace) => (
               <button
                 key={workspace.rootPath}
-                className="w-full rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary/20 hover:bg-accent"
+                className="w-full rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
                 onClick={() => onOpenRecent(workspace.rootPath)}
               >
                 <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
@@ -1208,7 +1208,7 @@ function DocumentsView({
                 className={cn(
                   'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
                   statusFilter === status
-                    ? 'border-primary/20 bg-primary text-primary-foreground'
+                    ? 'border-border bg-secondary text-foreground'
                     : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
                 onClick={() => setStatusFilter(status)}
@@ -1277,7 +1277,7 @@ function DocumentsView({
                       key={row.id}
                       className={cn(
                         'cursor-pointer border-b border-border/60 transition hover:bg-accent/70',
-                        workspace.selectedDocumentRecordId === row.original.id && 'bg-primary/10'
+                        workspace.selectedDocumentRecordId === row.original.id && 'bg-accent/70'
                       )}
                       onClick={() => onSelectDocument(row.original.id)}
                     >
@@ -1362,7 +1362,7 @@ function DocumentsView({
                 {selectedDocumentDetail.versions.map((version) => (
                   <div
                     key={version.id}
-                    className="rounded-xl border border-border bg-card p-3 transition hover:border-primary/20"
+                    className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
@@ -1951,7 +1951,9 @@ function FileDropField({
     <div
       className={cn(
         'rounded-xl border border-dashed p-3.5 transition',
-        isDragging ? 'border-primary bg-primary/5' : 'border-border bg-background'
+        isDragging
+          ? 'border-[#2383E2]/40 bg-[#2383E2]/5 dark:border-[#4C8DFF]/40 dark:bg-[#4C8DFF]/10'
+          : 'border-border bg-background'
       )}
       onDragOver={(event) => {
         event.preventDefault();

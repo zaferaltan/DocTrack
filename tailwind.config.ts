@@ -36,10 +36,9 @@ const config: Config = {
           foreground: 'hsl(var(--card-foreground))'
         },
         workspace: {
-          DEFAULT: '#191919',
-          contrast: '#f7f6f3',
-          muted: '#2a2a2a',
-          accent: '#d6d3d1'
+          DEFAULT: 'hsl(var(--workspace))',
+          contrast: 'hsl(var(--workspace-contrast))',
+          accent: 'hsl(var(--workspace-accent))'
         }
       },
       borderRadius: {
@@ -48,7 +47,7 @@ const config: Config = {
         sm: 'calc(var(--radius) - 4px)'
       },
       boxShadow: {
-        panel: '0 10px 24px -18px rgba(15, 23, 42, 0.28)'
+        panel: '0 18px 40px -28px rgba(15, 15, 15, 0.32)'
       },
       fontFamily: {
         sans: [
