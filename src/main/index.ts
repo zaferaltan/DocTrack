@@ -47,7 +47,7 @@ app.whenReady().then(async () => {
     documentIdGenerator,
     fileStorageService
   );
-  const documentTypeService = new DocumentTypeService(workspaceManager);
+  const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
   const workspaceService = new WorkspaceService(
     workspaceManager,
     documentService,
@@ -69,6 +69,10 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
     }
+  });
+
+  app.on('before-quit', () => {
+    workspaceManager.dispose();
   });
 });
 

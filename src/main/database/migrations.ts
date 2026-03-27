@@ -1,11 +1,16 @@
 import type Database from 'better-sqlite3';
 import initialMigration from '../../../migrations/001_initial.sql?raw';
+import workspaceLayoutMigration from '../../../migrations/002_workspace_layout.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
   {
     id: '001_initial',
     sql: initialMigration
+  },
+  {
+    id: '002_workspace_layout',
+    sql: workspaceLayoutMigration
   }
 ] as const;
 

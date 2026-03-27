@@ -12,6 +12,7 @@ import type {
   WorkspaceCreateInput,
   WorkspaceInfo
 } from '@shared/types';
+import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const IPC_CHANNELS = {
   workspaceCreate: 'workspace:create',
@@ -20,6 +21,7 @@ export const IPC_CHANNELS = {
   workspaceListOpen: 'workspace:listOpen',
   workspaceListRecent: 'workspace:listRecent',
   workspaceGetSummary: 'workspace:getSummary',
+  workspaceUpdateSettings: 'workspace:updateSettings',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
   dialogPickWorkspaceOpenPath: 'dialog:pickWorkspaceOpenPath',
   dialogPickDocumentFile: 'dialog:pickDocumentFile',
@@ -40,11 +42,12 @@ export const IPC_CHANNELS = {
 export interface DocTrackApi {
   workspace: {
     create: (input: WorkspaceCreateInput) => Promise<OpenWorkspaceResult>;
-    open: (filePath: string) => Promise<OpenWorkspaceResult>;
-    close: (filePath: string) => Promise<WorkspaceInfo[]>;
+    open: (rootPath: string) => Promise<OpenWorkspaceResult>;
+    close: (rootPath: string) => Promise<WorkspaceInfo[]>;
     listOpen: () => Promise<WorkspaceInfo[]>;
     listRecent: () => Promise<RecentWorkspace[]>;
-    getSummary: (filePath: string) => Promise<OpenWorkspaceResult>;
+    getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
+    updateSettings: (rootPath: string, settings: WorkspaceSettings) => Promise<OpenWorkspaceResult>;
   };
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName?: string) => Promise<string | null>;
@@ -52,18 +55,18 @@ export interface DocTrackApi {
     pickDocumentFile: () => Promise<string | null>;
   };
   documents: {
-    list: (filePath: string) => Promise<DocumentListItem[]>;
-    detail: (filePath: string, documentRecordId: number) => Promise<DocumentDetail>;
-    create: (filePath: string, input: CreateDocumentInput) => Promise<DocumentDetail>;
-    createVersion: (filePath: string, input: CreateVersionInput) => Promise<DocumentDetail>;
-    updateStatus: (filePath: string, input: UpdateDocumentStatusInput) => Promise<DocumentDetail>;
-    openFile: (filePath: string, documentVersionId: number) => Promise<void>;
+    list: (rootPath: string) => Promise<DocumentListItem[]>;
+    detail: (rootPath: string, documentRecordId: number) => Promise<DocumentDetail>;
+    create: (rootPath: string, input: CreateDocumentInput) => Promise<DocumentDetail>;
+    createVersion: (rootPath: string, input: CreateVersionInput) => Promise<DocumentDetail>;
+    updateStatus: (rootPath: string, input: UpdateDocumentStatusInput) => Promise<DocumentDetail>;
+    openFile: (rootPath: string, documentVersionId: number) => Promise<void>;
   };
   documentTypes: {
-    list: (filePath: string) => Promise<DocumentType[]>;
-    create: (filePath: string, input: DocumentTypeInput) => Promise<DocumentType>;
-    update: (filePath: string, id: number, input: DocumentTypeInput) => Promise<DocumentType>;
-    delete: (filePath: string, id: number) => Promise<void>;
+    list: (rootPath: string) => Promise<DocumentType[]>;
+    create: (rootPath: string, input: DocumentTypeInput) => Promise<DocumentType>;
+    update: (rootPath: string, id: number, input: DocumentTypeInput) => Promise<DocumentType>;
+    delete: (rootPath: string, id: number) => Promise<void>;
   };
   theme: {
     get: () => Promise<ThemeMode>;

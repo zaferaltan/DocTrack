@@ -5,6 +5,7 @@ import type {
   ThemeMode,
   WorkspaceSummary
 } from '@shared/types';
+import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export type WorkspaceView = 'documents' | 'documentTypes';
 
@@ -26,15 +27,17 @@ interface AppStoreState {
   bootstrap: () => Promise<void>;
   createWorkspace: (input: {
     name: string;
-    filePath: string;
+    parentPath: string;
+    settings: WorkspaceSettings;
     includeExampleData?: boolean;
   }) => Promise<void>;
-  openWorkspace: (filePath: string) => Promise<void>;
-  refreshWorkspace: (filePath: string) => Promise<void>;
-  closeWorkspace: (filePath: string) => Promise<void>;
-  setActiveWorkspace: (filePath: string) => void;
-  setWorkspaceView: (filePath: string, view: WorkspaceView) => void;
-  setSelectedDocument: (filePath: string, documentRecordId?: number) => void;
+  openWorkspace: (rootPath: string) => Promise<void>;
+  refreshWorkspace: (rootPath: string) => Promise<void>;
+  closeWorkspace: (rootPath: string) => Promise<void>;
+  updateWorkspaceSettings: (rootPath: string, settings: WorkspaceSettings) => Promise<void>;
+  setActiveWorkspace: (rootPath: string) => void;
+  setWorkspaceView: (rootPath: string, view: WorkspaceView) => void;
+  setSelectedDocument: (rootPath: string, documentRecordId?: number) => void;
   setThemeMode: (themeMode: ThemeMode) => Promise<void>;
   setNotification: (notification?: AppStoreState['notification']) => void;
 }
@@ -63,18 +66,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     ]);
 
     const summaries = await Promise.all(
-      openWorkspaceInfos.map((workspace) => window.docTrack.workspace.getSummary(workspace.filePath))
+      openWorkspaceInfos.map((workspace) => window.docTrack.workspace.getSummary(workspace.rootPath))
     );
 
     const openWorkspaces = Object.fromEntries(
-      summaries.map((summary) => [summary.workspace.filePath, buildWorkspaceState(summary)])
+      summaries.map((summary) => [summary.workspace.rootPath, buildWorkspaceState(summary)])
     );
 
     set({
       recentWorkspaces,
       themeMode,
       openWorkspaces,
-      activeWorkspacePath: summaries[0]?.workspace.filePath,
+      activeWorkspacePath: summaries[0]?.workspace.rootPath,
       isBootstrapped: true
     });
   },
@@ -84,12 +87,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set((state) => ({
       openWorkspaces: {
         ...state.openWorkspaces,
-        [result.workspace.filePath]: buildWorkspaceState(
+        [result.workspace.rootPath]: buildWorkspaceState(
           result,
-          state.openWorkspaces[result.workspace.filePath]
+          state.openWorkspaces[result.workspace.rootPath]
         )
       },
-      activeWorkspacePath: result.workspace.filePath,
+      activeWorkspacePath: result.workspace.rootPath,
       recentWorkspaces,
       notification: {
         tone: 'success',
@@ -97,18 +100,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       }
     }));
   },
-  openWorkspace: async (filePath) => {
-    const result = await window.docTrack.workspace.open(filePath);
+  openWorkspace: async (rootPath) => {
+    const result = await window.docTrack.workspace.open(rootPath);
     const recentWorkspaces = await window.docTrack.workspace.listRecent();
     set((state) => ({
       openWorkspaces: {
         ...state.openWorkspaces,
-        [result.workspace.filePath]: buildWorkspaceState(
+        [result.workspace.rootPath]: buildWorkspaceState(
           result,
-          state.openWorkspaces[result.workspace.filePath]
+          state.openWorkspaces[result.workspace.rootPath]
         )
       },
-      activeWorkspacePath: result.workspace.filePath,
+      activeWorkspacePath: result.workspace.rootPath,
       recentWorkspaces,
       notification: {
         tone: 'success',
@@ -116,41 +119,57 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       }
     }));
   },
-  refreshWorkspace: async (filePath) => {
-    const result = await window.docTrack.workspace.getSummary(filePath);
+  refreshWorkspace: async (rootPath) => {
+    const result = await window.docTrack.workspace.getSummary(rootPath);
     set((state) => ({
       openWorkspaces: {
         ...state.openWorkspaces,
-        [result.workspace.filePath]: buildWorkspaceState(
+        [result.workspace.rootPath]: buildWorkspaceState(
           result,
-          state.openWorkspaces[result.workspace.filePath]
+          state.openWorkspaces[result.workspace.rootPath]
         )
       }
     }));
   },
-  closeWorkspace: async (filePath) => {
-    await window.docTrack.workspace.close(filePath);
+  closeWorkspace: async (rootPath) => {
+    await window.docTrack.workspace.close(rootPath);
     set((state) => {
       const nextOpenWorkspaces = { ...state.openWorkspaces };
-      delete nextOpenWorkspaces[filePath];
+      delete nextOpenWorkspaces[rootPath];
 
       const remainingPaths = Object.keys(nextOpenWorkspaces);
 
       return {
         openWorkspaces: nextOpenWorkspaces,
         activeWorkspacePath:
-          state.activeWorkspacePath === filePath
+          state.activeWorkspacePath === rootPath
             ? remainingPaths[remainingPaths.length - 1]
             : state.activeWorkspacePath
       };
     });
   },
-  setActiveWorkspace: (filePath) => {
-    set({ activeWorkspacePath: filePath });
+  updateWorkspaceSettings: async (rootPath, settings) => {
+    const result = await window.docTrack.workspace.updateSettings(rootPath, settings);
+    set((state) => ({
+      openWorkspaces: {
+        ...state.openWorkspaces,
+        [result.workspace.rootPath]: buildWorkspaceState(
+          result,
+          state.openWorkspaces[result.workspace.rootPath]
+        )
+      },
+      notification: {
+        tone: 'success',
+        message: `Workspace settings saved for "${result.workspace.name}".`
+      }
+    }));
   },
-  setWorkspaceView: (filePath, view) => {
+  setActiveWorkspace: (rootPath) => {
+    set({ activeWorkspacePath: rootPath });
+  },
+  setWorkspaceView: (rootPath, view) => {
     set((state) => {
-      const workspace = state.openWorkspaces[filePath];
+      const workspace = state.openWorkspaces[rootPath];
       if (!workspace) {
         return state;
       }
@@ -158,7 +177,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return {
         openWorkspaces: {
           ...state.openWorkspaces,
-          [filePath]: {
+          [rootPath]: {
             ...workspace,
             selectedView: view
           }
@@ -166,9 +185,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       };
     });
   },
-  setSelectedDocument: (filePath, documentRecordId) => {
+  setSelectedDocument: (rootPath, documentRecordId) => {
     set((state) => {
-      const workspace = state.openWorkspaces[filePath];
+      const workspace = state.openWorkspaces[rootPath];
       if (!workspace) {
         return state;
       }
@@ -176,7 +195,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return {
         openWorkspaces: {
           ...state.openWorkspaces,
-          [filePath]: {
+          [rootPath]: {
             ...workspace,
             selectedDocumentRecordId: documentRecordId
           }

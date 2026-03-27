@@ -4,11 +4,13 @@ import { IPC_CHANNELS, type DocTrackApi } from '@shared/ipc';
 const api: DocTrackApi = {
   workspace: {
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.workspaceCreate, input),
-    open: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceOpen, filePath),
-    close: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceClose, filePath),
+    open: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceOpen, rootPath),
+    close: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceClose, rootPath),
     listOpen: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListOpen),
     listRecent: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListRecent),
-    getSummary: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, filePath)
+    getSummary: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, rootPath),
+    updateSettings: (rootPath, settings) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, settings)
   },
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName) =>

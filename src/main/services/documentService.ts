@@ -34,6 +34,7 @@ interface DocumentRow {
   Title: string;
   DocumentTypeId: number;
   TypeName: string;
+  DocumentFolderPath: string;
   CreatedDate: string;
   ModifiedDate: string;
   Author: string;
@@ -67,8 +68,8 @@ export class DocumentService {
     private readonly fileStorageService: FileStorageService
   ) {}
 
-  list(filePath: string): DocumentListItem[] {
-    const context = this.workspaceManager.getContext(filePath);
+  list(rootPath: string): DocumentListItem[] {
+    const context = this.workspaceManager.getContext(rootPath);
     const rows = context.db
       .prepare(
         `
@@ -105,13 +106,13 @@ export class DocumentService {
     }));
   }
 
-  getDetail(filePath: string, documentRecordId: number): DocumentDetail {
-    const context = this.workspaceManager.getContext(filePath);
+  getDetail(rootPath: string, documentRecordId: number): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
     return this.getDetailFromDatabase(context.db, documentRecordId);
   }
 
-  create(filePath: string, input: CreateDocumentInput): DocumentDetail {
-    const context = this.workspaceManager.getContext(filePath);
+  create(rootPath: string, input: CreateDocumentInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
     this.assertCreateDocumentInput(input);
 
     let copiedAbsolutePath: string | null = null;
@@ -133,9 +134,15 @@ export class DocumentService {
         type.NumberPrefix,
         createdDate
       );
-      const storedFile = this.fileStorageService.copyManagedFile(
-        filePath,
+      const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
+        context.settings,
+        type.Name,
         documentId,
+        input.title.trim()
+      );
+      const storedFile = this.fileStorageService.copyManagedFile(
+        context.rootPath,
+        documentFolderPath,
         1,
         input.sourceFilePath
       );
@@ -148,16 +155,18 @@ export class DocumentService {
               DocumentID,
               Title,
               DocumentTypeId,
+              DocumentFolderPath,
               CreatedDate,
               ModifiedDate,
               Author
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
           documentId,
           input.title.trim(),
           input.documentTypeId,
+          documentFolderPath,
           createdDate,
           createdDate,
           input.author.trim()
@@ -190,7 +199,7 @@ export class DocumentService {
 
     try {
       transaction.immediate();
-      return this.getDetail(filePath, insertedDocumentId);
+      return this.getDetail(rootPath, insertedDocumentId);
     } catch (error) {
       if (copiedAbsolutePath) {
         this.fileStorageService.cleanupManagedPath(copiedAbsolutePath);
@@ -199,8 +208,8 @@ export class DocumentService {
     }
   }
 
-  createVersion(filePath: string, input: CreateVersionInput): DocumentDetail {
-    const context = this.workspaceManager.getContext(filePath);
+  createVersion(rootPath: string, input: CreateVersionInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
     this.assertCreateVersionInput(input);
 
     let copiedAbsolutePath: string | null = null;
@@ -214,9 +223,10 @@ export class DocumentService {
       const document = this.getDocumentRow(context.db, input.documentRecordId);
       const nextVersionNumber = latestVersion.VersionNumber + 1;
       const createdDate = nowIso();
+      const documentFolderPath = this.getDocumentFolderPath(context, document);
       const storedFile = this.fileStorageService.copyManagedFile(
-        filePath,
-        document.DocumentID,
+        context.rootPath,
+        documentFolderPath,
         nextVersionNumber,
         input.sourceFilePath
       );
@@ -252,7 +262,7 @@ export class DocumentService {
 
     try {
       transaction.immediate();
-      return this.getDetail(filePath, input.documentRecordId);
+      return this.getDetail(rootPath, input.documentRecordId);
     } catch (error) {
       if (copiedAbsolutePath) {
         this.fileStorageService.cleanupManagedPath(copiedAbsolutePath);
@@ -261,8 +271,8 @@ export class DocumentService {
     }
   }
 
-  updateStatus(filePath: string, input: UpdateDocumentStatusInput): DocumentDetail {
-    const context = this.workspaceManager.getContext(filePath);
+  updateStatus(rootPath: string, input: UpdateDocumentStatusInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
     this.assertStatus(input.status);
 
     const transaction = context.db.transaction(() => {
@@ -284,11 +294,11 @@ export class DocumentService {
     });
 
     transaction.immediate();
-    return this.getDetail(filePath, input.documentRecordId);
+    return this.getDetail(rootPath, input.documentRecordId);
   }
 
-  openFile(filePath: string, documentVersionId: number): void {
-    const context = this.workspaceManager.getContext(filePath);
+  openFile(rootPath: string, documentVersionId: number): void {
+    const context = this.workspaceManager.getContext(rootPath);
     const version = context.db
       .prepare('SELECT FilePath FROM DocumentVersions WHERE Id = @id')
       .get({ id: documentVersionId }) as { FilePath: string | null } | undefined;
@@ -297,7 +307,7 @@ export class DocumentService {
       throw new Error('The selected file could not be found.');
     }
 
-    const resolvedPath = this.fileStorageService.resolveStoredFilePath(filePath, version.FilePath);
+    const resolvedPath = this.fileStorageService.resolveStoredFilePath(context.rootPath, version.FilePath);
     if (!existsSync(resolvedPath)) {
       throw new Error('The managed document file could not be found on disk.');
     }
@@ -348,6 +358,22 @@ export class DocumentService {
     };
   }
 
+  private getDocumentFolderPath(
+    context: ReturnType<WorkspaceManager['getContext']>,
+    document: DocumentRow
+  ): string {
+    if (document.DocumentFolderPath.trim()) {
+      return document.DocumentFolderPath;
+    }
+
+    return this.fileStorageService.getDocumentFolderRelativePath(
+      context.settings,
+      document.TypeName,
+      document.DocumentID,
+      document.Title
+    );
+  }
+
   private getDocumentRow(db: Database.Database, documentRecordId: number): DocumentRow {
     const document = db
       .prepare(
@@ -358,6 +384,7 @@ export class DocumentService {
             d.Title,
             d.DocumentTypeId,
             dt.Name AS TypeName,
+            d.DocumentFolderPath,
             d.CreatedDate,
             d.ModifiedDate,
             d.Author

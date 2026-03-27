@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,18 +23,20 @@ vi.mock('electron', () => ({
 
 describe('document workflow integration', () => {
   let tempRoot: string;
+  let workspaceManager: WorkspaceManager;
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
-  let workspacePath: string;
+  let documentTypeService: DocumentTypeService;
+  let workspaceRootPath: string;
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-docs-'));
-    const workspaceManager = new WorkspaceManager();
+    workspaceManager = new WorkspaceManager();
     const fileStorageService = new FileStorageService();
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
-    const documentTypeService = new DocumentTypeService(workspaceManager);
+    documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
     workspaceService = new WorkspaceService(
       workspaceManager,
       documentService,
@@ -43,26 +45,28 @@ describe('document workflow integration', () => {
       documentIdGenerator
     );
 
-    workspacePath = path.join(tempRoot, 'Quality.sqlite');
+    workspaceRootPath = path.join(tempRoot, 'Quality');
     workspaceService.create({
       name: 'Quality',
-      filePath: workspacePath,
+      parentPath: tempRoot,
+      settings: { storageLayoutPreset: 'stable-id' },
       includeExampleData: false
     });
 
-    expect(documentTypeService.list(workspacePath)).toHaveLength(3);
+    expect(documentTypeService.list(workspaceRootPath)).toHaveLength(3);
   });
 
   afterEach(() => {
+    workspaceManager.dispose();
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates a document with version 1 and a managed file copy', () => {
+  it('creates a document with version 1 inside the stable-id folder layout', () => {
     const sourceFile = path.join(tempRoot, 'incoming', 'audit.md');
     mkdirSync(path.dirname(sourceFile), { recursive: true });
     writeFileSync(sourceFile, '# Audit Procedure', 'utf8');
 
-    const detail = documentService.create(workspacePath, {
+    const detail = documentService.create(workspaceRootPath, {
       title: 'Internal Audit Procedure',
       documentTypeId: 2,
       author: 'Jordan Singh',
@@ -70,53 +74,71 @@ describe('document workflow integration', () => {
       sourceFilePath: sourceFile
     });
 
+    const storedFilePath = detail.versions[0]?.filePath ?? '';
+    const absoluteStoredFilePath = path.join(workspaceRootPath, ...storedFilePath.split('/'));
+
     expect(detail.documentId).toMatch(/^0220\d{2}\d{5}$/);
     expect(detail.versions).toHaveLength(1);
     expect(detail.versions[0]?.versionNumber).toBe(1);
     expect(detail.versions[0]?.status).toBe('Draft');
-    expect(detail.versions[0]?.filePath).toContain('/documents/');
+    expect(storedFilePath).toMatch(/^Documents\/Procedure\/0220\d{2}\d{5}\/v1\/audit\.md$/);
+    expect(existsSync(absoluteStoredFilePath)).toBe(true);
 
-    const list = documentService.list(workspacePath);
+    const list = documentService.list(workspaceRootPath);
     expect(list).toHaveLength(1);
     expect(list[0]?.latestVersion).toBe(1);
     expect(list[0]?.status).toBe('Draft');
   });
 
-  it('creates a new version without changing the document id and updates status on the latest version', () => {
+  it('uses updated settings only for newly created documents while keeping existing document versions in place', () => {
     const v1File = path.join(tempRoot, 'incoming', 'procedure-v1.md');
     const v2File = path.join(tempRoot, 'incoming', 'procedure-v2.md');
+    const nextDocumentFile = path.join(tempRoot, 'incoming', 'checklist.md');
     mkdirSync(path.dirname(v1File), { recursive: true });
     writeFileSync(v1File, '# Procedure v1', 'utf8');
     writeFileSync(v2File, '# Procedure v2', 'utf8');
+    writeFileSync(nextDocumentFile, '# Supplier Audit Checklist', 'utf8');
 
-    const created = documentService.create(workspacePath, {
+    const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',
       documentTypeId: 2,
       author: 'Taylor Reed',
       notes: 'Initial release candidate',
       sourceFilePath: v1File
     });
+    const originalDocumentFolderPath = created.versions[0]?.filePath.replace(/\/v1\/[^/]+$/, '') ?? '';
 
-    const newVersion = documentService.createVersion(workspacePath, {
+    const updatedWorkspace = workspaceService.updateSettings(workspaceRootPath, {
+      storageLayoutPreset: 'friendly-id'
+    });
+    const createdAfterSettingsChange = documentService.create(workspaceRootPath, {
+      title: 'Supplier Audit Checklist',
+      documentTypeId: 2,
+      author: 'Avery Chen',
+      notes: 'Checklist draft',
+      sourceFilePath: nextDocumentFile
+    });
+    const newVersion = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
       notes: 'Second draft after review',
       sourceFilePath: v2File
     });
 
+    const newDocumentPath = createdAfterSettingsChange.versions[0]?.filePath ?? '';
+    const newVersionFolderPath = newVersion.versions[0]?.filePath.replace(/\/v2\/[^/]+$/, '') ?? '';
+
+    expect(updatedWorkspace.summary.settings.storageLayoutPreset).toBe('friendly-id');
+    expect(createdAfterSettingsChange.documentId).toMatch(/^0220\d{2}\d{5}$/);
+    expect(newDocumentPath).toMatch(
+      /^Documents\/Procedure\/0220\d{2}\d{5} - Supplier Audit Checklist\/v1\/checklist\.md$/
+    );
     expect(newVersion.documentId).toBe(created.documentId);
     expect(newVersion.versions[0]?.versionNumber).toBe(2);
-    expect(newVersion.versions).toHaveLength(2);
+    expect(newVersionFolderPath).toBe(originalDocumentFolderPath);
+    expect(newVersion.versions[0]?.filePath).toMatch(/^Documents\/Procedure\/0220\d{2}\d{5}\/v2\/procedure-v2\.md$/);
 
-    const updatedStatus = documentService.updateStatus(workspacePath, {
-      documentRecordId: created.id,
-      status: 'Released'
-    });
-
-    expect(updatedStatus.versions[0]?.status).toBe('Released');
-    expect(updatedStatus.versions[1]?.status).toBe('Draft');
-
-    const overviewRow = documentService.list(workspacePath)[0];
+    const overviewRow = documentService.list(workspaceRootPath)[0];
     expect(overviewRow?.latestVersion).toBe(2);
-    expect(overviewRow?.status).toBe('Released');
+    expect(overviewRow?.status).toBe('Draft');
   });
 });

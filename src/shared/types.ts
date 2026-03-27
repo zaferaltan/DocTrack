@@ -1,3 +1,5 @@
+import type { WorkspaceSettings } from '@shared/workspaceLayout';
+
 export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived'] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
@@ -7,7 +9,7 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 export interface WorkspaceInfo {
   id: number;
   name: string;
-  filePath: string;
+  rootPath: string;
   createdDate: string;
   isOpen: boolean;
 }
@@ -79,6 +81,7 @@ export interface DocumentTypeInput {
 
 export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
+  settings: WorkspaceSettings;
   documents: DocumentListItem[];
   documentTypes: DocumentType[];
   statuses: DocumentStatus[];
@@ -91,16 +94,17 @@ export interface OpenWorkspaceResult {
 
 export interface WorkspaceCreateInput {
   name: string;
-  filePath: string;
+  parentPath: string;
+  settings: WorkspaceSettings;
   includeExampleData?: boolean;
 }
 
 export interface WorkspaceOpenInput {
-  filePath: string;
+  rootPath: string;
 }
 
 export interface RecentWorkspace {
-  filePath: string;
+  rootPath: string;
   name: string;
   lastOpenedDate: string;
 }

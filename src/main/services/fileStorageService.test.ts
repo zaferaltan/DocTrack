@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,38 +22,64 @@ afterEach(() => {
 });
 
 describe('FileStorageService', () => {
-  it('copies a file into managed workspace storage with a relative path', () => {
+  it('copies a file into managed workspace storage under the stable-id layout', () => {
     const root = createTempRoot();
     const service = new FileStorageService();
-    const workspacePath = path.join(root, 'Quality.sqlite');
+    const workspaceRootPath = path.join(root, 'Quality');
     const sourceFile = path.join(root, 'source.txt');
     writeFileSync(sourceFile, 'hello world', 'utf8');
 
-    const stored = service.copyManagedFile(workspacePath, '01202600001', 1, sourceFile);
+    const documentFolderPath = service.getDocumentFolderRelativePath(
+      { storageLayoutPreset: 'stable-id' },
+      'Procedure',
+      '01202600001',
+      'Internal Audit Procedure'
+    );
+    const stored = service.copyManagedFile(workspaceRootPath, documentFolderPath, 1, sourceFile);
 
-    expect(stored.relativePath).toBe('Quality.files/documents/01202600001/v1/source.txt');
+    expect(stored.relativePath).toBe('Documents/Procedure/01202600001/v1/source.txt');
     expect(path.isAbsolute(stored.absolutePath)).toBe(true);
+    expect(existsSync(stored.absolutePath)).toBe(true);
   });
 
-  it('resolves a renamed assets folder through fallback lookup', () => {
+  it('builds friendly-id document folders with the document title', () => {
+    const service = new FileStorageService();
+
+    const documentFolderPath = service.getDocumentFolderRelativePath(
+      { storageLayoutPreset: 'friendly-id' },
+      'Procedure',
+      '01202600001',
+      'Supplier Audit Checklist'
+    );
+    const versionPath = service.getStoredRelativePath(documentFolderPath, 2, 'checklist.pdf');
+
+    expect(documentFolderPath).toBe('Documents/Procedure/01202600001 - Supplier Audit Checklist');
+    expect(versionPath).toBe(
+      'Documents/Procedure/01202600001 - Supplier Audit Checklist/v2/checklist.pdf'
+    );
+  });
+
+  it('cleans up empty version and document folders after rollback cleanup', () => {
     const root = createTempRoot();
     const service = new FileStorageService();
-    const workspacePath = path.join(root, 'Quality.sqlite');
-    const currentAssetsDir = service.getWorkspaceFilesDirectory(workspacePath);
-    mkdirSync(path.dirname(currentAssetsDir), { recursive: true });
+    const workspaceRootPath = path.join(root, 'Quality');
+    const sourceFile = path.join(root, 'source.txt');
+    writeFileSync(sourceFile, 'hello world', 'utf8');
 
-    const originalAssetsDir = path.join(root, 'Legacy.files');
-    const versionDirectory = path.join(originalAssetsDir, 'documents', '01202600001', 'v1');
-    mkdirSync(versionDirectory, { recursive: true });
-    writeFileSync(path.join(versionDirectory, 'legacy.txt'), 'legacy', 'utf8');
-
-    renameSync(originalAssetsDir, currentAssetsDir);
-
-    const resolved = service.resolveStoredFilePath(
-      workspacePath,
-      'Legacy.files/documents/01202600001/v1/legacy.txt'
+    const documentFolderPath = service.getDocumentFolderRelativePath(
+      { storageLayoutPreset: 'stable-id' },
+      'Procedure',
+      '01202600001',
+      'Internal Audit Procedure'
     );
+    const stored = service.copyManagedFile(workspaceRootPath, documentFolderPath, 1, sourceFile);
+    const documentDirectoryPath = path.dirname(path.dirname(stored.absolutePath));
+    const typeDirectoryPath = path.dirname(documentDirectoryPath);
 
-    expect(resolved).toBe(path.join(currentAssetsDir, 'documents', '01202600001', 'v1', 'legacy.txt'));
+    service.cleanupManagedPath(stored.absolutePath);
+
+    expect(existsSync(documentDirectoryPath)).toBe(false);
+    expect(existsSync(typeDirectoryPath)).toBe(true);
+    expect(readdirSync(typeDirectoryPath)).toHaveLength(0);
   });
 });

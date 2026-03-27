@@ -7,6 +7,11 @@ import { FileStorageService } from '@main/services/fileStorageService';
 import { nowIso } from '@main/utils/date';
 import { DOCUMENT_STATUSES } from '@shared/types';
 import type { DocumentType, OpenWorkspaceResult, WorkspaceCreateInput } from '@shared/types';
+import {
+  DEFAULT_WORKSPACE_SETTINGS,
+  isWorkspaceStorageLayoutPreset,
+  type WorkspaceSettings
+} from '@shared/workspaceLayout';
 
 const STARTER_TYPES: Array<{ name: string; numberPrefix: string }> = [
   { name: 'Specification', numberPrefix: '01' },
@@ -26,30 +31,31 @@ export class WorkspaceService {
   create(input: WorkspaceCreateInput): OpenWorkspaceResult {
     const context = this.workspaceManager.createWorkspace(input, (workspaceContext) => {
       this.seedStarterTypes(workspaceContext.db);
+      this.ensureDocumentTypeDirectories(workspaceContext);
       if (input.includeExampleData ?? true) {
         this.seedExampleData(workspaceContext);
       }
     });
 
     this.catalogService.touchRecentWorkspace({
-      filePath: context.filePath,
+      rootPath: context.rootPath,
       name: context.workspace.name
     });
 
-    return this.getSummary(context.filePath);
+    return this.getSummary(context.rootPath);
   }
 
-  open(filePath: string): OpenWorkspaceResult {
-    const context = this.workspaceManager.openWorkspace(filePath);
+  open(rootPath: string): OpenWorkspaceResult {
+    const context = this.workspaceManager.openWorkspace(rootPath);
     this.catalogService.touchRecentWorkspace({
-      filePath: context.filePath,
+      rootPath: context.rootPath,
       name: context.workspace.name
     });
-    return this.getSummary(filePath);
+    return this.getSummary(rootPath);
   }
 
-  close(filePath: string) {
-    return this.workspaceManager.closeWorkspace(filePath);
+  close(rootPath: string) {
+    return this.workspaceManager.closeWorkspace(rootPath);
   }
 
   listOpen() {
@@ -60,8 +66,8 @@ export class WorkspaceService {
     return this.catalogService.listRecentWorkspaces();
   }
 
-  getSummary(filePath: string): OpenWorkspaceResult {
-    const context = this.workspaceManager.getContext(filePath);
+  getSummary(rootPath: string): OpenWorkspaceResult {
+    const context = this.workspaceManager.getContext(rootPath);
     const typeRows = context.db
       .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes ORDER BY NumberPrefix ASC')
       .all() as Array<{ Id: number; Name: string; NumberPrefix: string }>;
@@ -70,11 +76,22 @@ export class WorkspaceService {
       workspace: context.workspace,
       summary: {
         workspace: context.workspace,
-        documents: this.documentService.list(filePath),
+        settings: context.settings,
+        documents: this.documentService.list(rootPath),
         documentTypes: this.mapTypeRows(typeRows),
         statuses: [...DOCUMENT_STATUSES]
       }
     };
+  }
+
+  updateSettings(rootPath: string, settings: WorkspaceSettings): OpenWorkspaceResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const nextSettings = this.normalizeWorkspaceSettings(settings);
+    context.db
+      .prepare('UPDATE Workspaces SET StorageLayoutPreset = ? WHERE Id = 1')
+      .run(nextSettings.storageLayoutPreset);
+    context.settings = nextSettings;
+    return this.getSummary(rootPath);
   }
 
   private mapTypeRows(rows: Array<{ Id: number; Name: string; NumberPrefix: string }>): DocumentType[] {
@@ -91,6 +108,17 @@ export class WorkspaceService {
     for (const type of STARTER_TYPES) {
       insert.run(type.name, type.numberPrefix);
     }
+  }
+
+  private ensureDocumentTypeDirectories(context: WorkspaceContext): void {
+    const typeNames = context.db
+      .prepare('SELECT Name FROM DocumentTypes ORDER BY NumberPrefix ASC, Name ASC')
+      .all() as Array<{ Name: string }>;
+
+    this.fileStorageService.ensureDocumentTypeDirectories(
+      context.rootPath,
+      typeNames.map((type) => type.Name)
+    );
   }
 
   private seedExampleData(context: WorkspaceContext): void {
@@ -175,8 +203,8 @@ export class WorkspaceService {
     }
   ): void {
     const type = context.db
-      .prepare('SELECT Id, NumberPrefix FROM DocumentTypes WHERE NumberPrefix = @prefix')
-      .get({ prefix: input.prefix }) as { Id: number; NumberPrefix: string } | undefined;
+      .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes WHERE NumberPrefix = @prefix')
+      .get({ prefix: input.prefix }) as { Id: number; Name: string; NumberPrefix: string } | undefined;
 
     if (!type) {
       return;
@@ -188,6 +216,12 @@ export class WorkspaceService {
       type.NumberPrefix,
       createdDate
     );
+    const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
+      context.settings,
+      type.Name,
+      documentId,
+      input.title
+    );
 
     const documentInsert = context.db
       .prepare(
@@ -196,13 +230,14 @@ export class WorkspaceService {
             DocumentID,
             Title,
             DocumentTypeId,
+            DocumentFolderPath,
             CreatedDate,
             ModifiedDate,
             Author
-          ) VALUES (?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `
       )
-      .run(documentId, input.title, type.Id, createdDate, createdDate, input.author);
+      .run(documentId, input.title, type.Id, documentFolderPath, createdDate, createdDate, input.author);
 
     const documentRecordId = Number(documentInsert.lastInsertRowid);
     const insertVersion = context.db.prepare(
@@ -220,8 +255,8 @@ export class WorkspaceService {
 
     for (const version of input.versions) {
       const storedFile = this.fileStorageService.writeManagedTextFile(
-        context.filePath,
-        documentId,
+        context.rootPath,
+        documentFolderPath,
         version.versionNumber,
         version.fileName,
         version.content
@@ -241,5 +276,15 @@ export class WorkspaceService {
       createdDate,
       documentRecordId
     );
+  }
+
+  private normalizeWorkspaceSettings(settings: WorkspaceSettings): WorkspaceSettings {
+    if (!isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset)) {
+      return { ...DEFAULT_WORKSPACE_SETTINGS };
+    }
+
+    return {
+      storageLayoutPreset: settings.storageLayoutPreset
+    };
   }
 }

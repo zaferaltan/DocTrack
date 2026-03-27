@@ -17,6 +17,7 @@ import {
   PencilLine,
   Plus,
   Search,
+  Settings2,
   Sparkles,
   Sun,
   SunMoon,
@@ -49,6 +50,14 @@ import { Select } from '@renderer/components/ui/select';
 import { Textarea } from '@renderer/components/ui/textarea';
 import { cn, formatDateShort, formatDateTime } from '@renderer/lib/utils';
 import { useAppStore } from '@renderer/store/useAppStore';
+import {
+  buildDocumentFolderRelativePath,
+  buildDocumentVersionRelativePath,
+  DEFAULT_WORKSPACE_SETTINGS,
+  WORKSPACE_STORAGE_LAYOUT_OPTIONS,
+  type WorkspaceSettings,
+  type WorkspaceStorageLayoutPreset
+} from '@shared/workspaceLayout';
 import type {
   CreateDocumentInput,
   CreateVersionInput,
@@ -90,8 +99,17 @@ const extractDroppedFilePath = (file: File | undefined): string | null => file?.
 interface WorkspaceDialogState {
   open: boolean;
   name: string;
-  filePath: string;
+  parentPath: string;
+  settings: WorkspaceSettings;
   includeExampleData: boolean;
+  isSubmitting: boolean;
+}
+
+interface WorkspaceSettingsDialogState {
+  open: boolean;
+  rootPath?: string;
+  workspaceName: string;
+  settings: WorkspaceSettings;
   isSubmitting: boolean;
 }
 
@@ -129,8 +147,17 @@ interface TypeDialogState {
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
   name: '',
-  filePath: '',
+  parentPath: '',
+  settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   includeExampleData: true,
+  isSubmitting: false
+};
+
+const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
+  open: false,
+  rootPath: undefined,
+  workspaceName: '',
+  settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   isSubmitting: false
 };
 
@@ -179,6 +206,7 @@ function App() {
     openWorkspace,
     refreshWorkspace,
     closeWorkspace,
+    updateWorkspaceSettings,
     setActiveWorkspace,
     setWorkspaceView,
     setSelectedDocument,
@@ -187,6 +215,9 @@ function App() {
   } = useAppStore();
 
   const [workspaceDialog, setWorkspaceDialog] = useState(defaultWorkspaceDialogState);
+  const [workspaceSettingsDialog, setWorkspaceSettingsDialog] = useState(
+    defaultWorkspaceSettingsDialogState
+  );
   const [documentDialog, setDocumentDialog] = useState(defaultDocumentDialogState);
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
   const [statusDialog, setStatusDialog] = useState(defaultStatusDialogState);
@@ -269,13 +300,13 @@ function App() {
   }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, setNotification]);
 
   const openWorkspacePicker = async () => {
-    const filePath = await window.docTrack.dialogs.pickWorkspaceOpenPath();
-    if (!filePath) {
+    const rootPath = await window.docTrack.dialogs.pickWorkspaceOpenPath();
+    if (!rootPath) {
       return;
     }
 
     try {
-      await openWorkspace(filePath);
+      await openWorkspace(rootPath);
     } catch (error) {
       setNotification({
         tone: 'error',
@@ -328,7 +359,8 @@ function App() {
       setWorkspaceDialog((state) => ({ ...state, isSubmitting: true }));
       await createWorkspace({
         name: workspaceDialog.name,
-        filePath: workspaceDialog.filePath,
+        parentPath: workspaceDialog.parentPath,
+        settings: workspaceDialog.settings,
         includeExampleData: workspaceDialog.includeExampleData
       });
       setWorkspaceDialog(defaultWorkspaceDialogState);
@@ -338,6 +370,24 @@ function App() {
         message: error instanceof Error ? error.message : 'Unable to create workspace.'
       });
       setWorkspaceDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleSaveWorkspaceSettings = async () => {
+    if (!workspaceSettingsDialog.rootPath) {
+      return;
+    }
+
+    try {
+      setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: true }));
+      await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, workspaceSettingsDialog.settings);
+      setWorkspaceSettingsDialog(defaultWorkspaceSettingsDialogState);
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to save workspace settings.'
+      });
+      setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
@@ -558,6 +608,26 @@ function App() {
               Open Workspace
             </Button>
             <Button
+              variant="outline"
+              disabled={!activeWorkspace}
+              onClick={() => {
+                if (!activeWorkspace) {
+                  return;
+                }
+
+                setWorkspaceSettingsDialog({
+                  open: true,
+                  rootPath: activeWorkspace.workspace.rootPath,
+                  workspaceName: activeWorkspace.workspace.name,
+                  settings: { ...activeWorkspace.settings },
+                  isSubmitting: false
+                });
+              }}
+            >
+              <Settings2 className="h-4 w-4" />
+              Workspace Settings
+            </Button>
+            <Button
               onClick={() => setDocumentDialog((state) => ({ ...state, open: true }))}
               disabled={!activeWorkspace}
             >
@@ -570,21 +640,21 @@ function App() {
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
           {workspaceTabs.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-background/60 px-4 py-3 text-sm text-muted-foreground">
-              No workspace open yet. Create one or open an existing SQLite workspace file.
+              No workspace open yet. Create one or open an existing workspace folder.
             </div>
           ) : (
             workspaceTabs.map((workspaceTab) => (
               <button
-                key={workspaceTab.workspace.filePath}
+                key={workspaceTab.workspace.rootPath}
                 className={cn(
                   'group flex min-w-[220px] items-center gap-3 rounded-2xl border px-4 py-3 text-left transition',
-                  activeWorkspacePath === workspaceTab.workspace.filePath
+                  activeWorkspacePath === workspaceTab.workspace.rootPath
                     ? 'border-primary/30 bg-primary/10 text-foreground'
                     : 'border-border bg-background/70 text-muted-foreground hover:bg-accent'
                 )}
                 onClick={() => {
                   startTransition(() => {
-                    setActiveWorkspace(workspaceTab.workspace.filePath);
+                    setActiveWorkspace(workspaceTab.workspace.rootPath);
                   });
                 }}
               >
@@ -598,7 +668,7 @@ function App() {
                   className="rounded-full p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void closeWorkspace(workspaceTab.workspace.filePath);
+                    void closeWorkspace(workspaceTab.workspace.rootPath);
                   }}
                 >
                   <X className="h-4 w-4" />
@@ -659,8 +729,8 @@ function App() {
               recentWorkspaces={recentWorkspaces}
               onCreateWorkspace={() => setWorkspaceDialog((state) => ({ ...state, open: true }))}
               onOpenWorkspace={() => void openWorkspacePicker()}
-              onOpenRecent={(filePath) => {
-                void openWorkspace(filePath).catch((error: Error) => {
+              onOpenRecent={(rootPath) => {
+                void openWorkspace(rootPath).catch((error: Error) => {
                   setNotification({
                     tone: 'error',
                     message: error.message
@@ -674,11 +744,11 @@ function App() {
               selectedDocumentDetail={selectedDocumentDetail}
               isDetailLoading={isDetailLoading}
               onSelectDocument={(documentRecordId) =>
-                setSelectedDocument(activeWorkspace.workspace.filePath, documentRecordId)
+                setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
               }
               onOpenFile={(documentVersionId) => {
                 void window.docTrack.documents
-                  .openFile(activeWorkspace.workspace.filePath, documentVersionId)
+                  .openFile(activeWorkspace.workspace.rootPath, documentVersionId)
                   .catch((error: Error) => {
                     setNotification({
                       tone: 'error',
@@ -733,6 +803,12 @@ function App() {
         state={workspaceDialog}
         onStateChange={setWorkspaceDialog}
         onSubmit={handleCreateWorkspace}
+      />
+
+      <WorkspaceSettingsDialog
+        state={workspaceSettingsDialog}
+        onStateChange={setWorkspaceSettingsDialog}
+        onSubmit={handleSaveWorkspaceSettings}
       />
 
       <DocumentDialog
@@ -882,10 +958,10 @@ function WelcomeView({
   onOpenWorkspace,
   onOpenRecent
 }: {
-  recentWorkspaces: Array<{ filePath: string; name: string; lastOpenedDate: string }>;
+  recentWorkspaces: Array<{ rootPath: string; name: string; lastOpenedDate: string }>;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
-  onOpenRecent: (filePath: string) => void;
+  onOpenRecent: (rootPath: string) => void;
 }) {
   return (
     <div className="grid h-full gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -898,7 +974,7 @@ function WelcomeView({
           Keep every document, version, and status inside a portable offline workspace.
         </h1>
         <p className="mt-4 max-w-2xl text-base text-muted-foreground">
-          Create a new SQLite workspace or reopen an existing one. Each workspace opens in its own
+          Create a new workspace folder or reopen an existing one. Each workspace opens in its own
           tab, with document tables, version history, and type configuration ready to go.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
@@ -931,12 +1007,12 @@ function WelcomeView({
           ) : (
             recentWorkspaces.map((workspace) => (
               <button
-                key={workspace.filePath}
+                key={workspace.rootPath}
                 className="w-full rounded-2xl border border-border bg-background/70 p-4 text-left transition hover:border-primary/40 hover:bg-accent"
-                onClick={() => onOpenRecent(workspace.filePath)}
+                onClick={() => onOpenRecent(workspace.rootPath)}
               >
                 <div className="truncate text-sm font-semibold">{workspace.name}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.filePath}</div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.rootPath}</div>
                 <div className="mt-3 text-xs text-muted-foreground">
                   Last opened {formatDateTime(workspace.lastOpenedDate)}
                 </div>
@@ -1375,7 +1451,7 @@ function WorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Create New Workspace</DialogTitle>
           <DialogDescription>
-            Each workspace is a portable SQLite database with its own managed document storage.
+            DocTrack will create a workspace folder with `Database/workspace.sqlite` and `Documents`.
           </DialogDescription>
         </DialogHeader>
 
@@ -1388,21 +1464,21 @@ function WorkspaceDialog({
             />
           </Field>
 
-          <Field label="Workspace File">
+          <Field label="Workspace Location">
             <div className="flex gap-2">
               <Input
-                placeholder="/Users/you/Documents/Quality Operations.sqlite"
-                value={state.filePath}
+                placeholder="/Users/you/Documents"
+                value={state.parentPath}
                 onChange={(event) =>
-                  onStateChange((current) => ({ ...current, filePath: event.target.value }))
+                  onStateChange((current) => ({ ...current, parentPath: event.target.value }))
                 }
               />
               <Button
                 variant="outline"
                 onClick={() => {
-                  void window.docTrack.dialogs.pickWorkspaceCreatePath(state.name || 'DocTrack Workspace').then((filePath) => {
-                    if (filePath) {
-                      onStateChange((current) => ({ ...current, filePath }));
+                  void window.docTrack.dialogs.pickWorkspaceCreatePath(state.name || 'DocTrack Workspace').then((parentPath) => {
+                    if (parentPath) {
+                      onStateChange((current) => ({ ...current, parentPath }));
                     }
                   });
                 }}
@@ -1411,6 +1487,17 @@ function WorkspaceDialog({
               </Button>
             </div>
           </Field>
+
+          <WorkspaceStorageSettingsFields
+            workspaceName={state.name}
+            settings={state.settings}
+            onSettingsChange={(settings) =>
+              onStateChange((current) => ({
+                ...current,
+                settings
+              }))
+            }
+          />
 
           <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm">
             <input
@@ -1444,6 +1531,118 @@ function WorkspaceDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function WorkspaceSettingsDialog({
+  state,
+  onStateChange,
+  onSubmit
+}: {
+  state: WorkspaceSettingsDialogState;
+  onStateChange: React.Dispatch<React.SetStateAction<WorkspaceSettingsDialogState>>;
+  onSubmit: () => Promise<void>;
+}) {
+  return (
+    <Dialog
+      open={state.open}
+      onOpenChange={(open) =>
+        onStateChange(open ? { ...state, open } : defaultWorkspaceSettingsDialogState)
+      }
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Workspace Settings</DialogTitle>
+          <DialogDescription>
+            Update how new documents are stored for this workspace. Existing files stay where they are.
+          </DialogDescription>
+        </DialogHeader>
+
+        <WorkspaceStorageSettingsFields
+          workspaceName={state.workspaceName}
+          settings={state.settings}
+          onSettingsChange={(settings) =>
+            onStateChange((current) => ({
+              ...current,
+              settings
+            }))
+          }
+        />
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onStateChange(defaultWorkspaceSettingsDialogState)}
+          >
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+            Save Settings
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspaceStorageSettingsFields({
+  workspaceName,
+  settings,
+  onSettingsChange
+}: {
+  workspaceName: string;
+  settings: WorkspaceSettings;
+  onSettingsChange: (settings: WorkspaceSettings) => void;
+}) {
+  const selectedOption =
+    WORKSPACE_STORAGE_LAYOUT_OPTIONS.find((option) => option.value === settings.storageLayoutPreset) ??
+    WORKSPACE_STORAGE_LAYOUT_OPTIONS[0];
+  const previewWorkspaceName = workspaceName.trim() || 'Quality Operations';
+  const previewRelativePath = buildDocumentVersionRelativePath(
+    buildDocumentFolderRelativePath(
+      settings,
+      'Procedure',
+      '02202600001',
+      'Operating Procedure'
+    ),
+    2,
+    'procedure.pdf'
+  );
+
+  return (
+    <div className="grid gap-4">
+      <Field label="Document Storage Layout">
+        <Select
+          value={settings.storageLayoutPreset}
+          onChange={(event) =>
+            onSettingsChange({
+              storageLayoutPreset: event.target.value as WorkspaceStorageLayoutPreset
+            })
+          }
+        >
+          {WORKSPACE_STORAGE_LAYOUT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm">
+        <div className="font-medium">{selectedOption.label}</div>
+        <div className="mt-1 text-muted-foreground">{selectedOption.description}</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Example Path
+        </div>
+        <div className="mt-2 rounded-xl bg-card px-3 py-2 font-mono text-xs text-primary">
+          {previewWorkspaceName}/{previewRelativePath}
+        </div>
+        <div className="mt-3 text-xs text-muted-foreground">
+          Later settings updates affect newly created documents only. Existing document folders are not moved.
+        </div>
+      </div>
+    </div>
   );
 }
 

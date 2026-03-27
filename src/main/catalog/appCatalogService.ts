@@ -15,7 +15,7 @@ export class AppCatalogService {
     return this.readState().recentWorkspaces;
   }
 
-  touchRecentWorkspace(workspace: Pick<RecentWorkspace, 'filePath' | 'name'>): RecentWorkspace[] {
+  touchRecentWorkspace(workspace: Pick<RecentWorkspace, 'rootPath' | 'name'>): RecentWorkspace[] {
     const state = this.readState();
     const updated: RecentWorkspace = {
       ...workspace,
@@ -24,7 +24,7 @@ export class AppCatalogService {
 
     state.recentWorkspaces = [
       updated,
-      ...state.recentWorkspaces.filter((item) => item.filePath !== workspace.filePath)
+      ...state.recentWorkspaces.filter((item) => item.rootPath !== workspace.rootPath)
     ].slice(0, 12);
 
     this.writeState(state);
@@ -49,8 +49,40 @@ export class AppCatalogService {
 
     try {
       const value = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppCatalogState>;
+      const recentWorkspaces = Array.isArray(value.recentWorkspaces)
+        ? value.recentWorkspaces
+            .map((item) => {
+              if (!item || typeof item !== 'object') {
+                return undefined;
+              }
+
+              const candidate = item as Partial<RecentWorkspace> & { filePath?: string };
+              const rootPath =
+                typeof candidate.rootPath === 'string'
+                  ? candidate.rootPath
+                  : typeof candidate.filePath === 'string'
+                    ? candidate.filePath
+                    : undefined;
+
+              if (
+                !rootPath ||
+                typeof candidate.name !== 'string' ||
+                typeof candidate.lastOpenedDate !== 'string'
+              ) {
+                return undefined;
+              }
+
+              return {
+                rootPath,
+                name: candidate.name,
+                lastOpenedDate: candidate.lastOpenedDate
+              };
+            })
+            .filter((item): item is RecentWorkspace => item !== undefined)
+        : [];
+
       return {
-        recentWorkspaces: Array.isArray(value.recentWorkspaces) ? value.recentWorkspaces : [],
+        recentWorkspaces,
         themeMode:
           value.themeMode === 'light' || value.themeMode === 'dark' || value.themeMode === 'system'
             ? value.themeMode

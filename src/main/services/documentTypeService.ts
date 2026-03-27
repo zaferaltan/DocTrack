@@ -1,14 +1,18 @@
 import type { WorkspaceManager } from '@main/database/workspaceManager';
+import { FileStorageService } from '@main/services/fileStorageService';
 import type { DocumentType, DocumentTypeInput } from '@shared/types';
 
 const normalizeName = (value: string): string => value.trim();
 const normalizePrefix = (value: string): string => value.trim();
 
 export class DocumentTypeService {
-  constructor(private readonly workspaceManager: WorkspaceManager) {}
+  constructor(
+    private readonly workspaceManager: WorkspaceManager,
+    private readonly fileStorageService: FileStorageService
+  ) {}
 
-  list(filePath: string): DocumentType[] {
-    const context = this.workspaceManager.getContext(filePath);
+  list(rootPath: string): DocumentType[] {
+    const context = this.workspaceManager.getContext(rootPath);
     const rows = context.db
       .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes ORDER BY NumberPrefix ASC, Name ASC')
       .all() as Array<{ Id: number; Name: string; NumberPrefix: string }>;
@@ -20,8 +24,8 @@ export class DocumentTypeService {
     }));
   }
 
-  create(filePath: string, input: DocumentTypeInput): DocumentType {
-    const context = this.workspaceManager.getContext(filePath);
+  create(rootPath: string, input: DocumentTypeInput): DocumentType {
+    const context = this.workspaceManager.getContext(rootPath);
     const name = normalizeName(input.name);
     const numberPrefix = normalizePrefix(input.numberPrefix);
 
@@ -36,6 +40,7 @@ export class DocumentTypeService {
     const result = context.db
       .prepare('INSERT INTO DocumentTypes (Name, NumberPrefix) VALUES (?, ?)')
       .run(name, numberPrefix);
+    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name);
 
     return {
       id: Number(result.lastInsertRowid),
@@ -44,8 +49,8 @@ export class DocumentTypeService {
     };
   }
 
-  update(filePath: string, id: number, input: DocumentTypeInput): DocumentType {
-    const context = this.workspaceManager.getContext(filePath);
+  update(rootPath: string, id: number, input: DocumentTypeInput): DocumentType {
+    const context = this.workspaceManager.getContext(rootPath);
     const name = normalizeName(input.name);
     const numberPrefix = normalizePrefix(input.numberPrefix);
 
@@ -65,6 +70,8 @@ export class DocumentTypeService {
       throw new Error('Document type could not be found.');
     }
 
+    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name);
+
     return {
       id,
       name,
@@ -72,8 +79,8 @@ export class DocumentTypeService {
     };
   }
 
-  delete(filePath: string, id: number): void {
-    const context = this.workspaceManager.getContext(filePath);
+  delete(rootPath: string, id: number): void {
+    const context = this.workspaceManager.getContext(rootPath);
     const documentsUsingType = context.db
       .prepare('SELECT COUNT(*) AS total FROM Documents WHERE DocumentTypeId = @id')
       .get({ id }) as { total: number } | undefined;

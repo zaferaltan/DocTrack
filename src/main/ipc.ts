@@ -17,33 +17,34 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.workspaceCreate, (_event, input) =>
     services.workspaceService.create(input)
   );
-  ipcMain.handle(IPC_CHANNELS.workspaceOpen, (_event, filePath: string) =>
-    services.workspaceService.open(filePath)
+  ipcMain.handle(IPC_CHANNELS.workspaceOpen, (_event, rootPath: string) =>
+    services.workspaceService.open(rootPath)
   );
-  ipcMain.handle(IPC_CHANNELS.workspaceClose, (_event, filePath: string) =>
-    services.workspaceService.close(filePath)
+  ipcMain.handle(IPC_CHANNELS.workspaceClose, (_event, rootPath: string) =>
+    services.workspaceService.close(rootPath)
   );
   ipcMain.handle(IPC_CHANNELS.workspaceListOpen, () => services.workspaceService.listOpen());
   ipcMain.handle(IPC_CHANNELS.workspaceListRecent, () => services.workspaceService.listRecent());
-  ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (_event, filePath: string) =>
-    services.workspaceService.getSummary(filePath)
+  ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (_event, rootPath: string) =>
+    services.workspaceService.getSummary(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, settings) =>
+    services.workspaceService.updateSettings(rootPath, settings)
   );
 
   ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceCreatePath, async (_event, workspaceName?: string) => {
-    const result = await dialog.showSaveDialog({
-      title: 'Create Workspace',
-      defaultPath: workspaceName ? `${workspaceName}.sqlite` : 'DocTrack Workspace.sqlite',
-      filters: [{ name: 'SQLite Workspace', extensions: ['sqlite', 'db'] }]
+    const result = await dialog.showOpenDialog({
+      title: workspaceName ? `Choose a location for "${workspaceName}"` : 'Choose Workspace Location',
+      properties: ['openDirectory', 'createDirectory']
     });
 
-    return result.canceled ? null : result.filePath;
+    return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
   ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceOpenPath, async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Open Workspace',
-      properties: ['openFile'],
-      filters: [{ name: 'SQLite Workspace', extensions: ['sqlite', 'db'] }]
+      title: 'Open Workspace Folder',
+      properties: ['openDirectory']
     });
 
     return result.canceled ? null : result.filePaths[0] ?? null;
@@ -58,36 +59,36 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
-  ipcMain.handle(IPC_CHANNELS.documentsList, (_event, filePath: string) =>
-    services.documentService.list(filePath)
+  ipcMain.handle(IPC_CHANNELS.documentsList, (_event, rootPath: string) =>
+    services.documentService.list(rootPath)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsDetail, (_event, filePath: string, documentRecordId: number) =>
-    services.documentService.getDetail(filePath, documentRecordId)
+  ipcMain.handle(IPC_CHANNELS.documentsDetail, (_event, rootPath: string, documentRecordId: number) =>
+    services.documentService.getDetail(rootPath, documentRecordId)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsCreate, (_event, filePath: string, input) =>
-    services.documentService.create(filePath, input)
+  ipcMain.handle(IPC_CHANNELS.documentsCreate, (_event, rootPath: string, input) =>
+    services.documentService.create(rootPath, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (_event, filePath: string, input) =>
-    services.documentService.createVersion(filePath, input)
+  ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (_event, rootPath: string, input) =>
+    services.documentService.createVersion(rootPath, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsUpdateStatus, (_event, filePath: string, input) =>
-    services.documentService.updateStatus(filePath, input)
+  ipcMain.handle(IPC_CHANNELS.documentsUpdateStatus, (_event, rootPath: string, input) =>
+    services.documentService.updateStatus(rootPath, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentsOpenFile, (_event, filePath: string, documentVersionId: number) =>
-    services.documentService.openFile(filePath, documentVersionId)
+  ipcMain.handle(IPC_CHANNELS.documentsOpenFile, (_event, rootPath: string, documentVersionId: number) =>
+    services.documentService.openFile(rootPath, documentVersionId)
   );
 
-  ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, filePath: string) =>
-    services.documentTypeService.list(filePath)
+  ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, rootPath: string) =>
+    services.documentTypeService.list(rootPath)
   );
-  ipcMain.handle(IPC_CHANNELS.documentTypesCreate, (_event, filePath: string, input) =>
-    services.documentTypeService.create(filePath, input)
+  ipcMain.handle(IPC_CHANNELS.documentTypesCreate, (_event, rootPath: string, input) =>
+    services.documentTypeService.create(rootPath, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentTypesUpdate, (_event, filePath: string, id: number, input) =>
-    services.documentTypeService.update(filePath, id, input)
+  ipcMain.handle(IPC_CHANNELS.documentTypesUpdate, (_event, rootPath: string, id: number, input) =>
+    services.documentTypeService.update(rootPath, id, input)
   );
-  ipcMain.handle(IPC_CHANNELS.documentTypesDelete, (_event, filePath: string, id: number) =>
-    services.documentTypeService.delete(filePath, id)
+  ipcMain.handle(IPC_CHANNELS.documentTypesDelete, (_event, rootPath: string, id: number) =>
+    services.documentTypeService.delete(rootPath, id)
   );
 
   ipcMain.handle(IPC_CHANNELS.themeGet, () => services.catalogService.getThemeMode());
