@@ -17,6 +17,11 @@ const createWindow = async (): Promise<void> => {
     height: 960,
     minWidth: 1180,
     minHeight: 760,
+    movable: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#020617',
     webPreferences: {

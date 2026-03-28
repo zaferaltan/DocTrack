@@ -255,6 +255,10 @@ function App() {
   const activeWorkspace = activeWorkspacePath ? openWorkspaces[activeWorkspacePath] : undefined;
   const activeFilesVersion =
     selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ?? null;
+  const isMacOs = useMemo(
+    () => /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac OS X/.test(navigator.userAgent),
+    []
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -790,9 +794,9 @@ function App() {
   }
 
   return (
-    <div className="app-surface flex h-full flex-col">
-      <header className="border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={cn('app-surface flex h-full flex-col', isMacOs && 'platform-macos')}>
+      <header className="app-header window-drag-region border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
+        <div className="app-header-row flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-workspace text-workspace-contrast shadow-sm">
               <FileStack className="h-4 w-4" />
@@ -805,7 +809,7 @@ function App() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="window-no-drag flex flex-wrap items-center gap-1.5">
             <ThemeToggle
               themeMode={themeMode}
               onChange={(nextTheme) => {
@@ -855,7 +859,7 @@ function App() {
           </div>
         </div>
 
-        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+        <div className="window-no-drag mt-3 flex gap-1.5 overflow-x-auto pb-1">
           {workspaceTabs.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">
               No workspace open yet. Create one or open an existing workspace folder.

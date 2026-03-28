@@ -84,6 +84,23 @@ body {
   background: hsl(var(--background));
 }
 
+.window-drag-region {
+  -webkit-app-region: drag;
+}
+
+.window-no-drag,
+.window-drag-region button,
+.window-drag-region input,
+.window-drag-region select,
+.window-drag-region textarea,
+.window-drag-region a {
+  -webkit-app-region: no-drag;
+}
+
+.platform-macos .app-header-row {
+  padding-left: 5.75rem;
+}
+
 .dark ::-webkit-scrollbar-thumb {
   background: rgba(241, 241, 239, 0.16);
 }
