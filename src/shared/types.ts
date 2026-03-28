@@ -3,13 +3,12 @@ import type {
   DocumentVersionScheme,
   VersionBumpType
 } from '@shared/documentModel';
+import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived'] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
-
-export type ThemeMode = 'light' | 'dark' | 'system';
 
 export interface WorkspaceInfo {
   id: number;
@@ -157,5 +156,5 @@ export interface ExampleSeedOptions {
 
 export interface AppCatalogState {
   recentWorkspaces: RecentWorkspace[];
-  themeMode: ThemeMode;
+  applicationSettings: ApplicationSettings;
 }

@@ -1,0 +1,127 @@
+// @vitest-environment jsdom
+
+import {
+  DEFAULT_APPLICATION_SETTINGS,
+  type ApplicationSettings
+} from '@shared/applicationSettings';
+import type { OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
+import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
+import { describe, expect, it, vi } from 'vitest';
+import { createAppStore } from '@renderer/store/useAppStore';
+
+const workspaceInfo: WorkspaceInfo = {
+  id: 1,
+  name: 'Quality',
+  rootPath: '/Workspaces/Quality',
+  createdDate: '2026-03-28T10:00:00.000Z',
+  isOpen: true
+};
+
+const openWorkspaceResult: OpenWorkspaceResult = {
+  workspace: workspaceInfo,
+  summary: {
+    workspace: workspaceInfo,
+    settings: DEFAULT_WORKSPACE_SETTINGS,
+    documents: [],
+    documentTypes: [
+      {
+        id: 1,
+        name: 'Procedure',
+        numberPrefix: '02'
+      }
+    ],
+    statuses: ['Draft', 'In Review', 'Released', 'Archived']
+  }
+};
+
+const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS) => {
+  const docTrack = {
+    workspace: {
+      create: vi.fn(),
+      open: vi.fn().mockResolvedValue(openWorkspaceResult),
+      close: vi.fn(),
+      listOpen: vi.fn().mockResolvedValue([workspaceInfo]),
+      listRecent: vi.fn().mockResolvedValue([]),
+      getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
+      updateSettings: vi.fn()
+    },
+    dialogs: {
+      pickWorkspaceCreatePath: vi.fn(),
+      pickWorkspaceOpenPath: vi.fn(),
+      pickDocumentFiles: vi.fn()
+    },
+    documents: {
+      list: vi.fn(),
+      detail: vi.fn(),
+      create: vi.fn(),
+      createVersion: vi.fn(),
+      addVersionFiles: vi.fn(),
+      renameVersionFile: vi.fn(),
+      deleteVersionFile: vi.fn(),
+      changeVersionFileRole: vi.fn(),
+      syncVersionFiles: vi.fn(),
+      updateStatus: vi.fn(),
+      openVersionFile: vi.fn(),
+      openDocumentFolder: vi.fn(),
+      openVersionFolder: vi.fn()
+    },
+    documentTypes: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn()
+    },
+    appSettings: {
+      get: vi.fn().mockResolvedValue(applicationSettings),
+      update: vi.fn().mockImplementation(async (settings: ApplicationSettings) => settings)
+    }
+  };
+
+  window.docTrack = docTrack;
+  return docTrack;
+};
+
+describe('useAppStore', () => {
+  it('reopens the most recent workspace during bootstrap and applies the default workspace view', async () => {
+    const docTrack = installDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      launchBehavior: 'reopen-last-workspace',
+      defaultWorkspaceView: 'documentTypes'
+    });
+    docTrack.workspace.listRecent.mockResolvedValueOnce([
+      {
+        rootPath: workspaceInfo.rootPath,
+        name: workspaceInfo.name,
+        lastOpenedDate: '2026-03-28T12:00:00.000Z'
+      }
+    ]);
+    docTrack.workspace.listOpen
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([workspaceInfo]);
+
+    const store = createAppStore();
+
+    await store.getState().bootstrap();
+
+    expect(docTrack.workspace.open).toHaveBeenCalledWith(workspaceInfo.rootPath);
+    expect(store.getState().activeWorkspacePath).toBe(workspaceInfo.rootPath);
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe(
+      'documentTypes'
+    );
+  });
+
+  it('updates application settings through the shared IPC surface', async () => {
+    const docTrack = installDocTrackMock();
+    const store = createAppStore();
+    const nextSettings: ApplicationSettings = {
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'dark',
+      documentTableDensity: 'compact'
+    };
+
+    await store.getState().updateApplicationSettings(nextSettings);
+
+    expect(docTrack.appSettings.update).toHaveBeenCalledWith(nextSettings);
+    expect(store.getState().applicationSettings).toEqual(nextSettings);
+  });
+});

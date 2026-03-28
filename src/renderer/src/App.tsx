@@ -54,6 +54,16 @@ import { Textarea } from '@renderer/components/ui/textarea';
 import { cn, formatDateShort, formatDateTime } from '@renderer/lib/utils';
 import { useAppStore } from '@renderer/store/useAppStore';
 import {
+  APPLICATION_LAUNCH_BEHAVIOR_OPTIONS,
+  DEFAULT_APPLICATION_SETTINGS,
+  DOCUMENT_TABLE_DENSITY_OPTIONS,
+  THEME_MODE_OPTIONS,
+  WORKSPACE_VIEW_OPTIONS,
+  type ApplicationSettings,
+  type DocumentTableDensity,
+  type ThemeMode
+} from '@shared/applicationSettings';
+import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
   DOCUMENT_VERSION_SCHEME_LABELS,
@@ -78,11 +88,8 @@ import type {
   DocumentStatus,
   DocumentVersion,
   DocumentVersionFile,
-  DocumentType,
-  ThemeMode
+  DocumentType
 } from '@shared/types';
-
-type WorkspaceView = 'documents' | 'documentTypes';
 
 type NotificationTone = 'success' | 'error';
 
@@ -93,11 +100,13 @@ const STATUS_VARIANTS: Record<DocumentStatus, 'success' | 'warning' | 'muted' | 
   Archived: 'muted'
 };
 
-const themeOptions: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: SunMoon }
-];
+const THEME_MODE_ICONS: Record<ThemeMode, typeof Sun> = {
+  light: Sun,
+  dark: Moon,
+  system: SunMoon
+};
+
+const SUCCESS_NOTIFICATION_TIMEOUT_MS = 3500;
 
 const getSystemTheme = (): ThemeMode =>
   window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -107,6 +116,31 @@ const applyTheme = (themeMode: ThemeMode): void => {
   const effectiveTheme = themeMode === 'system' ? getSystemTheme() : themeMode;
   root.classList.toggle('dark', effectiveTheme === 'dark');
 };
+
+const buildWorkspaceDialogState = (
+  applicationSettings: ApplicationSettings
+): WorkspaceDialogState => ({
+  ...defaultWorkspaceDialogState,
+  open: true,
+  includeExampleData: applicationSettings.defaultIncludeExampleData
+});
+
+const buildDocumentDialogState = (
+  applicationSettings: ApplicationSettings
+): DocumentDialogState => ({
+  ...defaultDocumentDialogState,
+  open: true,
+  author: applicationSettings.defaultDocumentAuthor,
+  versionScheme: applicationSettings.defaultDocumentVersionScheme
+});
+
+const buildApplicationSettingsDialogState = (
+  applicationSettings: ApplicationSettings
+): ApplicationSettingsDialogState => ({
+  open: true,
+  settings: { ...applicationSettings },
+  isSubmitting: false
+});
 
 interface WorkspaceDialogState {
   open: boolean;
@@ -122,6 +156,12 @@ interface WorkspaceSettingsDialogState {
   rootPath?: string;
   workspaceName: string;
   settings: WorkspaceSettings;
+  isSubmitting: boolean;
+}
+
+interface ApplicationSettingsDialogState {
+  open: boolean;
+  settings: ApplicationSettings;
   isSubmitting: boolean;
 }
 
@@ -179,6 +219,12 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   isSubmitting: false
 };
 
+const defaultApplicationSettingsDialogState: ApplicationSettingsDialogState = {
+  open: false,
+  settings: { ...DEFAULT_APPLICATION_SETTINGS },
+  isSubmitting: false
+};
+
 const defaultDocumentDialogState: DocumentDialogState = {
   open: false,
   title: '',
@@ -222,7 +268,7 @@ function App() {
     openWorkspaces,
     activeWorkspacePath,
     recentWorkspaces,
-    themeMode,
+    applicationSettings,
     isBootstrapped,
     notification,
     bootstrap,
@@ -234,13 +280,16 @@ function App() {
     setActiveWorkspace,
     setWorkspaceView,
     setSelectedDocument,
-    setThemeMode,
+    updateApplicationSettings,
     setNotification
   } = useAppStore();
 
   const [workspaceDialog, setWorkspaceDialog] = useState(defaultWorkspaceDialogState);
   const [workspaceSettingsDialog, setWorkspaceSettingsDialog] = useState(
     defaultWorkspaceSettingsDialogState
+  );
+  const [applicationSettingsDialog, setApplicationSettingsDialog] = useState(
+    defaultApplicationSettingsDialogState
   );
   const [documentDialog, setDocumentDialog] = useState(defaultDocumentDialogState);
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
@@ -255,6 +304,9 @@ function App() {
   const activeWorkspace = activeWorkspacePath ? openWorkspaces[activeWorkspacePath] : undefined;
   const activeFilesVersion =
     selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ?? null;
+  const previewThemeMode = applicationSettingsDialog.open
+    ? applicationSettingsDialog.settings.themeMode
+    : applicationSettings.themeMode;
   const isMacOs = useMemo(
     () => /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac OS X/.test(navigator.userAgent),
     []
@@ -290,11 +342,11 @@ function App() {
   }, [bootstrap, setNotification]);
 
   useEffect(() => {
-    applyTheme(themeMode);
-  }, [themeMode]);
+    applyTheme(previewThemeMode);
+  }, [previewThemeMode]);
 
   useEffect(() => {
-    if (themeMode !== 'system') {
+    if (previewThemeMode !== 'system') {
       return undefined;
     }
 
@@ -305,7 +357,25 @@ function App() {
     return () => {
       query.removeEventListener('change', listener);
     };
-  }, [themeMode]);
+  }, [previewThemeMode]);
+
+  useEffect(() => {
+    if (
+      !notification ||
+      notification.tone !== 'success' ||
+      !applicationSettings.autoDismissSuccessNotifications
+    ) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNotification(undefined);
+    }, SUCCESS_NOTIFICATION_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [applicationSettings.autoDismissSuccessNotifications, notification, setNotification]);
 
   useEffect(() => {
     const loadSelectedDocumentDetail = async () => {
@@ -377,6 +447,22 @@ function App() {
     }
   };
 
+  const openCreateWorkspaceDialog = () => {
+    setWorkspaceDialog(buildWorkspaceDialogState(applicationSettings));
+  };
+
+  const openCreateDocumentDialog = () => {
+    if (!activeWorkspace) {
+      return;
+    }
+
+    setDocumentDialog(buildDocumentDialogState(applicationSettings));
+  };
+
+  const openApplicationSettingsDialog = () => {
+    setApplicationSettingsDialog(buildApplicationSettingsDialogState(applicationSettings));
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const isMeta = event.metaKey || event.ctrlKey;
@@ -384,9 +470,15 @@ function App() {
         return;
       }
 
+      if (!event.shiftKey && event.key === ',') {
+        event.preventDefault();
+        openApplicationSettingsDialog();
+        return;
+      }
+
       if (event.shiftKey && event.key.toLowerCase() === 'n') {
         event.preventDefault();
-        setWorkspaceDialog((state) => ({ ...state, open: true }));
+        openCreateWorkspaceDialog();
         return;
       }
 
@@ -398,7 +490,7 @@ function App() {
 
       if (event.key.toLowerCase() === 'n' && activeWorkspace) {
         event.preventDefault();
-        setDocumentDialog((state) => ({ ...state, open: true }));
+        openCreateDocumentDialog();
         return;
       }
 
@@ -414,7 +506,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeWorkspace, openWorkspacePicker]);
+  }, [activeWorkspace, applicationSettings, openWorkspacePicker]);
 
   const handleCreateWorkspace = async () => {
     try {
@@ -450,6 +542,24 @@ function App() {
         message: error instanceof Error ? error.message : 'Unable to save workspace settings.'
       });
       setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleSaveApplicationSettings = async () => {
+    try {
+      setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: true }));
+      await updateApplicationSettings(applicationSettingsDialog.settings);
+      setApplicationSettingsDialog(defaultApplicationSettingsDialogState);
+      setNotification({
+        tone: 'success',
+        message: 'Application settings saved.'
+      });
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to save application settings.'
+      });
+      setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
@@ -572,8 +682,10 @@ function App() {
       return;
     }
 
-    const confirmed = window.confirm(`Delete document type "${type.name}"?`);
-    if (!confirmed) {
+    if (
+      applicationSettings.confirmDestructiveActions &&
+      !window.confirm(`Delete document type "${type.name}"?`)
+    ) {
       return;
     }
 
@@ -705,8 +817,10 @@ function App() {
       return;
     }
 
-    const confirmed = window.confirm(`Delete "${file.fileName}"?`);
-    if (!confirmed) {
+    if (
+      applicationSettings.confirmDestructiveActions &&
+      !window.confirm(`Delete "${file.fileName}"?`)
+    ) {
       return;
     }
 
@@ -810,18 +924,11 @@ function App() {
           </div>
 
           <div className="window-no-drag flex flex-wrap items-center gap-1.5">
-            <ThemeToggle
-              themeMode={themeMode}
-              onChange={(nextTheme) => {
-                void setThemeMode(nextTheme).catch((error: Error) => {
-                  setNotification({
-                    tone: 'error',
-                    message: error.message
-                  });
-                });
-              }}
-            />
-            <Button variant="outline" onClick={() => setWorkspaceDialog((state) => ({ ...state, open: true }))}>
+            <Button variant="outline" onClick={openApplicationSettingsDialog}>
+              <SunMoon className="h-4 w-4" />
+              Application Settings
+            </Button>
+            <Button variant="outline" onClick={openCreateWorkspaceDialog}>
               <Plus className="h-4 w-4" />
               New Workspace
             </Button>
@@ -850,7 +957,7 @@ function App() {
               Workspace Settings
             </Button>
             <Button
-              onClick={() => setDocumentDialog((state) => ({ ...state, open: true }))}
+              onClick={openCreateDocumentDialog}
               disabled={!activeWorkspace}
             >
               <FilePlus2 className="h-4 w-4" />
@@ -866,8 +973,10 @@ function App() {
             </div>
           ) : (
             workspaceTabs.map((workspaceTab) => (
-              <button
+              <div
                 key={workspaceTab.workspace.rootPath}
+                role="button"
+                tabIndex={0}
                 className={cn(
                   'group flex min-w-[190px] items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition',
                   activeWorkspacePath === workspaceTab.workspace.rootPath
@@ -878,6 +987,14 @@ function App() {
                   startTransition(() => {
                     setActiveWorkspace(workspaceTab.workspace.rootPath);
                   });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    startTransition(() => {
+                      setActiveWorkspace(workspaceTab.workspace.rootPath);
+                    });
+                  }
                 }}
               >
                 <div className="min-w-0 flex-1">
@@ -895,7 +1012,7 @@ function App() {
                 >
                   <X className="h-4 w-4" />
                 </button>
-              </button>
+              </div>
             ))
           )}
         </div>
@@ -937,6 +1054,7 @@ function App() {
               Keyboard Shortcuts
             </div>
             <div className="mt-3 space-y-2.5 text-[13px] text-slate-200/80">
+              <Shortcut hint="Ctrl/Cmd + ," label="Application settings" />
               <Shortcut hint="Ctrl/Cmd + Shift + N" label="New workspace" />
               <Shortcut hint="Ctrl/Cmd + O" label="Open workspace" />
               <Shortcut hint="Ctrl/Cmd + N" label="New document" />
@@ -949,7 +1067,7 @@ function App() {
           {!activeWorkspace ? (
             <WelcomeView
               recentWorkspaces={recentWorkspaces}
-              onCreateWorkspace={() => setWorkspaceDialog((state) => ({ ...state, open: true }))}
+              onCreateWorkspace={openCreateWorkspaceDialog}
               onOpenWorkspace={() => void openWorkspacePicker()}
               onOpenRecent={(rootPath) => {
                 void openWorkspace(rootPath).catch((error: Error) => {
@@ -963,13 +1081,14 @@ function App() {
           ) : activeWorkspace.selectedView === 'documents' ? (
             <DocumentsView
               workspace={activeWorkspace}
+              documentTableDensity={applicationSettings.documentTableDensity}
               selectedDocumentDetail={selectedDocumentDetail}
               isDetailLoading={isDetailLoading}
               onSelectDocument={(documentRecordId) =>
                 setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
               }
               onShowFiles={handleShowFilesForDocument}
-              onRequestNewDocument={() => setDocumentDialog((state) => ({ ...state, open: true }))}
+              onRequestNewDocument={openCreateDocumentDialog}
               onRequestNewVersion={() => {
                 if (selectedDocumentDetail) {
                   setVersionDialog((state) => ({
@@ -1044,6 +1163,12 @@ function App() {
         state={workspaceSettingsDialog}
         onStateChange={setWorkspaceSettingsDialog}
         onSubmit={handleSaveWorkspaceSettings}
+      />
+
+      <ApplicationSettingsDialog
+        state={applicationSettingsDialog}
+        onStateChange={setApplicationSettingsDialog}
+        onSubmit={handleSaveApplicationSettings}
       />
 
       <DocumentDialog
@@ -1143,8 +1268,8 @@ function ThemeToggle({
 }) {
   return (
     <div className="flex rounded-xl border border-border bg-background p-0.5 shadow-sm">
-      {themeOptions.map((option) => {
-        const Icon = option.icon;
+      {THEME_MODE_OPTIONS.map((option) => {
+        const Icon = THEME_MODE_ICONS[option.value];
         return (
           <button
             key={option.value}
@@ -1162,6 +1287,306 @@ function ThemeToggle({
         );
       })}
     </div>
+  );
+}
+
+function ApplicationSettingsDialog({
+  state,
+  onStateChange,
+  onSubmit
+}: {
+  state: ApplicationSettingsDialogState;
+  onStateChange: React.Dispatch<React.SetStateAction<ApplicationSettingsDialogState>>;
+  onSubmit: () => Promise<void>;
+}) {
+  const selectedLaunchBehavior =
+    APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.find(
+      (option) => option.value === state.settings.launchBehavior
+    ) ?? APPLICATION_LAUNCH_BEHAVIOR_OPTIONS[0];
+  const selectedWorkspaceView =
+    WORKSPACE_VIEW_OPTIONS.find((option) => option.value === state.settings.defaultWorkspaceView) ??
+    WORKSPACE_VIEW_OPTIONS[0];
+  const selectedDensity =
+    DOCUMENT_TABLE_DENSITY_OPTIONS.find(
+      (option) => option.value === state.settings.documentTableDensity
+    ) ?? DOCUMENT_TABLE_DENSITY_OPTIONS[0];
+
+  return (
+    <Dialog
+      open={state.open}
+      onOpenChange={(open) =>
+        onStateChange(open ? { ...state, open } : defaultApplicationSettingsDialogState)
+      }
+    >
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Application Settings</DialogTitle>
+          <DialogDescription>
+            Customize how DocTrack looks, launches, and behaves across every workspace.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="grid gap-4">
+          <SettingsSection
+            title="Appearance"
+            description="Set the look and feel for the whole app."
+          >
+            <Field label="Theme">
+              <ThemeToggle
+                themeMode={state.settings.themeMode}
+                onChange={(themeMode) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      themeMode
+                    }
+                  }))
+                }
+              />
+              <div className="text-xs text-muted-foreground">
+                Theme changes preview immediately while this modal is open. Save to keep them.
+              </div>
+            </Field>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Startup & Navigation"
+            description="Choose where DocTrack starts and which workspace view opens first."
+          >
+            <Field label="Launch Behavior">
+              <Select
+                value={state.settings.launchBehavior}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      launchBehavior: event.target.value as ApplicationSettings['launchBehavior']
+                    }
+                  }))
+                }
+              >
+                {APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-muted-foreground">{selectedLaunchBehavior.description}</div>
+            </Field>
+
+            <Field label="Default Workspace View">
+              <Select
+                value={state.settings.defaultWorkspaceView}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      defaultWorkspaceView: event.target.value as ApplicationSettings['defaultWorkspaceView']
+                    }
+                  }))
+                }
+              >
+                {WORKSPACE_VIEW_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-muted-foreground">{selectedWorkspaceView.description}</div>
+            </Field>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Creation Defaults"
+            description="Pre-fill common choices when users create workspaces and documents."
+          >
+            <ToggleSetting
+              title="Seed starter data in new workspaces"
+              description="New workspace dialogs start with example document types and sample documents enabled."
+              checked={state.settings.defaultIncludeExampleData}
+              onChange={(checked) =>
+                onStateChange((current) => ({
+                  ...current,
+                  settings: {
+                    ...current.settings,
+                    defaultIncludeExampleData: checked
+                  }
+                }))
+              }
+            />
+
+            <Field label="Default Document Author">
+              <Input
+                placeholder="Jordan Singh"
+                value={state.settings.defaultDocumentAuthor}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      defaultDocumentAuthor: event.target.value
+                    }
+                  }))
+                }
+              />
+              <div className="text-xs text-muted-foreground">
+                New document dialogs start with this author name pre-filled.
+              </div>
+            </Field>
+
+            <Field label="Default Document Version Scheme">
+              <Select
+                value={state.settings.defaultDocumentVersionScheme}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      defaultDocumentVersionScheme:
+                        event.target.value as ApplicationSettings['defaultDocumentVersionScheme']
+                    }
+                  }))
+                }
+              >
+                {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Table & Display"
+            description="Tune how dense the main document workspace feels."
+          >
+            <Field label="Document Table Density">
+              <Select
+                value={state.settings.documentTableDensity}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      documentTableDensity:
+                        event.target.value as ApplicationSettings['documentTableDensity']
+                    }
+                  }))
+                }
+              >
+                {DOCUMENT_TABLE_DENSITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-muted-foreground">{selectedDensity.description}</div>
+            </Field>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Feedback & Safety"
+            description="Control confirmation prompts and how long success messages stay visible."
+          >
+            <ToggleSetting
+              title="Confirm destructive actions"
+              description="Ask before deleting document types or version files."
+              checked={state.settings.confirmDestructiveActions}
+              onChange={(checked) =>
+                onStateChange((current) => ({
+                  ...current,
+                  settings: {
+                    ...current.settings,
+                    confirmDestructiveActions: checked
+                  }
+                }))
+              }
+            />
+
+            <ToggleSetting
+              title="Auto-dismiss success notifications"
+              description="Success messages fade away automatically while error messages stay visible."
+              checked={state.settings.autoDismissSuccessNotifications}
+              onChange={(checked) =>
+                onStateChange((current) => ({
+                  ...current,
+                  settings: {
+                    ...current.settings,
+                    autoDismissSuccessNotifications: checked
+                  }
+                }))
+              }
+            />
+          </SettingsSection>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-border pt-4">
+          <Button
+            variant="outline"
+            onClick={() => onStateChange(defaultApplicationSettingsDialogState)}
+          >
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <SunMoon className="h-4 w-4" />}
+            Save Settings
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SettingsSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
+      <div className="pb-3">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="mt-1 text-[13px] text-muted-foreground">{description}</div>
+      </div>
+      <div className="grid gap-4">{children}</div>
+    </section>
+  );
+}
+
+function ToggleSetting({
+  title,
+  description,
+  checked,
+  onChange
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-[13px]">
+      <input
+        checked={checked}
+        className="mt-1"
+        type="checkbox"
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <span className="block font-medium">{title}</span>
+        <span className="text-muted-foreground">{description}</span>
+      </span>
+    </label>
   );
 }
 
@@ -1306,6 +1731,7 @@ function WelcomeView({
 
 function DocumentsView({
   workspace,
+  documentTableDensity,
   selectedDocumentDetail,
   isDetailLoading,
   onSelectDocument,
@@ -1317,6 +1743,7 @@ function DocumentsView({
   onShowVersionFiles
 }: {
   workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  documentTableDensity: DocumentTableDensity;
   selectedDocumentDetail: DocumentDetail | null;
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
@@ -1332,6 +1759,16 @@ function DocumentsView({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All');
   const deferredSearch = useDeferredValue(search);
+  const headerCellClassName =
+    documentTableDensity === 'compact'
+      ? 'whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground'
+      : 'whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground';
+  const bodyCellClassName =
+    documentTableDensity === 'compact' ? 'px-3 py-2 align-middle' : 'px-3 py-2.5 align-middle';
+  const emptyStateClassName =
+    documentTableDensity === 'compact'
+      ? 'px-6 py-10 text-center text-muted-foreground'
+      : 'px-6 py-12 text-center text-muted-foreground';
 
   const statusOptions = useMemo(() => ['All', ...workspace.statuses] as const, [workspace.statuses]);
 
@@ -1534,7 +1971,7 @@ function DocumentsView({
                       <th
                         key={header.id}
                         className={cn(
-                          'whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground',
+                          headerCellClassName,
                           header.id === 'actions' && 'text-right'
                         )}
                       >
@@ -1549,7 +1986,7 @@ function DocumentsView({
               <tbody>
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={columns.length} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={columns.length} className={emptyStateClassName}>
                       No documents match the current search and filter settings.
                     </td>
                   </tr>
@@ -1567,7 +2004,7 @@ function DocumentsView({
                         <td
                           key={cell.id}
                           className={cn(
-                            'px-3 py-2.5 align-middle',
+                            bodyCellClassName,
                             cell.column.id === 'actions' && 'min-w-[180px]'
                           )}
                         >

@@ -1,11 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppCatalogState, RecentWorkspace, ThemeMode } from '@shared/types';
+import {
+  DEFAULT_APPLICATION_SETTINGS,
+  isApplicationLaunchBehavior,
+  isDocumentTableDensity,
+  isThemeMode,
+  isWorkspaceView,
+  type ApplicationSettings
+} from '@shared/applicationSettings';
+import type { AppCatalogState, RecentWorkspace } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 
 const DEFAULT_STATE: AppCatalogState = {
   recentWorkspaces: [],
-  themeMode: 'system'
+  applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS }
 };
 
 export class AppCatalogService {
@@ -31,15 +39,15 @@ export class AppCatalogService {
     return state.recentWorkspaces;
   }
 
-  getThemeMode(): ThemeMode {
-    return this.readState().themeMode;
+  getApplicationSettings(): ApplicationSettings {
+    return this.readState().applicationSettings;
   }
 
-  setThemeMode(themeMode: ThemeMode): ThemeMode {
+  updateApplicationSettings(settings: ApplicationSettings): ApplicationSettings {
     const state = this.readState();
-    state.themeMode = themeMode;
+    state.applicationSettings = this.normalizeApplicationSettings(settings);
     this.writeState(state);
-    return themeMode;
+    return state.applicationSettings;
   }
 
   private readState(): AppCatalogState {
@@ -83,14 +91,65 @@ export class AppCatalogService {
 
       return {
         recentWorkspaces,
-        themeMode:
-          value.themeMode === 'light' || value.themeMode === 'dark' || value.themeMode === 'system'
-            ? value.themeMode
-            : 'system'
+        applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value)
       };
     } catch {
       return { ...DEFAULT_STATE };
     }
+  }
+
+  private normalizeApplicationSettings(
+    settings?: Partial<ApplicationSettings>,
+    legacyValue?: Partial<AppCatalogState> & { themeMode?: unknown }
+  ): ApplicationSettings {
+    const nextSettings = settings ?? {};
+    const legacyThemeMode = legacyValue?.themeMode;
+
+    return {
+      themeMode:
+        typeof nextSettings.themeMode === 'string' && isThemeMode(nextSettings.themeMode)
+          ? nextSettings.themeMode
+          : typeof legacyThemeMode === 'string' && isThemeMode(legacyThemeMode)
+            ? legacyThemeMode
+            : DEFAULT_APPLICATION_SETTINGS.themeMode,
+      launchBehavior:
+        typeof nextSettings.launchBehavior === 'string' &&
+        isApplicationLaunchBehavior(nextSettings.launchBehavior)
+          ? nextSettings.launchBehavior
+          : DEFAULT_APPLICATION_SETTINGS.launchBehavior,
+      defaultWorkspaceView:
+        typeof nextSettings.defaultWorkspaceView === 'string' &&
+        isWorkspaceView(nextSettings.defaultWorkspaceView)
+          ? nextSettings.defaultWorkspaceView
+          : DEFAULT_APPLICATION_SETTINGS.defaultWorkspaceView,
+      documentTableDensity:
+        typeof nextSettings.documentTableDensity === 'string' &&
+        isDocumentTableDensity(nextSettings.documentTableDensity)
+          ? nextSettings.documentTableDensity
+          : DEFAULT_APPLICATION_SETTINGS.documentTableDensity,
+      defaultIncludeExampleData:
+        typeof nextSettings.defaultIncludeExampleData === 'boolean'
+          ? nextSettings.defaultIncludeExampleData
+          : DEFAULT_APPLICATION_SETTINGS.defaultIncludeExampleData,
+      defaultDocumentAuthor:
+        typeof nextSettings.defaultDocumentAuthor === 'string'
+          ? nextSettings.defaultDocumentAuthor
+          : DEFAULT_APPLICATION_SETTINGS.defaultDocumentAuthor,
+      defaultDocumentVersionScheme:
+        nextSettings.defaultDocumentVersionScheme === 'numeric-3' ||
+        nextSettings.defaultDocumentVersionScheme === 'v-prefix' ||
+        nextSettings.defaultDocumentVersionScheme === 'major-minor'
+          ? nextSettings.defaultDocumentVersionScheme
+          : DEFAULT_APPLICATION_SETTINGS.defaultDocumentVersionScheme,
+      confirmDestructiveActions:
+        typeof nextSettings.confirmDestructiveActions === 'boolean'
+          ? nextSettings.confirmDestructiveActions
+          : DEFAULT_APPLICATION_SETTINGS.confirmDestructiveActions,
+      autoDismissSuccessNotifications:
+        typeof nextSettings.autoDismissSuccessNotifications === 'boolean'
+          ? nextSettings.autoDismissSuccessNotifications
+          : DEFAULT_APPLICATION_SETTINGS.autoDismissSuccessNotifications
+    };
   }
 
   private writeState(state: AppCatalogState): void {

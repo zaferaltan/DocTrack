@@ -1,3 +1,4 @@
+import type { ApplicationSettings } from '@shared/applicationSettings';
 import type {
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
@@ -13,7 +14,6 @@ import type {
   OpenWorkspaceResult,
   RecentWorkspace,
   RenameDocumentVersionFileInput,
-  ThemeMode,
   UpdateDocumentStatusInput,
   WorkspaceCreateInput,
   WorkspaceInfo
@@ -48,8 +48,8 @@ export const IPC_CHANNELS = {
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
   documentTypesDelete: 'documentTypes:delete',
-  themeGet: 'theme:get',
-  themeSet: 'theme:set'
+  appSettingsGet: 'appSettings:get',
+  appSettingsUpdate: 'appSettings:update'
 } as const;
 
 export interface DocTrackApi {
@@ -97,8 +97,8 @@ export interface DocTrackApi {
     update: (rootPath: string, id: number, input: DocumentTypeInput) => Promise<DocumentType>;
     delete: (rootPath: string, id: number) => Promise<void>;
   };
-  theme: {
-    get: () => Promise<ThemeMode>;
-    set: (themeMode: ThemeMode) => Promise<ThemeMode>;
+  appSettings: {
+    get: () => Promise<ApplicationSettings>;
+    update: (settings: ApplicationSettings) => Promise<ApplicationSettings>;
   };
 }

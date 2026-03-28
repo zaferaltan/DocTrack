@@ -52,9 +52,9 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentTypesUpdate, filePath, id, input),
     delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesDelete, filePath, id)
   },
-  theme: {
-    get: () => ipcRenderer.invoke(IPC_CHANNELS.themeGet),
-    set: (themeMode) => ipcRenderer.invoke(IPC_CHANNELS.themeSet, themeMode)
+  appSettings: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.appSettingsGet),
+    update: (settings) => ipcRenderer.invoke(IPC_CHANNELS.appSettingsUpdate, settings)
   }
 };
 

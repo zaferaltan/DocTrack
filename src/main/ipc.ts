@@ -4,7 +4,6 @@ import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
 import type { WorkspaceService } from '@main/services/workspaceService';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { ThemeMode } from '@shared/types';
 
 interface ServiceContainer {
   workspaceService: WorkspaceService;
@@ -112,8 +111,8 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     services.documentTypeService.delete(rootPath, id)
   );
 
-  ipcMain.handle(IPC_CHANNELS.themeGet, () => services.catalogService.getThemeMode());
-  ipcMain.handle(IPC_CHANNELS.themeSet, (_event, themeMode: ThemeMode) =>
-    services.catalogService.setThemeMode(themeMode)
+  ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => services.catalogService.getApplicationSettings());
+  ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, (_event, settings) =>
+    services.catalogService.updateApplicationSettings(settings)
   );
 };

@@ -1,13 +1,15 @@
 import { create } from 'zustand';
+import {
+  DEFAULT_APPLICATION_SETTINGS,
+  type ApplicationSettings,
+  type WorkspaceView
+} from '@shared/applicationSettings';
 import type {
   OpenWorkspaceResult,
   RecentWorkspace,
-  ThemeMode,
   WorkspaceSummary
 } from '@shared/types';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
-
-export type WorkspaceView = 'documents' | 'documentTypes';
 
 export interface WorkspaceTabState extends WorkspaceSummary {
   selectedView: WorkspaceView;
@@ -18,7 +20,7 @@ interface AppStoreState {
   openWorkspaces: Record<string, WorkspaceTabState>;
   activeWorkspacePath?: string;
   recentWorkspaces: RecentWorkspace[];
-  themeMode: ThemeMode;
+  applicationSettings: ApplicationSettings;
   isBootstrapped: boolean;
   notification?: {
     tone: 'success' | 'error';
@@ -38,182 +40,212 @@ interface AppStoreState {
   setActiveWorkspace: (rootPath: string) => void;
   setWorkspaceView: (rootPath: string, view: WorkspaceView) => void;
   setSelectedDocument: (rootPath: string, documentRecordId?: number) => void;
-  setThemeMode: (themeMode: ThemeMode) => Promise<void>;
+  updateApplicationSettings: (settings: ApplicationSettings) => Promise<void>;
   setNotification: (notification?: AppStoreState['notification']) => void;
 }
 
 const buildWorkspaceState = (
   result: OpenWorkspaceResult,
+  applicationSettings: ApplicationSettings,
   existing?: WorkspaceTabState
 ): WorkspaceTabState => ({
   ...result.summary,
-  selectedView: existing?.selectedView ?? 'documents',
+  selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
   selectedDocumentRecordId: existing?.selectedDocumentRecordId
 });
 
-export const useAppStore = create<AppStoreState>((set, get) => ({
-  openWorkspaces: {},
-  activeWorkspacePath: undefined,
-  recentWorkspaces: [],
-  themeMode: 'system',
-  isBootstrapped: false,
-  notification: undefined,
-  bootstrap: async () => {
-    const [recentWorkspaces, themeMode, openWorkspaceInfos] = await Promise.all([
-      window.docTrack.workspace.listRecent(),
-      window.docTrack.theme.get(),
-      window.docTrack.workspace.listOpen()
-    ]);
+export const createAppStore = () =>
+  create<AppStoreState>((set, get) => ({
+    openWorkspaces: {},
+    activeWorkspacePath: undefined,
+    recentWorkspaces: [],
+    applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS },
+    isBootstrapped: false,
+    notification: undefined,
+    bootstrap: async () => {
+      let [recentWorkspaces, applicationSettings, openWorkspaceInfos] = await Promise.all([
+        window.docTrack.workspace.listRecent(),
+        window.docTrack.appSettings.get(),
+        window.docTrack.workspace.listOpen()
+      ]);
 
-    const summaries = await Promise.all(
-      openWorkspaceInfos.map((workspace) => window.docTrack.workspace.getSummary(workspace.rootPath))
-    );
+      if (
+        openWorkspaceInfos.length === 0 &&
+        applicationSettings.launchBehavior === 'reopen-last-workspace'
+      ) {
+        const mostRecentWorkspace = recentWorkspaces[0];
 
-    const openWorkspaces = Object.fromEntries(
-      summaries.map((summary) => [summary.workspace.rootPath, buildWorkspaceState(summary)])
-    );
-
-    set({
-      recentWorkspaces,
-      themeMode,
-      openWorkspaces,
-      activeWorkspacePath: summaries[0]?.workspace.rootPath,
-      isBootstrapped: true
-    });
-  },
-  createWorkspace: async (input) => {
-    const result = await window.docTrack.workspace.create(input);
-    const recentWorkspaces = await window.docTrack.workspace.listRecent();
-    const warningSuffix =
-      result.warnings && result.warnings.length > 0
-        ? ` ${result.warnings.length} storage warning${result.warnings.length === 1 ? '' : 's'} recorded.`
-        : '';
-    set((state) => ({
-      openWorkspaces: {
-        ...state.openWorkspaces,
-        [result.workspace.rootPath]: buildWorkspaceState(
-          result,
-          state.openWorkspaces[result.workspace.rootPath]
-        )
-      },
-      activeWorkspacePath: result.workspace.rootPath,
-      recentWorkspaces,
-      notification: {
-        tone: 'success',
-        message: `Workspace "${result.workspace.name}" is ready.${warningSuffix}`
-      }
-    }));
-  },
-  openWorkspace: async (rootPath) => {
-    const result = await window.docTrack.workspace.open(rootPath);
-    const recentWorkspaces = await window.docTrack.workspace.listRecent();
-    set((state) => ({
-      openWorkspaces: {
-        ...state.openWorkspaces,
-        [result.workspace.rootPath]: buildWorkspaceState(
-          result,
-          state.openWorkspaces[result.workspace.rootPath]
-        )
-      },
-      activeWorkspacePath: result.workspace.rootPath,
-      recentWorkspaces,
-      notification: {
-        tone: 'success',
-        message: `Opened workspace "${result.workspace.name}".`
-      }
-    }));
-  },
-  refreshWorkspace: async (rootPath) => {
-    const result = await window.docTrack.workspace.getSummary(rootPath);
-    set((state) => ({
-      openWorkspaces: {
-        ...state.openWorkspaces,
-        [result.workspace.rootPath]: buildWorkspaceState(
-          result,
-          state.openWorkspaces[result.workspace.rootPath]
-        )
-      }
-    }));
-  },
-  closeWorkspace: async (rootPath) => {
-    await window.docTrack.workspace.close(rootPath);
-    set((state) => {
-      const nextOpenWorkspaces = { ...state.openWorkspaces };
-      delete nextOpenWorkspaces[rootPath];
-
-      const remainingPaths = Object.keys(nextOpenWorkspaces);
-
-      return {
-        openWorkspaces: nextOpenWorkspaces,
-        activeWorkspacePath:
-          state.activeWorkspacePath === rootPath
-            ? remainingPaths[remainingPaths.length - 1]
-            : state.activeWorkspacePath
-      };
-    });
-  },
-  updateWorkspaceSettings: async (rootPath, settings) => {
-    const result = await window.docTrack.workspace.updateSettings(rootPath, settings);
-    const warningSuffix =
-      result.warnings && result.warnings.length > 0
-        ? ` ${result.warnings.length} unmanaged path warning${result.warnings.length === 1 ? '' : 's'} recorded.`
-        : '';
-    set((state) => ({
-      openWorkspaces: {
-        ...state.openWorkspaces,
-        [result.workspace.rootPath]: buildWorkspaceState(
-          result,
-          state.openWorkspaces[result.workspace.rootPath]
-        )
-      },
-      notification: {
-        tone: 'success',
-        message: `Workspace settings saved for "${result.workspace.name}".${warningSuffix}`
-      }
-    }));
-  },
-  setActiveWorkspace: (rootPath) => {
-    set({ activeWorkspacePath: rootPath });
-  },
-  setWorkspaceView: (rootPath, view) => {
-    set((state) => {
-      const workspace = state.openWorkspaces[rootPath];
-      if (!workspace) {
-        return state;
-      }
-
-      return {
-        openWorkspaces: {
-          ...state.openWorkspaces,
-          [rootPath]: {
-            ...workspace,
-            selectedView: view
+        if (mostRecentWorkspace) {
+          try {
+            await window.docTrack.workspace.open(mostRecentWorkspace.rootPath);
+            [recentWorkspaces, openWorkspaceInfos] = await Promise.all([
+              window.docTrack.workspace.listRecent(),
+              window.docTrack.workspace.listOpen()
+            ]);
+          } catch {
+            openWorkspaceInfos = [];
           }
         }
-      };
-    });
-  },
-  setSelectedDocument: (rootPath, documentRecordId) => {
-    set((state) => {
-      const workspace = state.openWorkspaces[rootPath];
-      if (!workspace) {
-        return state;
       }
 
-      return {
+      const summaries = await Promise.all(
+        openWorkspaceInfos.map((workspace) => window.docTrack.workspace.getSummary(workspace.rootPath))
+      );
+
+      const openWorkspaces = Object.fromEntries(
+        summaries.map((summary) => [
+          summary.workspace.rootPath,
+          buildWorkspaceState(summary, applicationSettings)
+        ])
+      );
+
+      set({
+        recentWorkspaces,
+        applicationSettings,
+        openWorkspaces,
+        activeWorkspacePath: summaries[0]?.workspace.rootPath,
+        isBootstrapped: true
+      });
+    },
+    createWorkspace: async (input) => {
+      const result = await window.docTrack.workspace.create(input);
+      const recentWorkspaces = await window.docTrack.workspace.listRecent();
+      const warningSuffix =
+        result.warnings && result.warnings.length > 0
+          ? ` ${result.warnings.length} storage warning${result.warnings.length === 1 ? '' : 's'} recorded.`
+          : '';
+      set((state) => ({
         openWorkspaces: {
           ...state.openWorkspaces,
-          [rootPath]: {
-            ...workspace,
-            selectedDocumentRecordId: documentRecordId
-          }
+          [result.workspace.rootPath]: buildWorkspaceState(
+            result,
+            state.applicationSettings,
+            state.openWorkspaces[result.workspace.rootPath]
+          )
+        },
+        activeWorkspacePath: result.workspace.rootPath,
+        recentWorkspaces,
+        notification: {
+          tone: 'success',
+          message: `Workspace "${result.workspace.name}" is ready.${warningSuffix}`
         }
-      };
-    });
-  },
-  setThemeMode: async (themeMode) => {
-    const nextTheme = await window.docTrack.theme.set(themeMode);
-    set({ themeMode: nextTheme });
-  },
-  setNotification: (notification) => set({ notification })
-}));
+      }));
+    },
+    openWorkspace: async (rootPath) => {
+      const result = await window.docTrack.workspace.open(rootPath);
+      const recentWorkspaces = await window.docTrack.workspace.listRecent();
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [result.workspace.rootPath]: buildWorkspaceState(
+            result,
+            state.applicationSettings,
+            state.openWorkspaces[result.workspace.rootPath]
+          )
+        },
+        activeWorkspacePath: result.workspace.rootPath,
+        recentWorkspaces,
+        notification: {
+          tone: 'success',
+          message: `Opened workspace "${result.workspace.name}".`
+        }
+      }));
+    },
+    refreshWorkspace: async (rootPath) => {
+      const result = await window.docTrack.workspace.getSummary(rootPath);
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [result.workspace.rootPath]: buildWorkspaceState(
+            result,
+            state.applicationSettings,
+            state.openWorkspaces[result.workspace.rootPath]
+          )
+        }
+      }));
+    },
+    closeWorkspace: async (rootPath) => {
+      await window.docTrack.workspace.close(rootPath);
+      set((state) => {
+        const nextOpenWorkspaces = { ...state.openWorkspaces };
+        delete nextOpenWorkspaces[rootPath];
+
+        const remainingPaths = Object.keys(nextOpenWorkspaces);
+
+        return {
+          openWorkspaces: nextOpenWorkspaces,
+          activeWorkspacePath:
+            state.activeWorkspacePath === rootPath
+              ? remainingPaths[remainingPaths.length - 1]
+              : state.activeWorkspacePath
+        };
+      });
+    },
+    updateWorkspaceSettings: async (rootPath, settings) => {
+      const result = await window.docTrack.workspace.updateSettings(rootPath, settings);
+      const warningSuffix =
+        result.warnings && result.warnings.length > 0
+          ? ` ${result.warnings.length} unmanaged path warning${result.warnings.length === 1 ? '' : 's'} recorded.`
+          : '';
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [result.workspace.rootPath]: buildWorkspaceState(
+            result,
+            state.applicationSettings,
+            state.openWorkspaces[result.workspace.rootPath]
+          )
+        },
+        notification: {
+          tone: 'success',
+          message: `Workspace settings saved for "${result.workspace.name}".${warningSuffix}`
+        }
+      }));
+    },
+    setActiveWorkspace: (rootPath) => {
+      set({ activeWorkspacePath: rootPath });
+    },
+    setWorkspaceView: (rootPath, view) => {
+      set((state) => {
+        const workspace = state.openWorkspaces[rootPath];
+        if (!workspace) {
+          return state;
+        }
+
+        return {
+          openWorkspaces: {
+            ...state.openWorkspaces,
+            [rootPath]: {
+              ...workspace,
+              selectedView: view
+            }
+          }
+        };
+      });
+    },
+    setSelectedDocument: (rootPath, documentRecordId) => {
+      set((state) => {
+        const workspace = state.openWorkspaces[rootPath];
+        if (!workspace) {
+          return state;
+        }
+
+        return {
+          openWorkspaces: {
+            ...state.openWorkspaces,
+            [rootPath]: {
+              ...workspace,
+              selectedDocumentRecordId: documentRecordId
+            }
+          }
+        };
+      });
+    },
+    updateApplicationSettings: async (settings) => {
+      const nextSettings = await window.docTrack.appSettings.update(settings);
+      set({ applicationSettings: nextSettings });
+    },
+    setNotification: (notification) => set({ notification })
+  }));
+
+export const useAppStore = createAppStore();
