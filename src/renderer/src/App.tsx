@@ -79,6 +79,7 @@ import {
   DOCUMENT_TABLE_COLUMN_OPTIONS,
   WORKSPACE_FILE_ORGANIZATION_OPTIONS,
   WORKSPACE_STORAGE_LAYOUT_OPTIONS,
+  WORKSPACE_VERSION_MANAGEMENT_OPTIONS,
   type DocumentTableColumn,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -247,6 +248,13 @@ interface LatestVersionDialogState {
   isSubmitting: boolean;
 }
 
+interface StatusChangeDialogState {
+  open: boolean;
+  document?: DocumentListItem;
+  nextStatus: DocumentStatus;
+  isSubmitting: boolean;
+}
+
 interface TypeDialogState {
   open: boolean;
   id?: number;
@@ -344,6 +352,13 @@ const defaultLatestVersionDialogState: LatestVersionDialogState = {
   releasedDate: '',
   approvedBy: '',
   revisionDescription: '',
+  isSubmitting: false
+};
+
+const defaultStatusChangeDialogState: StatusChangeDialogState = {
+  open: false,
+  document: undefined,
+  nextStatus: 'Draft',
   isSubmitting: false
 };
 
@@ -465,6 +480,7 @@ function App() {
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
   const [filesDialog, setFilesDialog] = useState(defaultFilesDialogState);
   const [latestVersionDialog, setLatestVersionDialog] = useState(defaultLatestVersionDialogState);
+  const [statusChangeDialog, setStatusChangeDialog] = useState(defaultStatusChangeDialogState);
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
   const [projectDialog, setProjectDialog] = useState(defaultProjectDialogState);
   const [classificationDialog, setClassificationDialog] = useState(defaultClassificationDialogState);
@@ -939,6 +955,55 @@ function App() {
     }
   };
 
+  const handleRequestStatusChange = (document: DocumentListItem, nextStatus: DocumentStatus) => {
+    if (!document.latestVersionLabel || !document.status || document.status === nextStatus) {
+      return;
+    }
+
+    setStatusChangeDialog({
+      open: true,
+      document,
+      nextStatus,
+      isSubmitting: false
+    });
+  };
+
+  const handleConfirmStatusChange = async () => {
+    if (!activeWorkspacePath || !statusChangeDialog.document) {
+      return;
+    }
+
+    const document = statusChangeDialog.document;
+
+    try {
+      setStatusChangeDialog((state) => ({ ...state, isSubmitting: true }));
+      const detail = await window.docTrack.documents.updateLatestVersion(activeWorkspacePath, {
+        documentRecordId: document.id,
+        status: statusChangeDialog.nextStatus,
+        releasedDate: document.releasedDate,
+        approvedBy: document.approvedBy,
+        revisionDescription: document.revisionDescription
+      } satisfies UpdateLatestVersionInput);
+      await refreshWorkspace(activeWorkspacePath);
+
+      if (selectedDocumentDetail?.id === detail.id) {
+        setSelectedDocumentDetail(detail);
+      }
+
+      setStatusChangeDialog(defaultStatusChangeDialogState);
+      setNotification({
+        tone: 'success',
+        message: `Status changed to ${statusChangeDialog.nextStatus} for ${detail.documentId}.`
+      });
+    } catch (error) {
+      setNotification({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to update the document status.'
+      });
+      setStatusChangeDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
   const handleSaveDocumentType = async () => {
     if (!activeWorkspacePath) {
       return;
@@ -1390,6 +1455,7 @@ function App() {
           setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
         }
         onShowFiles={handleShowFilesForDocument}
+        onRequestStatusChange={handleRequestStatusChange}
         onRequestNewDocument={openCreateDocumentDialog}
         onOpenTableSettings={() =>
           setTableColumnsDialog({
@@ -1837,6 +1903,14 @@ function App() {
         documentDetail={selectedDocumentDetail}
       />
 
+      <StatusChangeDialog
+        state={statusChangeDialog}
+        onOpenChange={(open) =>
+          setStatusChangeDialog(open ? { ...statusChangeDialog, open } : defaultStatusChangeDialogState)
+        }
+        onSubmit={handleConfirmStatusChange}
+      />
+
       <DocumentTypeDialog
         open={typeDialog.open}
         onOpenChange={(open) => setTypeDialog(open ? { ...typeDialog, open } : defaultTypeDialogState)}
@@ -1928,22 +2002,39 @@ function ThemeToggle({
   onChange: (value: ThemeMode) => void;
 }) {
   return (
-    <div className="flex rounded-xl border border-border bg-background p-0.5 shadow-sm">
+    <div className="grid gap-2 sm:grid-cols-3">
       {THEME_MODE_OPTIONS.map((option) => {
         const Icon = THEME_MODE_ICONS[option.value];
+        const isSelected = themeMode === option.value;
+
         return (
           <button
             key={option.value}
+            type="button"
+            aria-pressed={isSelected}
             className={cn(
-              'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition',
-              themeMode === option.value
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              'w-full rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+              isSelected
+                ? 'border-ring bg-card text-foreground shadow-sm'
+                : 'border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-accent/60 hover:text-foreground'
             )}
             onClick={() => onChange(option.value)}
           >
-            <Icon className="h-4 w-4" />
-            {option.label}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+                  <Icon className="h-4 w-4" />
+                  {option.label}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">{option.description}</div>
+              </div>
+              <div
+                className={cn(
+                  'mt-0.5 h-2.5 w-2.5 rounded-full transition',
+                  isSelected ? 'bg-primary' : 'bg-border'
+                )}
+              />
+            </div>
           </button>
         );
       })}
@@ -1993,7 +2084,8 @@ function ApplicationSettingsDialog({
             title="Appearance"
             description="Set the look and feel for the whole app."
           >
-            <Field label="Theme">
+            <div className="grid gap-2">
+              <div className="text-[13px] font-medium text-foreground/90">Theme</div>
               <ThemeToggle
                 themeMode={state.settings.themeMode}
                 onChange={(themeMode) =>
@@ -2009,7 +2101,7 @@ function ApplicationSettingsDialog({
               <div className="text-xs text-muted-foreground">
                 Theme changes preview immediately while this modal is open. Save to keep them.
               </div>
-            </Field>
+            </div>
           </SettingsSection>
 
           <SettingsSection
@@ -2398,6 +2490,7 @@ function DocumentsView({
   isDetailLoading,
   onSelectDocument,
   onShowFiles,
+  onRequestStatusChange,
   onRequestNewDocument,
   onOpenTableSettings,
   onRequestEditDocument,
@@ -2413,6 +2506,7 @@ function DocumentsView({
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
   onShowFiles: (documentRecordId: number) => void;
+  onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
   onRequestNewDocument: () => void;
   onOpenTableSettings: () => void;
   onRequestEditDocument: (documentRecordId?: number) => void;
@@ -2508,7 +2602,13 @@ function DocumentsView({
           id: 'status',
           accessorFn: (row) => row.status ?? '',
           header: columnHeader('Status'),
-          cell: ({ row }) => <DocumentProgressBadge status={row.original.status} />
+          cell: ({ row }) => (
+            <DocumentStatusSelect
+              document={row.original}
+              statuses={workspace.statuses}
+              onRequestStatusChange={onRequestStatusChange}
+            />
+          )
         },
         {
           id: 'author',
@@ -2638,9 +2738,11 @@ function DocumentsView({
       ];
     },
     [
+      onRequestStatusChange,
       onRequestEditDocument,
       onRequestLatestVersionEdit,
       onShowFiles,
+      workspace.statuses,
       visibleTableColumns
     ]
   );
@@ -2949,6 +3051,9 @@ function DocumentsView({
                             <div className="text-sm font-semibold">Version {version.versionLabel}</div>
                             <StatusBadge status={version.status} />
                             <Badge variant="outline">{version.files.length} files</Badge>
+                          </div>
+                          <div className="mt-1 font-mono text-xs text-primary">
+                            {version.versionDocumentId}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             Created {formatDateTime(version.createdDate)}
@@ -3575,6 +3680,10 @@ function WorkspaceStorageSettingsFields({
     WORKSPACE_FILE_ORGANIZATION_OPTIONS.find(
       (option) => option.value === settings.fileOrganizationMode
     ) ?? WORKSPACE_FILE_ORGANIZATION_OPTIONS[0];
+  const selectedVersionManagementOption =
+    WORKSPACE_VERSION_MANAGEMENT_OPTIONS.find(
+      (option) => option.value === settings.versionManagementMode
+    ) ?? WORKSPACE_VERSION_MANAGEMENT_OPTIONS[0];
   const previewWorkspaceName = workspaceName.trim() || 'Quality Operations';
   const previewVersionFolderPath = buildDocumentVersionRelativePath(
     buildDocumentFolderRelativePath(settings, 'Procedure', '02202600001', 'Operating Procedure'),
@@ -3586,6 +3695,10 @@ function WorkspaceStorageSettingsFields({
     'working',
     'procedure.docx'
   );
+  const previewVersionIds =
+    settings.versionManagementMode === 'version-specific-document-id'
+      ? ['02202600001', '02202600002', '02202600003']
+      : ['02202600001', '02202600001', '02202600001'];
   const showDefaultCompany = settings.visibleDocumentColumns.includes('company');
   const showDefaultDepartment = settings.visibleDocumentColumns.includes('department');
 
@@ -3627,19 +3740,47 @@ function WorkspaceStorageSettingsFields({
         </Select>
       </Field>
 
+      <Field label="Version Document ID Management">
+        <Select
+          value={settings.versionManagementMode}
+          onChange={(event) =>
+            onSettingsChange({
+              ...settings,
+              versionManagementMode: event.target.value as WorkspaceSettings['versionManagementMode']
+            })
+          }
+        >
+          {WORKSPACE_VERSION_MANAGEMENT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
       <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
         <div className="font-medium">{selectedStorageOption.label}</div>
         <div className="mt-1 text-muted-foreground">{selectedStorageOption.description}</div>
         <div className="mt-2 font-medium">{selectedFileOrganizationOption.label}</div>
         <div className="mt-1 text-muted-foreground">{selectedFileOrganizationOption.description}</div>
+        <div className="mt-2 font-medium">{selectedVersionManagementOption.label}</div>
+        <div className="mt-1 text-muted-foreground">{selectedVersionManagementOption.description}</div>
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Example Path
         </div>
         <div className="mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
           {previewWorkspaceName}/{previewRelativePath}
         </div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Example Version IDs
+        </div>
+        <div className="mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+          <div>001 -&gt; {previewVersionIds[0]}</div>
+          <div>002 -&gt; {previewVersionIds[1]}</div>
+          <div>003 -&gt; {previewVersionIds[2]}</div>
+        </div>
         <div className="mt-3 text-xs text-muted-foreground">
-          Saving these settings migrates managed document folders and version files to the new workspace layout.
+          Saving storage layout changes migrates managed document folders and version files. Version document ID changes apply to new versions going forward.
         </div>
       </div>
 
@@ -4512,6 +4653,103 @@ function Field({
       <span className="text-[13px] font-medium text-foreground/90">{label}</span>
       {children}
     </label>
+  );
+}
+
+function DocumentStatusSelect({
+  document,
+  statuses,
+  onRequestStatusChange
+}: {
+  document: DocumentListItem;
+  statuses: DocumentStatus[];
+  onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
+}) {
+  if (!document.status || !document.latestVersionLabel) {
+    return <DocumentProgressBadge status={document.status} />;
+  }
+
+  return (
+    <div
+      className="max-w-[168px]"
+      onClick={stopRowAction}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <Select
+        aria-label={`Status for ${document.documentId}`}
+        data-status-select={String(document.id)}
+        className={cn(
+          'h-8 rounded-full border-transparent pr-8 text-[12px] font-medium shadow-none',
+          STATUS_VARIANTS[document.status] === 'success' &&
+            'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-200',
+          STATUS_VARIANTS[document.status] === 'warning' &&
+            'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200',
+          STATUS_VARIANTS[document.status] === 'default' &&
+            'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200',
+          STATUS_VARIANTS[document.status] === 'muted' &&
+            'bg-muted text-foreground hover:bg-accent'
+        )}
+        value={document.status}
+        onChange={(event) => {
+          onRequestStatusChange(document, event.target.value as DocumentStatus);
+          event.currentTarget.blur();
+        }}
+      >
+        {statuses.map((status) => (
+          <option key={status} value={status}>
+            {status}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
+}
+
+function StatusChangeDialog({
+  state,
+  onOpenChange,
+  onSubmit
+}: {
+  state: StatusChangeDialogState;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: () => Promise<void>;
+}) {
+  const document = state.document;
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Confirm Status Change</DialogTitle>
+          <DialogDescription>
+            Review the new status before DocTrack updates the latest version for this document.
+          </DialogDescription>
+        </DialogHeader>
+
+        {document ? (
+          <div className="rounded-xl border border-border bg-background p-3">
+            <div className="font-mono text-xs text-primary">{document.documentId}</div>
+            <div className="mt-1.5 text-base font-semibold">{document.title}</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+              <span>Current</span>
+              <StatusBadge status={document.status!} />
+              <span>Next</span>
+              <StatusBadge status={state.nextStatus} />
+            </div>
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+            Apply Status
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

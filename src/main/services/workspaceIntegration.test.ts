@@ -81,6 +81,7 @@ describe('workspace integration', () => {
     expect(result.workspace.rootPath).toBe(workspaceRootPath);
     expect(result.summary.settings.storageLayoutPreset).toBe('stable-id');
     expect(result.summary.settings.fileOrganizationMode).toBe('flat');
+    expect(result.summary.settings.versionManagementMode).toBe('shared-document-id');
     expect(result.summary.settings.visibleDocumentColumns).toEqual(
       DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns
     );

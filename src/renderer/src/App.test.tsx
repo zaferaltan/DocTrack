@@ -7,7 +7,7 @@ import {
   type ApplicationSettings
 } from '@shared/applicationSettings';
 import type { DocTrackApi } from '@shared/ipc';
-import type { OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
+import type { DocumentDetail, OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '@renderer/App';
@@ -79,6 +79,45 @@ const openWorkspaceResult: OpenWorkspaceResult = {
 
 const cloneWorkspaceResult = (): OpenWorkspaceResult =>
   JSON.parse(JSON.stringify(openWorkspaceResult)) as OpenWorkspaceResult;
+
+const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentDetail => ({
+  id: 101,
+  documentId: '02202600001',
+  title: 'Operating Procedure',
+  typeId: 2,
+  typeName: 'Procedure',
+  versionScheme: 'numeric-3',
+  documentFolderPath: 'Documents/Procedure/02202600001',
+  createdDate: '2026-03-28T09:00:00.000Z',
+  modifiedDate: '2026-03-28T10:00:00.000Z',
+  author: 'Jordan Singh',
+  languageId: 1,
+  languageCode: 'EN',
+  confidentialityClassId: null,
+  confidentialityClassName: null,
+  projectId: null,
+  projectName: null,
+  company: 'Acme',
+  department: 'Quality',
+  revisionIntervalMonths: 12,
+  versions: [
+    {
+      id: 201,
+      documentId: 101,
+      versionDocumentId: '02202600001',
+      sequenceNumber: 1,
+      versionLabel: '001',
+      status: 'Draft',
+      releasedDate: null,
+      approvedBy: '',
+      createdDate: '2026-03-28T10:00:00.000Z',
+      revisionDescription: '',
+      files: [],
+      unmanagedPaths: []
+    }
+  ],
+  ...overrides
+});
 
 const normalizeText = (value: string | null | undefined): string =>
   (value ?? '').replace(/\s+/g, ' ').trim();
@@ -351,6 +390,7 @@ describe('App', () => {
 
     await click(getButton('Application Settings'));
     const settingsDialog = getDialog();
+    expect(getButton('Light', settingsDialog).closest('label')).toBeNull();
     await click(getButton('Dark', settingsDialog));
     await changeInput(
       getLabeledControl(settingsDialog, 'Default Document Author', 'input') as HTMLInputElement,
@@ -417,6 +457,28 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('saves workspace version document ID management from workspace settings', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    const dialog = getDialog();
+    await changeSelect(
+      getLabeledControl(dialog, 'Version Document ID Management', 'select') as HTMLSelectElement,
+      'version-specific-document-id'
+    );
+    await click(getButton('Save Settings'));
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        versionManagementMode: 'version-specific-document-id'
+      })
+    );
+
+    await view.unmount();
+  });
+
   it('lets users provide a folder name that differs from the workspace name', async () => {
     const docTrack = buildDocTrackMock();
     const view = await renderApp();
@@ -454,6 +516,44 @@ describe('App', () => {
         name: 'Quality Workspace',
         folderName: 'Quality Files',
         parentPath: '/Users/you/Documents'
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('confirms inline status changes from the documents table before applying them', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.updateLatestVersion = vi.fn().mockResolvedValue(
+      buildDocumentDetail({
+        documentId: '02202600001',
+        versions: [
+          {
+            ...buildDocumentDetail().versions[0]!,
+            status: 'Released',
+            versionDocumentId: '02202600001'
+          }
+        ]
+      })
+    );
+    const view = await renderApp();
+
+    const statusSelect = document.querySelector('[data-status-select="101"]');
+    if (!(statusSelect instanceof HTMLSelectElement)) {
+      throw new Error('Unable to find the inline status select.');
+    }
+
+    await changeSelect(statusSelect, 'Released');
+    expect(docTrack.documents.updateLatestVersion).not.toHaveBeenCalled();
+    expect(getDialog().textContent).toContain('Confirm Status Change');
+
+    await click(getButton('Apply Status'));
+
+    expect(docTrack.documents.updateLatestVersion).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        documentRecordId: 101,
+        status: 'Released'
       })
     );
 

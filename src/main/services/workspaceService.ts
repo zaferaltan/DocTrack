@@ -12,6 +12,7 @@ import {
   DEFAULT_WORKSPACE_SETTINGS,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
+  isWorkspaceVersionManagementMode,
   normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -137,6 +138,7 @@ export class WorkspaceService {
           SET
             StorageLayoutPreset = ?,
             FileOrganizationMode = ?,
+            VersionManagementMode = ?,
             VisibleDocumentColumns = ?,
             DefaultCompany = ?,
             DefaultDepartment = ?,
@@ -147,6 +149,7 @@ export class WorkspaceService {
       .run(
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
+        settings.versionManagementMode,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -158,6 +161,7 @@ export class WorkspaceService {
     return (
       left.storageLayoutPreset === right.storageLayoutPreset &&
       left.fileOrganizationMode === right.fileOrganizationMode &&
+      left.versionManagementMode === right.versionManagementMode &&
       left.defaultCompany === right.defaultCompany &&
       left.defaultDepartment === right.defaultDepartment &&
       left.autoMarkPreviousVersionObsolete === right.autoMarkPreviousVersionObsolete &&
@@ -524,12 +528,13 @@ export class WorkspaceService {
       `
         INSERT INTO DocumentVersions (
           DocumentId,
+          VersionDocumentID,
           SequenceNumber,
           VersionLabel,
           Status,
           CreatedDate,
           Notes
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `
     );
     const insertFile = context.db.prepare(
@@ -547,9 +552,23 @@ export class WorkspaceService {
       `
     );
 
-    for (const version of input.versions) {
+    let currentVersionDocumentId = documentId;
+
+    for (const [index, version] of input.versions.entries()) {
+      if (
+        context.settings.versionManagementMode === 'version-specific-document-id' &&
+        index > 0
+      ) {
+        currentVersionDocumentId = this.documentIdGenerator.generateNextDocumentId(
+          context.db,
+          type.NumberPrefix,
+          createdDate
+        );
+      }
+
       const versionInsert = insertVersion.run(
         documentRecordId,
+        currentVersionDocumentId,
         version.sequenceNumber,
         version.versionLabel,
         version.status,
@@ -583,7 +602,8 @@ export class WorkspaceService {
   private normalizeWorkspaceSettings(settings: WorkspaceSettings): WorkspaceSettings {
     if (
       !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
-      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode)
+      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode) ||
+      !isWorkspaceVersionManagementMode(settings.versionManagementMode)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -591,6 +611,7 @@ export class WorkspaceService {
     return {
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
+      versionManagementMode: settings.versionManagementMode,
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:

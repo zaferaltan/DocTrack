@@ -30,7 +30,7 @@ import type {
 
 interface DocumentListRow {
   Id: number;
-  DocumentID: string;
+  DisplayDocumentID: string;
   Title: string;
   DocumentTypeId: number;
   TypeName: string;
@@ -60,6 +60,7 @@ interface DocumentRow {
   Title: string;
   DocumentTypeId: number;
   TypeName: string;
+  NumberPrefix: string;
   VersionScheme: DocumentVersionScheme;
   DocumentFolderPath: string;
   CreatedDate: string;
@@ -79,6 +80,7 @@ interface DocumentRow {
 interface VersionRow {
   Id: number;
   DocumentId: number;
+  VersionDocumentID: string | null;
   SequenceNumber: number;
   VersionLabel: string;
   Status: DocumentStatus;
@@ -138,7 +140,7 @@ export class DocumentService {
         `
           SELECT
             d.Id,
-            d.DocumentID,
+            COALESCE(dv.VersionDocumentID, d.DocumentID) AS DisplayDocumentID,
             d.Title,
             d.DocumentTypeId,
             dt.Name AS TypeName,
@@ -166,14 +168,14 @@ export class DocumentService {
           LEFT JOIN ConfidentialityClasses cc ON cc.Id = d.ConfidentialityClassId
           LEFT JOIN Projects p ON p.Id = d.ProjectId
           ${latestVersionJoin}
-          ORDER BY d.ModifiedDate DESC, d.DocumentID ASC
+          ORDER BY d.ModifiedDate DESC, DisplayDocumentID ASC
         `
       )
       .all() as DocumentListRow[];
 
     return rows.map((row) => ({
       id: row.Id,
-      documentId: row.DocumentID,
+      documentId: row.DisplayDocumentID,
       title: row.Title,
       typeId: row.DocumentTypeId,
       typeName: row.TypeName,
@@ -308,6 +310,13 @@ export class DocumentService {
       const createdDate = nowIso();
       const sequenceNumber = (latestVersion?.SequenceNumber ?? 0) + 1;
       const versionLabel = this.getNextVersionLabel(document.VersionScheme, latestVersion, input.bumpType);
+      const versionDocumentId = this.getNextVersionDocumentId(
+        context.db,
+        context.settings,
+        document,
+        latestVersion,
+        createdDate
+      );
 
       this.fileStorageService.ensureDocumentFolder(context.rootPath, document.DocumentFolderPath);
       this.fileStorageService.ensureVersionFolder(
@@ -328,6 +337,7 @@ export class DocumentService {
           `
             INSERT INTO DocumentVersions (
               DocumentId,
+              VersionDocumentID,
               SequenceNumber,
               VersionLabel,
               Status,
@@ -335,11 +345,12 @@ export class DocumentService {
               ApprovedBy,
               CreatedDate,
               Notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
           document.Id,
+          versionDocumentId,
           sequenceNumber,
           versionLabel,
           'Draft',
@@ -759,6 +770,7 @@ export class DocumentService {
           SELECT
             Id,
             DocumentId,
+            VersionDocumentID,
             SequenceNumber,
             VersionLabel,
             Status,
@@ -938,6 +950,7 @@ export class DocumentService {
           SELECT
             Id,
             DocumentId,
+            VersionDocumentID,
             SequenceNumber,
             VersionLabel,
             Status,
@@ -982,6 +995,7 @@ export class DocumentService {
     const versions: DocumentVersion[] = versionRows.map((row) => ({
       id: row.Id,
       documentId: row.DocumentId,
+      versionDocumentId: row.VersionDocumentID?.trim() || document.DocumentID,
       sequenceNumber: row.SequenceNumber,
       versionLabel: row.VersionLabel,
       status: row.Status,
@@ -995,7 +1009,7 @@ export class DocumentService {
 
     return {
       id: document.Id,
-      documentId: document.DocumentID,
+      documentId: versionRows[0]?.VersionDocumentID?.trim() || document.DocumentID,
       title: document.Title,
       typeId: document.DocumentTypeId,
       typeName: document.TypeName,
@@ -1028,6 +1042,7 @@ export class DocumentService {
     return {
       id: version.Id,
       documentId: version.DocumentId,
+      versionDocumentId: version.VersionDocumentID?.trim() || this.getDocumentRow(db, version.DocumentId).DocumentID,
       sequenceNumber: version.SequenceNumber,
       versionLabel: version.VersionLabel,
       status: version.Status,
@@ -1084,6 +1099,7 @@ export class DocumentService {
             d.Title,
             d.DocumentTypeId,
             dt.Name AS TypeName,
+            dt.NumberPrefix,
             d.VersionScheme,
             d.DocumentFolderPath,
             d.CreatedDate,
@@ -1122,6 +1138,7 @@ export class DocumentService {
           SELECT
             Id,
             DocumentId,
+            VersionDocumentID,
             SequenceNumber,
             VersionLabel,
             Status,
@@ -1149,6 +1166,7 @@ export class DocumentService {
           SELECT
             Id,
             DocumentId,
+            VersionDocumentID,
             SequenceNumber,
             VersionLabel,
             Status,
@@ -1224,6 +1242,29 @@ export class DocumentService {
       row.ContentHash !== file.contentHash ||
       row.FileSize !== file.fileSize ||
       row.ModifiedDate !== file.modifiedDate
+    );
+  }
+
+  private getNextVersionDocumentId(
+    db: Database.Database,
+    settings: ReturnType<WorkspaceManager['getContext']>['settings'],
+    document: DocumentRow,
+    latestVersion: VersionRow | undefined,
+    createdDate: string
+  ): string {
+    const currentDocumentId = latestVersion?.VersionDocumentID?.trim() || document.DocumentID;
+
+    if (
+      settings.versionManagementMode !== 'version-specific-document-id' ||
+      !latestVersion
+    ) {
+      return currentDocumentId;
+    }
+
+    return this.documentIdGenerator.generateNextDocumentId(
+      db,
+      document.NumberPrefix,
+      createdDate
     );
   }
 

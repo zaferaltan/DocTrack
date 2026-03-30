@@ -80,6 +80,7 @@ export interface DocumentVersionFile {
 export interface DocumentVersion {
   id: number;
   documentId: number;
+  versionDocumentId: string;
   sequenceNumber: number;
   versionLabel: string;
   status: DocumentStatus;

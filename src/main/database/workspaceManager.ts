@@ -15,6 +15,7 @@ import {
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
+  isWorkspaceVersionManagementMode,
   normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -99,12 +100,13 @@ export class WorkspaceManager {
             CreatedDate,
             StorageLayoutPreset,
             FileOrganizationMode,
+            VersionManagementMode,
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
             AutoMarkPreviousVersionObsolete
           )
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -113,6 +115,7 @@ export class WorkspaceManager {
         nowIso(),
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
+        settings.versionManagementMode,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -245,6 +248,7 @@ export class WorkspaceManager {
           SELECT
             StorageLayoutPreset,
             FileOrganizationMode,
+            VersionManagementMode,
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
@@ -257,6 +261,7 @@ export class WorkspaceManager {
       | {
           StorageLayoutPreset: string;
           FileOrganizationMode: string;
+          VersionManagementMode: string;
           VisibleDocumentColumns: string;
           DefaultCompany: string;
           DefaultDepartment: string;
@@ -267,7 +272,8 @@ export class WorkspaceManager {
     if (
       !row ||
       !isWorkspaceStorageLayoutPreset(row.StorageLayoutPreset) ||
-      !isWorkspaceFileOrganizationMode(row.FileOrganizationMode)
+      !isWorkspaceFileOrganizationMode(row.FileOrganizationMode) ||
+      !isWorkspaceVersionManagementMode(row.VersionManagementMode)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -275,6 +281,7 @@ export class WorkspaceManager {
     return {
       storageLayoutPreset: row.StorageLayoutPreset,
       fileOrganizationMode: row.FileOrganizationMode,
+      versionManagementMode: row.VersionManagementMode,
       visibleDocumentColumns: this.parseVisibleDocumentColumns(row.VisibleDocumentColumns),
       defaultCompany: row.DefaultCompany,
       defaultDepartment: row.DefaultDepartment,
@@ -286,7 +293,8 @@ export class WorkspaceManager {
     if (
       !settings ||
       !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
-      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode)
+      !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode) ||
+      !isWorkspaceVersionManagementMode(settings.versionManagementMode)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -294,6 +302,7 @@ export class WorkspaceManager {
     return {
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
+      versionManagementMode: settings.versionManagementMode,
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:

@@ -156,6 +156,37 @@ describe('document workflow integration', () => {
     expect(existsSync(versionFolderPath)).toBe(true);
   });
 
+  it('can generate a new document ID for each version while keeping the history linked', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'flat',
+      versionManagementMode: 'version-specific-document-id'
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Version Specific IDs',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const firstVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial release'
+    });
+    const secondVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Second release'
+    });
+
+    expect(firstVersion.versions[0]?.versionDocumentId).toBe(created.documentId);
+    expect(secondVersion.documentId).not.toBe(created.documentId);
+    expect(secondVersion.versions[0]?.versionDocumentId).toBe(secondVersion.documentId);
+    expect(secondVersion.versions[1]?.versionDocumentId).toBe(created.documentId);
+    expect(secondVersion.versions[0]?.documentId).toBe(created.id);
+    expect(secondVersion.versions[1]?.documentId).toBe(created.id);
+  });
+
   it('adds files, syncs manual filesystem changes, and preserves role metadata across rename', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',

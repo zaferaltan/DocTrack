@@ -6,6 +6,10 @@ export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
 export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
+export const WORKSPACE_VERSION_MANAGEMENT_MODES = [
+  'shared-document-id',
+  'version-specific-document-id'
+] as const;
 export const DOCUMENT_TABLE_COLUMNS = [
   'documentId',
   'title',
@@ -28,11 +32,13 @@ export const DOCUMENT_TABLE_COLUMNS = [
 
 export type WorkspaceStorageLayoutPreset = (typeof WORKSPACE_STORAGE_LAYOUT_PRESETS)[number];
 export type WorkspaceFileOrganizationMode = (typeof WORKSPACE_FILE_ORGANIZATION_MODES)[number];
+export type WorkspaceVersionManagementMode = (typeof WORKSPACE_VERSION_MANAGEMENT_MODES)[number];
 export type DocumentTableColumn = (typeof DOCUMENT_TABLE_COLUMNS)[number];
 
 export interface WorkspaceSettings {
   storageLayoutPreset: WorkspaceStorageLayoutPreset;
   fileOrganizationMode: WorkspaceFileOrganizationMode;
+  versionManagementMode: WorkspaceVersionManagementMode;
   visibleDocumentColumns: DocumentTableColumn[];
   defaultCompany: string;
   defaultDepartment: string;
@@ -42,6 +48,7 @@ export interface WorkspaceSettings {
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   storageLayoutPreset: 'stable-id',
   fileOrganizationMode: 'flat',
+  versionManagementMode: 'shared-document-id',
   visibleDocumentColumns: [...DOCUMENT_TABLE_COLUMNS],
   defaultCompany: '',
   defaultDepartment: '',
@@ -79,6 +86,23 @@ export const WORKSPACE_FILE_ORGANIZATION_OPTIONS: Array<{
     value: 'role-subfolders',
     label: 'Role subfolders',
     description: '<Version>/<Role>/<File>'
+  }
+];
+
+export const WORKSPACE_VERSION_MANAGEMENT_OPTIONS: Array<{
+  value: WorkspaceVersionManagementMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'shared-document-id',
+    label: 'One document ID for all versions',
+    description: 'Every version in the linked history keeps the same document ID.'
+  },
+  {
+    value: 'version-specific-document-id',
+    label: 'New document ID per version',
+    description: 'Each new version gets its own document ID while the versions stay linked together.'
   }
 ];
 
@@ -132,6 +156,11 @@ export const isWorkspaceFileOrganizationMode = (
   value: string
 ): value is WorkspaceFileOrganizationMode =>
   WORKSPACE_FILE_ORGANIZATION_MODES.includes(value as WorkspaceFileOrganizationMode);
+
+export const isWorkspaceVersionManagementMode = (
+  value: string
+): value is WorkspaceVersionManagementMode =>
+  WORKSPACE_VERSION_MANAGEMENT_MODES.includes(value as WorkspaceVersionManagementMode);
 
 export const isDocumentTableColumn = (value: string): value is DocumentTableColumn =>
   DOCUMENT_TABLE_COLUMNS.includes(value as DocumentTableColumn);

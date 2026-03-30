@@ -33,6 +33,25 @@ describe('DocumentIdGeneratorService', () => {
     expect(service.generateNextDocumentId(db, '01', '2026-04-01T08:00:00.000Z')).toBe('01202600003');
   });
 
+  it('considers version-specific document IDs when finding the next sequence', () => {
+    const db = new Database(':memory:');
+    db.exec(
+      `
+        CREATE TABLE Documents (
+          DocumentID TEXT NOT NULL
+        );
+        CREATE TABLE DocumentVersions (
+          VersionDocumentID TEXT
+        );
+        INSERT INTO Documents (DocumentID) VALUES ('01202600001');
+        INSERT INTO DocumentVersions (VersionDocumentID) VALUES ('01202600003');
+      `
+    );
+
+    const service = new DocumentIdGeneratorService();
+    expect(service.generateNextDocumentId(db, '01', '2026-04-01T08:00:00.000Z')).toBe('01202600004');
+  });
+
   it('resets the sequence for a new year', () => {
     const db = new Database(':memory:');
     db.exec(
