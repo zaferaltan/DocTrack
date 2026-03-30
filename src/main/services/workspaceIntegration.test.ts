@@ -94,6 +94,37 @@ describe('workspace integration', () => {
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Report'))).toBe(true);
   });
 
+  it('stores the workspace name separately from a custom workspace folder name', () => {
+    const result = workspaceService.create({
+      name: 'Quality Workspace',
+      folderName: 'Quality Files',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    const workspaceRootPath = path.join(tempRoot, 'Quality Files');
+    const databasePath = path.join(
+      workspaceRootPath,
+      WORKSPACE_DATABASE_DIRECTORY_NAME,
+      WORKSPACE_DATABASE_FILE_NAME
+    );
+    const db = new Database(databasePath, { fileMustExist: true });
+    const row = db
+      .prepare('SELECT Name, RootPath FROM Workspaces WHERE Id = 1')
+      .get() as { Name: string; RootPath: string } | undefined;
+    db.close();
+
+    expect(result.workspace.name).toBe('Quality Workspace');
+    expect(result.workspace.rootPath).toBe(workspaceRootPath);
+    expect(row?.Name).toBe('Quality Workspace');
+    expect(row?.RootPath).toBe(workspaceRootPath);
+  });
+
   it('supports multiple open workspaces and closing individual tabs by root path', () => {
     const first = workspaceService.create({
       name: 'Quality',
@@ -152,13 +183,15 @@ describe('workspace integration', () => {
     );
     const db = new Database(movedDatabasePath, { fileMustExist: true });
     const row = db
-      .prepare('SELECT FilePath, RootPath, FileOrganizationMode FROM Workspaces WHERE Id = 1')
+      .prepare('SELECT Name, FilePath, RootPath, FileOrganizationMode FROM Workspaces WHERE Id = 1')
       .get() as
-      | { FilePath: string; RootPath: string; FileOrganizationMode: string }
+      | { Name: string; FilePath: string; RootPath: string; FileOrganizationMode: string }
       | undefined;
     db.close();
 
+    expect(reopened.workspace.name).toBe('Quality');
     expect(reopened.workspace.rootPath).toBe(movedRootPath);
+    expect(row?.Name).toBe('Quality');
     expect(row?.RootPath).toBe(movedRootPath);
     expect(row?.FilePath).toBe(movedDatabasePath);
     expect(row?.FileOrganizationMode).toBe('flat');

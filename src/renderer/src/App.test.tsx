@@ -123,7 +123,7 @@ const buildDocTrackMock = (
 
   const docTrack: DocTrackApi = {
     workspace: {
-      create: vi.fn(),
+      create: vi.fn().mockResolvedValue(workspaceResult),
       open: vi.fn().mockResolvedValue(workspaceResult),
       close: vi.fn().mockResolvedValue([]),
       listOpen: vi.fn().mockResolvedValue([workspaceInfo]),
@@ -413,6 +413,49 @@ describe('App', () => {
 
     const firstHeaderCell = document.querySelector('thead th');
     expect(firstHeaderCell?.className).toContain('py-2');
+
+    await view.unmount();
+  });
+
+  it('lets users provide a folder name that differs from the workspace name', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('New Workspace'));
+    const workspaceDialog = getDialog();
+    expect(workspaceDialog.className).toContain('max-h-[85vh]');
+
+    expect(normalizeText(workspaceDialog.textContent)).not.toContain('Folder Name');
+
+    await changeInput(
+      getLabeledControl(workspaceDialog, 'Workspace Name', 'input') as HTMLInputElement,
+      'Quality Workspace'
+    );
+    await changeCheckbox(
+      getLabeledControl(
+        workspaceDialog,
+        'Use a different folder name',
+        'input[type="checkbox"]'
+      ) as HTMLInputElement,
+      true
+    );
+    await changeInput(
+      getLabeledControl(workspaceDialog, 'Folder Name', 'input') as HTMLInputElement,
+      'Quality Files'
+    );
+    await changeInput(
+      getLabeledControl(workspaceDialog, 'Workspace Location', 'input') as HTMLInputElement,
+      '/Users/you/Documents'
+    );
+    await click(getButton('Create Workspace', workspaceDialog));
+
+    expect(docTrack.workspace.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Quality Workspace',
+        folderName: 'Quality Files',
+        parentPath: '/Users/you/Documents'
+      })
+    );
 
     await view.unmount();
   });

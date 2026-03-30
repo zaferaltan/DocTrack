@@ -179,6 +179,8 @@ const buildApplicationSettingsDialogState = (
 interface WorkspaceDialogState {
   open: boolean;
   name: string;
+  folderName: string;
+  useCustomFolderName: boolean;
   parentPath: string;
   settings: WorkspaceSettings;
   includeExampleData: boolean;
@@ -277,6 +279,8 @@ interface LanguageDialogState {
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
   name: '',
+  folderName: '',
+  useCustomFolderName: false,
   parentPath: '',
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   includeExampleData: true,
@@ -719,6 +723,11 @@ function App() {
       setWorkspaceDialog((state) => ({ ...state, isSubmitting: true }));
       await createWorkspace({
         name: workspaceDialog.name,
+        ...(workspaceDialog.useCustomFolderName
+          ? {
+              folderName: workspaceDialog.folderName
+            }
+          : {}),
         parentPath: workspaceDialog.parentPath,
         settings: workspaceDialog.settings,
         includeExampleData: workspaceDialog.includeExampleData
@@ -3270,8 +3279,13 @@ function WorkspaceDialog({
   onSubmit: () => Promise<void>;
 }) {
   return (
-    <Dialog open={state.open} onOpenChange={(open) => onStateChange(open ? { ...state, open } : defaultWorkspaceDialogState)}>
-      <DialogContent>
+    <Dialog
+      open={state.open}
+      onOpenChange={(open) =>
+        onStateChange(open ? { ...state, open } : defaultWorkspaceDialogState)
+      }
+    >
+      <DialogContent className="w-[min(94vw,960px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Create New Workspace</DialogTitle>
           <DialogDescription>
@@ -3279,69 +3293,123 @@ function WorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <Field label="Workspace Name">
-            <Input
-              placeholder="Quality Operations"
-              value={state.name}
-              onChange={(event) => onStateChange((current) => ({ ...current, name: event.target.value }))}
-            />
-          </Field>
-
-          <Field label="Workspace Location">
-            <div className="flex gap-2">
+        <div className="min-h-0 overflow-y-auto">
+          <div className="grid gap-4 px-1 py-1 pr-2">
+            <Field label="Workspace Name">
               <Input
-                placeholder="/Users/you/Documents"
-                value={state.parentPath}
+                placeholder="Quality Operations"
+                value={state.name}
                 onChange={(event) =>
-                  onStateChange((current) => ({ ...current, parentPath: event.target.value }))
+                  onStateChange((current) => ({ ...current, name: event.target.value }))
                 }
               />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  void window.docTrack.dialogs.pickWorkspaceCreatePath(state.name || 'DocTrack Workspace').then((parentPath) => {
-                    if (parentPath) {
-                      onStateChange((current) => ({ ...current, parentPath }));
-                    }
-                  });
-                }}
-              >
-                Browse
-              </Button>
-            </div>
-          </Field>
+            </Field>
 
-          <WorkspaceStorageSettingsFields
-            workspaceName={state.name}
-            settings={state.settings}
-            onSettingsChange={(settings) =>
-              onStateChange((current) => ({
-                ...current,
-                settings
-              }))
-            }
-          />
+            <label className="flex items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5 text-[13px]">
+              <input
+                checked={state.useCustomFolderName}
+                className="mt-1"
+                type="checkbox"
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    useCustomFolderName: event.target.checked,
+                    folderName:
+                      event.target.checked && !current.folderName
+                        ? current.name
+                        : current.folderName
+                  }))
+                }
+              />
+              <span>
+                <span className="block font-medium">Use a different folder name</span>
+                <span className="text-muted-foreground">
+                  Keep the workspace name in DocTrack while choosing a different folder name on
+                  disk.
+                </span>
+              </span>
+            </label>
 
-          <label className="flex items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5 text-[13px]">
-            <input
-              checked={state.includeExampleData}
-              className="mt-1"
-              type="checkbox"
-              onChange={(event) =>
+            {state.useCustomFolderName ? (
+              <Field label="Folder Name">
+                <Input
+                  placeholder="quality-operations"
+                  value={state.folderName}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      folderName: event.target.value
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+
+            <Field label="Workspace Location">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="/Users/you/Documents"
+                  value={state.parentPath}
+                  onChange={(event) =>
+                    onStateChange((current) => ({ ...current, parentPath: event.target.value }))
+                  }
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const folderLabel =
+                      (state.useCustomFolderName ? state.folderName : state.name) ||
+                      state.name ||
+                      'DocTrack Workspace';
+
+                    void window.docTrack.dialogs
+                      .pickWorkspaceCreatePath(folderLabel)
+                      .then((parentPath) => {
+                        if (parentPath) {
+                          onStateChange((current) => ({ ...current, parentPath }));
+                        }
+                      });
+                  }}
+                >
+                  Browse
+                </Button>
+              </div>
+            </Field>
+
+            <WorkspaceStorageSettingsFields
+              workspaceName={
+                state.useCustomFolderName ? state.folderName || state.name : state.name
+              }
+              settings={state.settings}
+              onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
-                  includeExampleData: event.target.checked
+                  settings
                 }))
               }
             />
-            <span>
-              <span className="block font-medium">Seed starter data</span>
-              <span className="text-muted-foreground">
-                Adds example document types and sample documents so the workspace opens with realistic data.
+
+            <label className="flex items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5 text-[13px]">
+              <input
+                checked={state.includeExampleData}
+                className="mt-1"
+                type="checkbox"
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    includeExampleData: event.target.checked
+                  }))
+                }
+              />
+              <span>
+                <span className="block font-medium">Seed starter data</span>
+                <span className="text-muted-foreground">
+                  Adds example document types and sample documents so the workspace opens with
+                  realistic data.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          </div>
         </div>
 
         <DialogFooter>

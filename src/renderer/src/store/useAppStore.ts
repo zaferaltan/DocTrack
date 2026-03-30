@@ -29,6 +29,7 @@ interface AppStoreState {
   bootstrap: () => Promise<void>;
   createWorkspace: (input: {
     name: string;
+    folderName?: string;
     parentPath: string;
     settings: WorkspaceSettings;
     includeExampleData?: boolean;

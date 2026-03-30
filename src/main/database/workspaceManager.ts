@@ -63,8 +63,11 @@ export class WorkspaceManager {
   createWorkspace(input: WorkspaceCreateInput, initializer?: WorkspaceInitializer): WorkspaceContext {
     const workspaceName = input.name.trim();
     this.assertValidWorkspaceName(workspaceName);
+    const workspaceFolderName =
+      typeof input.folderName === 'string' ? input.folderName.trim() : workspaceName;
+    this.assertValidWorkspaceFolderName(workspaceFolderName);
     const parentPath = path.resolve(input.parentPath);
-    const resolvedRootPath = path.join(parentPath, workspaceName);
+    const resolvedRootPath = path.join(parentPath, workspaceFolderName);
 
     if (!existsSync(parentPath) || !statSync(parentPath).isDirectory()) {
       throw new Error('The selected workspace location must be an existing folder.');
@@ -323,24 +326,32 @@ export class WorkspaceManager {
   }
 
   private assertValidWorkspaceName(workspaceName: string): void {
-    if (!workspaceName) {
-      throw new Error('Workspace name is required.');
+    this.assertValidFolderCompatibleName(workspaceName, 'Workspace name');
+  }
+
+  private assertValidWorkspaceFolderName(folderName: string): void {
+    this.assertValidFolderCompatibleName(folderName, 'Folder name');
+  }
+
+  private assertValidFolderCompatibleName(value: string, label: string): void {
+    if (!value) {
+      throw new Error(`${label} is required.`);
     }
 
-    if (workspaceName === '.' || workspaceName === '..') {
-      throw new Error('Workspace name cannot be "." or "..".');
+    if (value === '.' || value === '..') {
+      throw new Error(`${label} cannot be "." or "..".`);
     }
 
-    if (INVALID_WORKSPACE_NAME.test(workspaceName)) {
-      throw new Error('Workspace name contains characters that are not allowed in folder names.');
+    if (INVALID_WORKSPACE_NAME.test(value)) {
+      throw new Error(`${label} contains characters that are not allowed in folder names.`);
     }
 
-    if (/[. ]$/.test(workspaceName)) {
-      throw new Error('Workspace name cannot end with a space or period.');
+    if (/[. ]$/.test(value)) {
+      throw new Error(`${label} cannot end with a space or period.`);
     }
 
-    if (WINDOWS_RESERVED_WORKSPACE_NAMES.has(workspaceName.toUpperCase())) {
-      throw new Error('Workspace name is reserved by the operating system.');
+    if (WINDOWS_RESERVED_WORKSPACE_NAMES.has(value.toUpperCase())) {
+      throw new Error(`${label} is reserved by the operating system.`);
     }
   }
 }

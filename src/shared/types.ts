@@ -209,6 +209,7 @@ export interface OpenWorkspaceResult {
 
 export interface WorkspaceCreateInput {
   name: string;
+  folderName?: string;
   parentPath: string;
   settings: WorkspaceSettings;
   includeExampleData?: boolean;
