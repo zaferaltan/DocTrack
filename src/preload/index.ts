@@ -23,8 +23,11 @@ const api: DocTrackApi = {
     detail: (filePath, documentRecordId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsDetail, filePath, documentRecordId),
     create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.documentsCreate, filePath, input),
+    update: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.documentsUpdate, filePath, input),
     createVersion: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsCreateVersion, filePath, input),
+    updateLatestVersion: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateLatestVersion, filePath, input),
     addVersionFiles: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsAddVersionFiles, filePath, input),
     renameVersionFile: (filePath, input) =>
@@ -35,8 +38,6 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentsChangeVersionFileRole, filePath, input),
     syncVersionFiles: (filePath, documentVersionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsSyncVersionFiles, filePath, documentVersionId),
-    updateStatus: (filePath, input) =>
-      ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateStatus, filePath, input),
     openVersionFile: (filePath, fileId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFile, filePath, fileId),
     openDocumentFolder: (filePath, documentRecordId) =>
@@ -51,6 +52,29 @@ const api: DocTrackApi = {
     update: (filePath, id, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentTypesUpdate, filePath, id, input),
     delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesDelete, filePath, id)
+  },
+  projects: {
+    list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.projectsList, filePath),
+    create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.projectsCreate, filePath, input),
+    update: (filePath, id, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.projectsUpdate, filePath, id, input),
+    delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.projectsDelete, filePath, id)
+  },
+  confidentialityClasses: {
+    list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.confidentialityClassesList, filePath),
+    create: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.confidentialityClassesCreate, filePath, input),
+    update: (filePath, id, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.confidentialityClassesUpdate, filePath, id, input),
+    delete: (filePath, id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.confidentialityClassesDelete, filePath, id)
+  },
+  languages: {
+    list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.languagesList, filePath),
+    create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.languagesCreate, filePath, input),
+    update: (filePath, id, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.languagesUpdate, filePath, id, input),
+    delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.languagesDelete, filePath, id)
   },
   appSettings: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.appSettingsGet),

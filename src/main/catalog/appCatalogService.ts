@@ -6,6 +6,7 @@ import {
   isDocumentTableDensity,
   isThemeMode,
   isWorkspaceView,
+  normalizeDocumentTableVisibleColumns,
   type ApplicationSettings
 } from '@shared/applicationSettings';
 import type { AppCatalogState, RecentWorkspace } from '@shared/types';
@@ -127,6 +128,9 @@ export class AppCatalogService {
         isDocumentTableDensity(nextSettings.documentTableDensity)
           ? nextSettings.documentTableDensity
           : DEFAULT_APPLICATION_SETTINGS.documentTableDensity,
+      documentTableVisibleColumns: normalizeDocumentTableVisibleColumns(
+        nextSettings.documentTableVisibleColumns
+      ),
       defaultIncludeExampleData:
         typeof nextSettings.defaultIncludeExampleData === 'boolean'
           ? nextSettings.defaultIncludeExampleData

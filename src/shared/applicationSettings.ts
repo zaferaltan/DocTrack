@@ -1,9 +1,24 @@
 import type { DocumentVersionScheme } from '@shared/documentModel';
+import { DOCUMENT_TABLE_COLUMNS, type DocumentTableColumn } from '@shared/workspaceLayout';
 
 export const THEME_MODES = ['light', 'dark', 'system'] as const;
 export const APPLICATION_LAUNCH_BEHAVIORS = ['home', 'reopen-last-workspace'] as const;
-export const WORKSPACE_VIEWS = ['documents', 'documentTypes'] as const;
+export const WORKSPACE_VIEWS = [
+  'documents',
+  'documentTypes',
+  'projects',
+  'classifications',
+  'languages'
+] as const;
 export const DOCUMENT_TABLE_DENSITIES = ['comfortable', 'compact'] as const;
+export const DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS: DocumentTableColumn[] = [
+  'documentId',
+  'title',
+  'documentType',
+  'version',
+  'status',
+  'project'
+];
 
 export type ThemeMode = (typeof THEME_MODES)[number];
 export type ApplicationLaunchBehavior = (typeof APPLICATION_LAUNCH_BEHAVIORS)[number];
@@ -15,6 +30,7 @@ export interface ApplicationSettings {
   launchBehavior: ApplicationLaunchBehavior;
   defaultWorkspaceView: WorkspaceView;
   documentTableDensity: DocumentTableDensity;
+  documentTableVisibleColumns: DocumentTableColumn[];
   defaultIncludeExampleData: boolean;
   defaultDocumentAuthor: string;
   defaultDocumentVersionScheme: DocumentVersionScheme;
@@ -27,6 +43,7 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   launchBehavior: 'home',
   defaultWorkspaceView: 'documents',
   documentTableDensity: 'comfortable',
+  documentTableVisibleColumns: [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS],
   defaultIncludeExampleData: true,
   defaultDocumentAuthor: '',
   defaultDocumentVersionScheme: 'numeric-3',
@@ -87,6 +104,21 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
     value: 'documentTypes',
     label: 'Document Types',
     description: 'Open workspaces on the document types view by default.'
+  },
+  {
+    value: 'projects',
+    label: 'Projects',
+    description: 'Open workspaces on the projects view by default.'
+  },
+  {
+    value: 'classifications',
+    label: 'Classifications',
+    description: 'Open workspaces on the classifications view by default.'
+  },
+  {
+    value: 'languages',
+    label: 'Languages',
+    description: 'Open workspaces on the languages view by default.'
   }
 ];
 
@@ -120,3 +152,15 @@ export const isWorkspaceView = (value: string): value is WorkspaceView =>
 
 export const isDocumentTableDensity = (value: string): value is DocumentTableDensity =>
   DOCUMENT_TABLE_DENSITIES.includes(value as DocumentTableDensity);
+
+export const normalizeDocumentTableVisibleColumns = (value: unknown): DocumentTableColumn[] => {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS];
+  }
+
+  const selected = new Set(
+    value.filter((item): item is DocumentTableColumn => typeof item === 'string' && DOCUMENT_TABLE_COLUMNS.includes(item as DocumentTableColumn))
+  );
+  const normalized = DOCUMENT_TABLE_COLUMNS.filter((column) => selected.has(column));
+  return normalized.length > 0 ? normalized : [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS];
+};

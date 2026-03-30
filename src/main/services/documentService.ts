@@ -24,7 +24,8 @@ import type {
   DocumentVersion,
   DocumentVersionFile,
   RenameDocumentVersionFileInput,
-  UpdateDocumentStatusInput
+  UpdateDocumentInput,
+  UpdateLatestVersionInput
 } from '@shared/types';
 
 interface DocumentListRow {
@@ -36,9 +37,21 @@ interface DocumentListRow {
   VersionScheme: DocumentVersionScheme;
   Status: DocumentStatus | null;
   LatestVersionLabel: string | null;
+  ReleasedDate: string | null;
+  ApprovedBy: string;
+  RevisionDescription: string;
   ModifiedDate: string;
   CreatedDate: string;
   Author: string;
+  LanguageId: number | null;
+  LanguageCode: string | null;
+  ConfidentialityClassId: number | null;
+  ConfidentialityClassName: string | null;
+  ProjectId: number | null;
+  ProjectName: string | null;
+  Company: string;
+  Department: string;
+  RevisionIntervalMonths: number | null;
 }
 
 interface DocumentRow {
@@ -52,6 +65,15 @@ interface DocumentRow {
   CreatedDate: string;
   ModifiedDate: string;
   Author: string;
+  LanguageId: number | null;
+  LanguageCode: string | null;
+  ConfidentialityClassId: number | null;
+  ConfidentialityClassName: string | null;
+  ProjectId: number | null;
+  ProjectName: string | null;
+  Company: string;
+  Department: string;
+  RevisionIntervalMonths: number | null;
 }
 
 interface VersionRow {
@@ -60,6 +82,8 @@ interface VersionRow {
   SequenceNumber: number;
   VersionLabel: string;
   Status: DocumentStatus;
+  ReleasedDate: string | null;
+  ApprovedBy: string;
   CreatedDate: string;
   Notes: string;
 }
@@ -121,11 +145,26 @@ export class DocumentService {
             d.VersionScheme,
             dv.Status,
             dv.VersionLabel AS LatestVersionLabel,
+            dv.ReleasedDate,
+            dv.ApprovedBy,
+            dv.Notes AS RevisionDescription,
             d.ModifiedDate,
             d.CreatedDate,
-            d.Author
+            d.Author,
+            d.LanguageId,
+            l.Code AS LanguageCode,
+            d.ConfidentialityClassId,
+            cc.Name AS ConfidentialityClassName,
+            d.ProjectId,
+            p.Name AS ProjectName,
+            d.Company,
+            d.Department,
+            d.RevisionIntervalMonths
           FROM Documents d
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
+          LEFT JOIN Languages l ON l.Id = d.LanguageId
+          LEFT JOIN ConfidentialityClasses cc ON cc.Id = d.ConfidentialityClassId
+          LEFT JOIN Projects p ON p.Id = d.ProjectId
           ${latestVersionJoin}
           ORDER BY d.ModifiedDate DESC, d.DocumentID ASC
         `
@@ -141,9 +180,21 @@ export class DocumentService {
       versionScheme: row.VersionScheme,
       status: row.Status,
       latestVersionLabel: row.LatestVersionLabel,
+      releasedDate: row.ReleasedDate,
+      approvedBy: row.ApprovedBy ?? '',
+      revisionDescription: row.RevisionDescription ?? '',
       modifiedDate: row.ModifiedDate,
       createdDate: row.CreatedDate,
-      author: row.Author
+      author: row.Author,
+      languageId: row.LanguageId,
+      languageCode: row.LanguageCode,
+      confidentialityClassId: row.ConfidentialityClassId,
+      confidentialityClassName: row.ConfidentialityClassName,
+      projectId: row.ProjectId,
+      projectName: row.ProjectName,
+      company: row.Company,
+      department: row.Department,
+      revisionIntervalMonths: row.RevisionIntervalMonths
     }));
   }
 
@@ -174,6 +225,27 @@ export class DocumentService {
         type.NumberPrefix,
         createdDate
       );
+      const languageId = this.normalizeOptionalReference(
+        context.db,
+        'Languages',
+        input.languageId,
+        'The selected language could not be found.'
+      );
+      const confidentialityClassId = this.normalizeOptionalReference(
+        context.db,
+        'ConfidentialityClasses',
+        input.confidentialityClassId,
+        'The selected confidentiality class could not be found.'
+      );
+      const projectId = this.normalizeOptionalReference(
+        context.db,
+        'Projects',
+        input.projectId,
+        'The selected project could not be found.'
+      );
+      const company = (input.company ?? context.settings.defaultCompany).trim();
+      const department = (input.department ?? context.settings.defaultDepartment).trim();
+      const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
       const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
         context.settings,
         type.Name,
@@ -193,8 +265,14 @@ export class DocumentService {
               DocumentFolderPath,
               CreatedDate,
               ModifiedDate,
-              Author
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              Author,
+              LanguageId,
+              ConfidentialityClassId,
+              ProjectId,
+              Company,
+              Department,
+              RevisionIntervalMonths
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -205,7 +283,13 @@ export class DocumentService {
           documentFolderPath,
           createdDate,
           createdDate,
-          input.author.trim()
+          input.author.trim(),
+          languageId,
+          confidentialityClassId,
+          projectId,
+          company,
+          department,
+          revisionIntervalMonths
         );
 
       return Number(documentInsert.lastInsertRowid);
@@ -233,6 +317,12 @@ export class DocumentService {
         versionLabel
       );
 
+      if (latestVersion && context.settings.autoMarkPreviousVersionObsolete) {
+        context.db
+          .prepare('UPDATE DocumentVersions SET Status = ? WHERE Id = ?')
+          .run('Obsolete', latestVersion.Id);
+      }
+
       context.db
         .prepare(
           `
@@ -241,9 +331,11 @@ export class DocumentService {
               SequenceNumber,
               VersionLabel,
               Status,
+              ReleasedDate,
+              ApprovedBy,
               CreatedDate,
               Notes
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -251,8 +343,10 @@ export class DocumentService {
           sequenceNumber,
           versionLabel,
           'Draft',
+          null,
+          '',
           createdDate,
-          input.notes.trim()
+          input.revisionDescription.trim()
         );
 
       context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
@@ -462,24 +556,154 @@ export class DocumentService {
     return this.getVersionFromDatabase(context.db, documentVersionId, unmanagedPaths);
   }
 
-  updateStatus(rootPath: string, input: UpdateDocumentStatusInput): DocumentDetail {
+  updateDocument(rootPath: string, input: UpdateDocumentInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
+    this.assertUpdateDocumentInput(input);
+
+    const document = this.getDocumentRow(context.db, input.documentRecordId);
+    const nextTitle = input.title.trim();
+    const nextFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
+      context.settings,
+      document.TypeName,
+      document.DocumentID,
+      nextTitle
+    );
+    const shouldMoveFolder =
+      this.fileStorageService.normalizeRelativePath(nextFolderPath) !==
+      this.fileStorageService.normalizeRelativePath(document.DocumentFolderPath);
+    const versionFileRows = shouldMoveFolder
+      ? (context.db
+          .prepare(
+            `
+              SELECT
+                f.Id,
+                f.FilePath
+              FROM DocumentVersionFiles f
+              INNER JOIN DocumentVersions v ON v.Id = f.DocumentVersionId
+              WHERE v.DocumentId = @documentRecordId
+            `
+          )
+          .all({ documentRecordId: input.documentRecordId }) as Array<{ Id: number; FilePath: string }>)
+      : [];
+
+    if (shouldMoveFolder) {
+      this.fileStorageService.moveDocumentFolder(
+        context.rootPath,
+        document.DocumentFolderPath,
+        nextFolderPath
+      );
+    }
+
+    try {
+      const changedDate = nowIso();
+      const languageId = this.normalizeOptionalReference(
+        context.db,
+        'Languages',
+        input.languageId,
+        'The selected language could not be found.'
+      );
+      const confidentialityClassId = this.normalizeOptionalReference(
+        context.db,
+        'ConfidentialityClasses',
+        input.confidentialityClassId,
+        'The selected confidentiality class could not be found.'
+      );
+      const projectId = this.normalizeOptionalReference(
+        context.db,
+        'Projects',
+        input.projectId,
+        'The selected project could not be found.'
+      );
+      const company = (input.company ?? '').trim();
+      const department = (input.department ?? '').trim();
+      const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
+
+      context.db.transaction(() => {
+        context.db
+          .prepare(
+            `
+              UPDATE Documents
+              SET
+                Title = ?,
+                ModifiedDate = ?,
+                Author = ?,
+                LanguageId = ?,
+                ConfidentialityClassId = ?,
+                ProjectId = ?,
+                Company = ?,
+                Department = ?,
+                RevisionIntervalMonths = ?,
+                DocumentFolderPath = ?
+              WHERE Id = ?
+            `
+          )
+          .run(
+            nextTitle,
+            changedDate,
+            input.author.trim(),
+            languageId,
+            confidentialityClassId,
+            projectId,
+            company,
+            department,
+            revisionIntervalMonths,
+            nextFolderPath,
+            input.documentRecordId
+          );
+
+        if (shouldMoveFolder) {
+          const updateFilePath = context.db.prepare('UPDATE DocumentVersionFiles SET FilePath = ? WHERE Id = ?');
+          for (const row of versionFileRows) {
+            updateFilePath.run(
+              this.rewriteRelativePathPrefix(row.FilePath, document.DocumentFolderPath, nextFolderPath),
+              row.Id
+            );
+          }
+        }
+      })();
+    } catch (error) {
+      if (shouldMoveFolder) {
+        try {
+          this.fileStorageService.moveDocumentFolder(
+            context.rootPath,
+            nextFolderPath,
+            document.DocumentFolderPath
+          );
+        } catch {
+          // If rollback also fails, surface the original write error.
+        }
+      }
+
+      throw error;
+    }
+
+    return this.getDetail(rootPath, input.documentRecordId);
+  }
+
+  updateLatestVersion(rootPath: string, input: UpdateLatestVersionInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
     this.assertStatus(input.status);
 
     const latestVersion = this.getLatestVersion(context.db, input.documentRecordId);
     if (!latestVersion) {
-      throw new Error('Create a version before changing the document status.');
+      throw new Error('Create a version before editing the latest version.');
     }
 
+    const releasedDate = this.normalizeOptionalDateString(input.releasedDate);
+    const approvedBy = input.approvedBy.trim();
+    const revisionDescription = input.revisionDescription.trim();
+
     context.db.transaction(() => {
-      context.db.prepare('UPDATE DocumentVersions SET Status = ? WHERE Id = ?').run(
-        input.status,
-        latestVersion.Id
-      );
-      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
-        nowIso(),
-        input.documentRecordId
-      );
+      context.db
+        .prepare(
+          `
+            UPDATE DocumentVersions
+            SET Status = ?, ReleasedDate = ?, ApprovedBy = ?, Notes = ?
+            WHERE Id = ?
+          `
+        )
+        .run(input.status, releasedDate, approvedBy, revisionDescription, latestVersion.Id);
+      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(nowIso(), input.documentRecordId);
     })();
 
     return this.getDetail(rootPath, input.documentRecordId);
@@ -538,6 +762,8 @@ export class DocumentService {
             SequenceNumber,
             VersionLabel,
             Status,
+            ReleasedDate,
+            ApprovedBy,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -715,6 +941,8 @@ export class DocumentService {
             SequenceNumber,
             VersionLabel,
             Status,
+            ReleasedDate,
+            ApprovedBy,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -757,8 +985,10 @@ export class DocumentService {
       sequenceNumber: row.SequenceNumber,
       versionLabel: row.VersionLabel,
       status: row.Status,
+      releasedDate: row.ReleasedDate,
+      approvedBy: row.ApprovedBy,
       createdDate: row.CreatedDate,
-      notes: row.Notes,
+      revisionDescription: row.Notes,
       files: this.sortVersionFiles(filesByVersionId.get(row.Id) ?? []),
       unmanagedPaths: unmanagedPathsByVersionId.get(row.Id) ?? []
     }));
@@ -774,6 +1004,15 @@ export class DocumentService {
       createdDate: document.CreatedDate,
       modifiedDate: document.ModifiedDate,
       author: document.Author,
+      languageId: document.LanguageId,
+      languageCode: document.LanguageCode,
+      confidentialityClassId: document.ConfidentialityClassId,
+      confidentialityClassName: document.ConfidentialityClassName,
+      projectId: document.ProjectId,
+      projectName: document.ProjectName,
+      company: document.Company,
+      department: document.Department,
+      revisionIntervalMonths: document.RevisionIntervalMonths,
       versions
     };
   }
@@ -792,8 +1031,10 @@ export class DocumentService {
       sequenceNumber: version.SequenceNumber,
       versionLabel: version.VersionLabel,
       status: version.Status,
+      releasedDate: version.ReleasedDate,
+      approvedBy: version.ApprovedBy,
       createdDate: version.CreatedDate,
-      notes: version.Notes,
+      revisionDescription: version.Notes,
       files: this.sortVersionFiles(files),
       unmanagedPaths
     };
@@ -847,9 +1088,21 @@ export class DocumentService {
             d.DocumentFolderPath,
             d.CreatedDate,
             d.ModifiedDate,
-            d.Author
+            d.Author,
+            d.LanguageId,
+            l.Code AS LanguageCode,
+            d.ConfidentialityClassId,
+            cc.Name AS ConfidentialityClassName,
+            d.ProjectId,
+            p.Name AS ProjectName,
+            d.Company,
+            d.Department,
+            d.RevisionIntervalMonths
           FROM Documents d
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
+          LEFT JOIN Languages l ON l.Id = d.LanguageId
+          LEFT JOIN ConfidentialityClasses cc ON cc.Id = d.ConfidentialityClassId
+          LEFT JOIN Projects p ON p.Id = d.ProjectId
           WHERE d.Id = @documentRecordId
         `
       )
@@ -872,6 +1125,8 @@ export class DocumentService {
             SequenceNumber,
             VersionLabel,
             Status,
+            ReleasedDate,
+            ApprovedBy,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -897,6 +1152,8 @@ export class DocumentService {
             SequenceNumber,
             VersionLabel,
             Status,
+            ReleasedDate,
+            ApprovedBy,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -1020,6 +1277,24 @@ export class DocumentService {
     if (!isDocumentVersionScheme(input.versionScheme)) {
       throw new Error('Choose a version scheme for this document.');
     }
+
+    this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
+  }
+
+  private assertUpdateDocumentInput(input: UpdateDocumentInput): void {
+    if (typeof input.documentRecordId !== 'number' || input.documentRecordId <= 0) {
+      throw new Error('The selected document could not be found.');
+    }
+
+    if (!input.title.trim()) {
+      throw new Error('Document title is required.');
+    }
+
+    if (!input.author.trim()) {
+      throw new Error('Author is required.');
+    }
+
+    this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
   }
 
   private assertCreateVersionInput(input: CreateVersionInput): void {
@@ -1045,8 +1320,71 @@ export class DocumentService {
   }
 
   private assertStatus(status: string): asserts status is DocumentStatus {
-    if (!['Draft', 'In Review', 'Released', 'Archived'].includes(status)) {
+    if (!['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'].includes(status)) {
       throw new Error('Invalid document status.');
     }
+  }
+
+  private normalizeOptionalReference(
+    db: Database.Database,
+    tableName: 'Languages' | 'ConfidentialityClasses' | 'Projects',
+    value: number | null | undefined,
+    errorMessage: string
+  ): number | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    if (typeof value !== 'number' || value <= 0) {
+      throw new Error(errorMessage);
+    }
+
+    const row = db
+      .prepare(`SELECT Id FROM ${tableName} WHERE Id = ?`)
+      .get(value) as { Id: number } | undefined;
+
+    if (!row) {
+      throw new Error(errorMessage);
+    }
+
+    return row.Id;
+  }
+
+  private normalizeRevisionIntervalMonths(value: number | null | undefined): number | null {
+    if (value === undefined || value === null || value === 0) {
+      return null;
+    }
+
+    if (!Number.isInteger(value) || value < 1) {
+      throw new Error('Revision interval must be a whole number of months.');
+    }
+
+    return value;
+  }
+
+  private normalizeOptionalDateString(value: string | null | undefined): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private rewriteRelativePathPrefix(
+    relativePath: string,
+    currentFolderPath: string,
+    nextFolderPath: string
+  ): string {
+    const normalizedRelativePath = this.fileStorageService.normalizeRelativePath(relativePath);
+    const normalizedCurrentFolderPath = this.fileStorageService.normalizeRelativePath(currentFolderPath);
+    const normalizedNextFolderPath = this.fileStorageService.normalizeRelativePath(nextFolderPath);
+    const prefix = `${normalizedCurrentFolderPath}/`;
+
+    if (!normalizedRelativePath.startsWith(prefix)) {
+      return normalizedRelativePath;
+    }
+
+    return `${normalizedNextFolderPath}/${normalizedRelativePath.slice(prefix.length)}`;
   }
 }

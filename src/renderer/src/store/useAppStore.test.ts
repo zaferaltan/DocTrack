@@ -30,7 +30,10 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         numberPrefix: '02'
       }
     ],
-    statuses: ['Draft', 'In Review', 'Released', 'Archived']
+    projects: [],
+    confidentialityClasses: [],
+    languages: [],
+    statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete']
   }
 };
 
@@ -54,18 +57,37 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       list: vi.fn(),
       detail: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
       createVersion: vi.fn(),
+      updateLatestVersion: vi.fn(),
       addVersionFiles: vi.fn(),
       renameVersionFile: vi.fn(),
       deleteVersionFile: vi.fn(),
       changeVersionFileRole: vi.fn(),
       syncVersionFiles: vi.fn(),
-      updateStatus: vi.fn(),
       openVersionFile: vi.fn(),
       openDocumentFolder: vi.fn(),
       openVersionFolder: vi.fn()
     },
     documentTypes: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn()
+    },
+    projects: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn()
+    },
+    confidentialityClasses: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn()
+    },
+    languages: {
       list: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),

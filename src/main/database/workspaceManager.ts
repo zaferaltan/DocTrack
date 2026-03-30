@@ -15,6 +15,7 @@ import {
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
+  normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -94,9 +95,13 @@ export class WorkspaceManager {
             RootPath,
             CreatedDate,
             StorageLayoutPreset,
-            FileOrganizationMode
+            FileOrganizationMode,
+            VisibleDocumentColumns,
+            DefaultCompany,
+            DefaultDepartment,
+            AutoMarkPreviousVersionObsolete
           )
-          VALUES (1, ?, ?, ?, ?, ?, ?)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -104,7 +109,11 @@ export class WorkspaceManager {
         resolvedRootPath,
         nowIso(),
         settings.storageLayoutPreset,
-        settings.fileOrganizationMode
+        settings.fileOrganizationMode,
+        JSON.stringify(settings.visibleDocumentColumns),
+        settings.defaultCompany,
+        settings.defaultDepartment,
+        settings.autoMarkPreviousVersionObsolete ? 1 : 0
       );
 
       const context = this.buildContext(db, resolvedRootPath);
@@ -228,8 +237,29 @@ export class WorkspaceManager {
 
   private readWorkspaceSettings(db: Database.Database): WorkspaceSettings {
     const row = db
-      .prepare('SELECT StorageLayoutPreset, FileOrganizationMode FROM Workspaces WHERE Id = 1')
-      .get() as { StorageLayoutPreset: string; FileOrganizationMode: string } | undefined;
+      .prepare(
+        `
+          SELECT
+            StorageLayoutPreset,
+            FileOrganizationMode,
+            VisibleDocumentColumns,
+            DefaultCompany,
+            DefaultDepartment,
+            AutoMarkPreviousVersionObsolete
+          FROM Workspaces
+          WHERE Id = 1
+        `
+      )
+      .get() as
+      | {
+          StorageLayoutPreset: string;
+          FileOrganizationMode: string;
+          VisibleDocumentColumns: string;
+          DefaultCompany: string;
+          DefaultDepartment: string;
+          AutoMarkPreviousVersionObsolete: number;
+        }
+      | undefined;
 
     if (
       !row ||
@@ -241,7 +271,11 @@ export class WorkspaceManager {
 
     return {
       storageLayoutPreset: row.StorageLayoutPreset,
-      fileOrganizationMode: row.FileOrganizationMode
+      fileOrganizationMode: row.FileOrganizationMode,
+      visibleDocumentColumns: this.parseVisibleDocumentColumns(row.VisibleDocumentColumns),
+      defaultCompany: row.DefaultCompany,
+      defaultDepartment: row.DefaultDepartment,
+      autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete)
     };
   }
 
@@ -256,8 +290,24 @@ export class WorkspaceManager {
 
     return {
       storageLayoutPreset: settings.storageLayoutPreset,
-      fileOrganizationMode: settings.fileOrganizationMode
+      fileOrganizationMode: settings.fileOrganizationMode,
+      visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
+      defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
+      defaultDepartment:
+        typeof settings.defaultDepartment === 'string' ? settings.defaultDepartment.trim() : '',
+      autoMarkPreviousVersionObsolete:
+        typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
+          ? settings.autoMarkPreviousVersionObsolete
+          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
     };
+  }
+
+  private parseVisibleDocumentColumns(value: string): WorkspaceSettings['visibleDocumentColumns'] {
+    try {
+      return normalizeVisibleDocumentColumns(JSON.parse(value));
+    } catch {
+      return [...DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns];
+    }
   }
 
   private getWorkspaceDatabaseDirectoryPath(rootPath: string): string {

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 
 const tempDirectories: string[] = [];
 
@@ -26,13 +27,13 @@ describe('FileStorageService', () => {
     const service = new FileStorageService();
 
     const documentFolderPath = service.getDocumentFolderRelativePath(
-      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      { ...DEFAULT_WORKSPACE_SETTINGS, storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       'Procedure',
       '01202600001',
       'Internal Audit Procedure'
     );
     const storedPath = service.getStoredRelativePath(
-      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      { ...DEFAULT_WORKSPACE_SETTINGS, storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       documentFolderPath,
       '001',
       'working',
@@ -47,13 +48,21 @@ describe('FileStorageService', () => {
     const service = new FileStorageService();
 
     const documentFolderPath = service.getDocumentFolderRelativePath(
-      { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
+      {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'friendly-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
       'Procedure',
       '01202600001',
       'Supplier Audit Checklist'
     );
     const storedPath = service.getStoredRelativePath(
-      { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
+      {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'friendly-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
       documentFolderPath,
       'v2',
       'concept-pdf',
@@ -71,7 +80,11 @@ describe('FileStorageService', () => {
     const service = new FileStorageService();
     const versionPath = service.ensureVersionFolder(
       root,
-      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'role-subfolders' },
+      {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
       'Documents/Procedure/01202600001',
       '001'
     );
@@ -89,7 +102,7 @@ describe('FileStorageService', () => {
     const versionFolderPath = 'Documents/Procedure/01202600001/001';
     const versionAbsolutePath = service.ensureVersionFolder(
       workspaceRootPath,
-      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      { ...DEFAULT_WORKSPACE_SETTINGS, storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
       'Documents/Procedure/01202600001',
       '001'
     );
@@ -126,7 +139,11 @@ describe('FileStorageService', () => {
 
     const [storedFile] = service.importManagedFiles(
       workspaceRootPath,
-      { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'role-subfolders' },
+      {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
       'Documents/Procedure/01202600001',
       '001',
       'working',

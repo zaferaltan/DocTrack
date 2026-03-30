@@ -8,7 +8,9 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 
 vi.mock('electron', () => ({
   default: {
@@ -27,6 +29,7 @@ describe('document workflow integration', () => {
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
   let documentTypeService: DocumentTypeService;
+  let workspaceCatalogService: WorkspaceCatalogService;
   let workspaceRootPath: string;
 
   beforeEach(() => {
@@ -37,10 +40,12 @@ describe('document workflow integration', () => {
     const documentIdGenerator = new DocumentIdGeneratorService();
     documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
     documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
+    workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
     workspaceService = new WorkspaceService(
       workspaceManager,
       documentService,
       fileStorageService,
+      workspaceCatalogService,
       catalogService,
       documentIdGenerator
     );
@@ -49,7 +54,11 @@ describe('document workflow integration', () => {
     workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
       includeExampleData: false
     });
 
@@ -93,11 +102,11 @@ describe('document workflow integration', () => {
     });
     const numericV1 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: numeric.id,
-      notes: 'First numeric version'
+      revisionDescription: 'First numeric version'
     });
     const numericV2 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: numeric.id,
-      notes: 'Second numeric version'
+      revisionDescription: 'Second numeric version'
     });
 
     const prefixed = documentService.create(workspaceRootPath, {
@@ -108,7 +117,7 @@ describe('document workflow integration', () => {
     });
     const prefixedV1 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: prefixed.id,
-      notes: 'First prefixed version'
+      revisionDescription: 'First prefixed version'
     });
 
     const majorMinor = documentService.create(workspaceRootPath, {
@@ -119,16 +128,16 @@ describe('document workflow integration', () => {
     });
     const majorMinorV1 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: majorMinor.id,
-      notes: 'Initial report version'
+      revisionDescription: 'Initial report version'
     });
     const majorMinorV2 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: majorMinor.id,
-      notes: 'Minor update',
+      revisionDescription: 'Minor update',
       bumpType: 'minor'
     });
     const majorMinorV3 = documentService.createVersion(workspaceRootPath, {
       documentRecordId: majorMinor.id,
-      notes: 'Major release',
+      revisionDescription: 'Major release',
       bumpType: 'major'
     });
 
@@ -156,7 +165,7 @@ describe('document workflow integration', () => {
     });
     const versioned = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
-      notes: 'Initial version'
+      revisionDescription: 'Initial version'
     });
 
     const workingSourceFile = path.join(tempRoot, 'incoming', 'procedure.docx');
@@ -213,7 +222,7 @@ describe('document workflow integration', () => {
     });
     const versioned = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
-      notes: 'Migration test version'
+      revisionDescription: 'Migration test version'
     });
     const workingFile = path.join(tempRoot, 'incoming', 'migration.docx');
     const conceptPdf = path.join(tempRoot, 'incoming', 'migration.pdf');
@@ -240,6 +249,7 @@ describe('document workflow integration', () => {
     });
 
     const migrated = workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
       storageLayoutPreset: 'stable-id',
       fileOrganizationMode: 'role-subfolders'
     });
@@ -255,6 +265,7 @@ describe('document workflow integration', () => {
 
   it('fails safely when migrating from role subfolders to flat layout would collide', () => {
     workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
       storageLayoutPreset: 'stable-id',
       fileOrganizationMode: 'role-subfolders'
     });
@@ -267,7 +278,7 @@ describe('document workflow integration', () => {
     });
     const versioned = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
-      notes: 'Collision version'
+      revisionDescription: 'Collision version'
     });
     const workingFile = path.join(tempRoot, 'incoming', 'duplicate-name.txt');
     const conceptFile = path.join(tempRoot, 'incoming', 'duplicate-name-copy.txt');
@@ -304,11 +315,146 @@ describe('document workflow integration', () => {
 
     expect(() =>
       workspaceService.updateSettings(workspaceRootPath, {
+        ...DEFAULT_WORKSPACE_SETTINGS,
         storageLayoutPreset: 'stable-id',
         fileOrganizationMode: 'flat'
       })
     ).toThrow('Workspace migration would create two files');
 
     expect(existsSync(workingStoredPath)).toBe(true);
+  });
+
+  it('applies workspace defaults and updates document metadata fields', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'flat',
+      defaultCompany: 'Acme Manufacturing',
+      defaultDepartment: 'Quality Assurance'
+    });
+
+    const project = workspaceCatalogService.createProject(workspaceRootPath, {
+      name: 'QMS Rollout'
+    });
+    const confidentialityClass = workspaceCatalogService.createConfidentialityClass(
+      workspaceRootPath,
+      {
+        name: 'Internal'
+      }
+    );
+    const language = workspaceCatalogService.createLanguage(workspaceRootPath, {
+      code: 'FR'
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Controlled Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3',
+      languageId: language.id,
+      confidentialityClassId: confidentialityClass.id,
+      projectId: project.id,
+      revisionIntervalMonths: 12
+    });
+
+    expect(created.company).toBe('Acme Manufacturing');
+    expect(created.department).toBe('Quality Assurance');
+    expect(created.projectName).toBe('QMS Rollout');
+    expect(created.confidentialityClassName).toBe('Internal');
+    expect(created.languageCode).toBe('FR');
+    expect(created.revisionIntervalMonths).toBe(12);
+
+    const updated = documentService.updateDocument(workspaceRootPath, {
+      documentRecordId: created.id,
+      title: 'Controlled Procedure Updated',
+      author: 'Taylor Reed',
+      languageId: language.id,
+      confidentialityClassId: confidentialityClass.id,
+      projectId: project.id,
+      company: 'Acme Labs',
+      department: 'Operations',
+      revisionIntervalMonths: 18
+    });
+
+    expect(updated.title).toBe('Controlled Procedure Updated');
+    expect(updated.author).toBe('Taylor Reed');
+    expect(updated.company).toBe('Acme Labs');
+    expect(updated.department).toBe('Operations');
+    expect(updated.revisionIntervalMonths).toBe(18);
+
+    const listed = documentService.list(workspaceRootPath)[0];
+    expect(listed?.projectName).toBe('QMS Rollout');
+    expect(listed?.languageCode).toBe('FR');
+    expect(listed?.confidentialityClassName).toBe('Internal');
+  });
+
+  it('updates latest version metadata and obsoletes the previous version by default', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Release Procedure',
+      documentTypeId: 2,
+      author: 'Morgan Ellis',
+      versionScheme: 'numeric-3'
+    });
+
+    documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial draft'
+    });
+    const releasedV1 = documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Released',
+      releasedDate: '2026-03-28',
+      approvedBy: 'Avery Chen',
+      revisionDescription: 'Approved first release'
+    });
+
+    expect(releasedV1.versions[0]?.status).toBe('Released');
+    expect(releasedV1.versions[0]?.releasedDate).toBe('2026-03-28');
+    expect(releasedV1.versions[0]?.approvedBy).toBe('Avery Chen');
+    expect(releasedV1.versions[0]?.revisionDescription).toBe('Approved first release');
+
+    const afterSecondVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Second revision draft'
+    });
+
+    expect(afterSecondVersion.versions[0]?.status).toBe('Draft');
+    expect(afterSecondVersion.versions[1]?.status).toBe('Obsolete');
+  });
+
+  it('keeps the previous version status when auto-obsolete is disabled', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'flat',
+      autoMarkPreviousVersionObsolete: false
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Manual Obsolete Control',
+      documentTypeId: 2,
+      author: 'Morgan Ellis',
+      versionScheme: 'numeric-3'
+    });
+
+    documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial release'
+    });
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Released',
+      releasedDate: '2026-03-29',
+      approvedBy: 'Jordan Singh',
+      revisionDescription: 'Released without auto obsolete'
+    });
+
+    const afterSecondVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Next draft'
+    });
+
+    expect(afterSecondVersion.versions[0]?.status).toBe('Draft');
+    expect(afterSecondVersion.versions[1]?.status).toBe('Released');
   });
 });

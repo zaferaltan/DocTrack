@@ -6,18 +6,46 @@ export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
 export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
+export const DOCUMENT_TABLE_COLUMNS = [
+  'documentId',
+  'title',
+  'documentType',
+  'version',
+  'status',
+  'author',
+  'language',
+  'confidentialityClass',
+  'project',
+  'company',
+  'department',
+  'createdDate',
+  'modifiedDate',
+  'releasedDate',
+  'approvedBy',
+  'revisionIntervalMonths',
+  'revisionDescription'
+] as const;
 
 export type WorkspaceStorageLayoutPreset = (typeof WORKSPACE_STORAGE_LAYOUT_PRESETS)[number];
 export type WorkspaceFileOrganizationMode = (typeof WORKSPACE_FILE_ORGANIZATION_MODES)[number];
+export type DocumentTableColumn = (typeof DOCUMENT_TABLE_COLUMNS)[number];
 
 export interface WorkspaceSettings {
   storageLayoutPreset: WorkspaceStorageLayoutPreset;
   fileOrganizationMode: WorkspaceFileOrganizationMode;
+  visibleDocumentColumns: DocumentTableColumn[];
+  defaultCompany: string;
+  defaultDepartment: string;
+  autoMarkPreviousVersionObsolete: boolean;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   storageLayoutPreset: 'stable-id',
-  fileOrganizationMode: 'flat'
+  fileOrganizationMode: 'flat',
+  visibleDocumentColumns: [...DOCUMENT_TABLE_COLUMNS],
+  defaultCompany: '',
+  defaultDepartment: '',
+  autoMarkPreviousVersionObsolete: true
 };
 
 export const WORKSPACE_STORAGE_LAYOUT_OPTIONS: Array<{
@@ -54,6 +82,29 @@ export const WORKSPACE_FILE_ORGANIZATION_OPTIONS: Array<{
   }
 ];
 
+export const DOCUMENT_TABLE_COLUMN_OPTIONS: Array<{
+  value: DocumentTableColumn;
+  label: string;
+}> = [
+  { value: 'documentId', label: 'Document ID' },
+  { value: 'title', label: 'Title' },
+  { value: 'documentType', label: 'Document Type' },
+  { value: 'version', label: 'Version' },
+  { value: 'status', label: 'Status' },
+  { value: 'author', label: 'Author' },
+  { value: 'language', label: 'Language' },
+  { value: 'confidentialityClass', label: 'Confidentiality Class' },
+  { value: 'project', label: 'Project' },
+  { value: 'company', label: 'Company' },
+  { value: 'department', label: 'Department' },
+  { value: 'createdDate', label: 'Created Date' },
+  { value: 'modifiedDate', label: 'Modified Date' },
+  { value: 'releasedDate', label: 'Released Date' },
+  { value: 'approvedBy', label: 'Approved By' },
+  { value: 'revisionIntervalMonths', label: 'Revision Interval' },
+  { value: 'revisionDescription', label: 'Revision Description' }
+];
+
 const INVALID_PATH_SEGMENT = /[<>:"/\\|?*\u0000-\u001f]/g;
 
 const joinRelativeSegments = (...segments: string[]): string =>
@@ -81,6 +132,22 @@ export const isWorkspaceFileOrganizationMode = (
   value: string
 ): value is WorkspaceFileOrganizationMode =>
   WORKSPACE_FILE_ORGANIZATION_MODES.includes(value as WorkspaceFileOrganizationMode);
+
+export const isDocumentTableColumn = (value: string): value is DocumentTableColumn =>
+  DOCUMENT_TABLE_COLUMNS.includes(value as DocumentTableColumn);
+
+export const normalizeVisibleDocumentColumns = (value: unknown): DocumentTableColumn[] => {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns];
+  }
+
+  const selected = new Set(
+    value.filter((item): item is DocumentTableColumn => typeof item === 'string' && isDocumentTableColumn(item))
+  );
+
+  const normalized = DOCUMENT_TABLE_COLUMNS.filter((column) => selected.has(column));
+  return normalized.length > 0 ? normalized : [...DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns];
+};
 
 export const getWorkspaceDatabaseRelativePath = (): string =>
   joinRelativeSegments(WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);

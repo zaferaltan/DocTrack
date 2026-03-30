@@ -2,6 +2,8 @@ import type { ApplicationSettings } from '@shared/applicationSettings';
 import type {
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
+  ConfidentialityClass,
+  ConfidentialityClassInput,
   CreateDocumentInput,
   CreateVersionInput,
   DeleteDocumentVersionFileInput,
@@ -12,9 +14,14 @@ import type {
   DocumentType,
   DocumentTypeInput,
   OpenWorkspaceResult,
+  Project,
+  ProjectInput,
   RecentWorkspace,
   RenameDocumentVersionFileInput,
-  UpdateDocumentStatusInput,
+  UpdateDocumentInput,
+  UpdateLatestVersionInput,
+  WorkspaceLanguage,
+  WorkspaceLanguageInput,
   WorkspaceCreateInput,
   WorkspaceInfo
 } from '@shared/types';
@@ -34,13 +41,14 @@ export const IPC_CHANNELS = {
   documentsList: 'documents:list',
   documentsDetail: 'documents:detail',
   documentsCreate: 'documents:create',
+  documentsUpdate: 'documents:update',
   documentsCreateVersion: 'documents:createVersion',
+  documentsUpdateLatestVersion: 'documents:updateLatestVersion',
   documentsAddVersionFiles: 'documents:addVersionFiles',
   documentsRenameVersionFile: 'documents:renameVersionFile',
   documentsDeleteVersionFile: 'documents:deleteVersionFile',
   documentsChangeVersionFileRole: 'documents:changeVersionFileRole',
   documentsSyncVersionFiles: 'documents:syncVersionFiles',
-  documentsUpdateStatus: 'documents:updateStatus',
   documentsOpenVersionFile: 'documents:openVersionFile',
   documentsOpenDocumentFolder: 'documents:openDocumentFolder',
   documentsOpenVersionFolder: 'documents:openVersionFolder',
@@ -48,6 +56,18 @@ export const IPC_CHANNELS = {
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
   documentTypesDelete: 'documentTypes:delete',
+  projectsList: 'projects:list',
+  projectsCreate: 'projects:create',
+  projectsUpdate: 'projects:update',
+  projectsDelete: 'projects:delete',
+  confidentialityClassesList: 'confidentialityClasses:list',
+  confidentialityClassesCreate: 'confidentialityClasses:create',
+  confidentialityClassesUpdate: 'confidentialityClasses:update',
+  confidentialityClassesDelete: 'confidentialityClasses:delete',
+  languagesList: 'languages:list',
+  languagesCreate: 'languages:create',
+  languagesUpdate: 'languages:update',
+  languagesDelete: 'languages:delete',
   appSettingsGet: 'appSettings:get',
   appSettingsUpdate: 'appSettings:update'
 } as const;
@@ -71,7 +91,9 @@ export interface DocTrackApi {
     list: (rootPath: string) => Promise<DocumentListItem[]>;
     detail: (rootPath: string, documentRecordId: number) => Promise<DocumentDetail>;
     create: (rootPath: string, input: CreateDocumentInput) => Promise<DocumentDetail>;
+    update: (rootPath: string, input: UpdateDocumentInput) => Promise<DocumentDetail>;
     createVersion: (rootPath: string, input: CreateVersionInput) => Promise<DocumentDetail>;
+    updateLatestVersion: (rootPath: string, input: UpdateLatestVersionInput) => Promise<DocumentDetail>;
     addVersionFiles: (rootPath: string, input: AddDocumentVersionFilesInput) => Promise<DocumentVersion>;
     renameVersionFile: (
       rootPath: string,
@@ -86,7 +108,6 @@ export interface DocTrackApi {
       input: ChangeDocumentVersionFileRoleInput
     ) => Promise<DocumentVersion>;
     syncVersionFiles: (rootPath: string, documentVersionId: number) => Promise<DocumentVersion>;
-    updateStatus: (rootPath: string, input: UpdateDocumentStatusInput) => Promise<DocumentDetail>;
     openVersionFile: (rootPath: string, fileId: number) => Promise<void>;
     openDocumentFolder: (rootPath: string, documentRecordId: number) => Promise<void>;
     openVersionFolder: (rootPath: string, documentVersionId: number) => Promise<void>;
@@ -95,6 +116,28 @@ export interface DocTrackApi {
     list: (rootPath: string) => Promise<DocumentType[]>;
     create: (rootPath: string, input: DocumentTypeInput) => Promise<DocumentType>;
     update: (rootPath: string, id: number, input: DocumentTypeInput) => Promise<DocumentType>;
+    delete: (rootPath: string, id: number) => Promise<void>;
+  };
+  projects: {
+    list: (rootPath: string) => Promise<Project[]>;
+    create: (rootPath: string, input: ProjectInput) => Promise<Project>;
+    update: (rootPath: string, id: number, input: ProjectInput) => Promise<Project>;
+    delete: (rootPath: string, id: number) => Promise<void>;
+  };
+  confidentialityClasses: {
+    list: (rootPath: string) => Promise<ConfidentialityClass[]>;
+    create: (rootPath: string, input: ConfidentialityClassInput) => Promise<ConfidentialityClass>;
+    update: (
+      rootPath: string,
+      id: number,
+      input: ConfidentialityClassInput
+    ) => Promise<ConfidentialityClass>;
+    delete: (rootPath: string, id: number) => Promise<void>;
+  };
+  languages: {
+    list: (rootPath: string) => Promise<WorkspaceLanguage[]>;
+    create: (rootPath: string, input: WorkspaceLanguageInput) => Promise<WorkspaceLanguage>;
+    update: (rootPath: string, id: number, input: WorkspaceLanguageInput) => Promise<WorkspaceLanguage>;
     delete: (rootPath: string, id: number) => Promise<void>;
   };
   appSettings: {

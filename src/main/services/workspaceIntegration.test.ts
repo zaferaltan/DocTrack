@@ -9,8 +9,10 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 import {
+  DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME
 } from '@shared/workspaceLayout';
@@ -40,10 +42,12 @@ describe('workspace integration', () => {
     const documentIdGenerator = new DocumentIdGeneratorService();
     documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
     new DocumentTypeService(workspaceManager, fileStorageService);
+    const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
     workspaceService = new WorkspaceService(
       workspaceManager,
       documentService,
       fileStorageService,
+      workspaceCatalogService,
       catalogService,
       documentIdGenerator
     );
@@ -58,7 +62,11 @@ describe('workspace integration', () => {
     const result = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
       includeExampleData: false
     });
 
@@ -73,7 +81,13 @@ describe('workspace integration', () => {
     expect(result.workspace.rootPath).toBe(workspaceRootPath);
     expect(result.summary.settings.storageLayoutPreset).toBe('stable-id');
     expect(result.summary.settings.fileOrganizationMode).toBe('flat');
+    expect(result.summary.settings.visibleDocumentColumns).toEqual(
+      DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns
+    );
+    expect(result.summary.settings.autoMarkPreviousVersionObsolete).toBe(true);
     expect(result.summary.documentTypes.map((item) => item.numberPrefix)).toEqual(['01', '02', '03']);
+    expect(result.summary.languages.map((item) => item.code)).toEqual(['DE', 'EN', 'NL']);
+    expect(result.summary.statuses).toContain('Obsolete');
     expect(existsSync(databasePath)).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Specification'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(true);
@@ -84,13 +98,21 @@ describe('workspace integration', () => {
     const first = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
       includeExampleData: false
     });
     const second = workspaceService.create({
       name: 'Manufacturing',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'friendly-id', fileOrganizationMode: 'role-subfolders' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'friendly-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
       includeExampleData: false
     });
 
@@ -109,7 +131,11 @@ describe('workspace integration', () => {
     workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
       includeExampleData: false
     });
     workspaceService.close(originalRootPath);
@@ -142,7 +168,11 @@ describe('workspace integration', () => {
     const created = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
-      settings: { storageLayoutPreset: 'stable-id', fileOrganizationMode: 'flat' },
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
       includeExampleData: false
     });
     const workspaceRootPath = created.workspace.rootPath;
@@ -154,7 +184,7 @@ describe('workspace integration', () => {
     });
     const versioned = documentService.createVersion(workspaceRootPath, {
       documentRecordId: shellDocument.id,
-      notes: 'Initial version folder'
+      revisionDescription: 'Initial version folder'
     });
     const sourceFile = path.join(tempRoot, 'incoming', 'procedure.docx');
     mkdirSync(path.dirname(sourceFile), { recursive: true });
@@ -174,6 +204,7 @@ describe('workspace integration', () => {
     mkdirSync(unmanagedDirectory, { recursive: true });
 
     const updated = workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
       storageLayoutPreset: 'friendly-id',
       fileOrganizationMode: 'role-subfolders'
     });

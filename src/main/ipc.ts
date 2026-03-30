@@ -3,12 +3,14 @@ import type { AppCatalogService } from '@main/catalog/appCatalogService';
 import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
 import type { WorkspaceService } from '@main/services/workspaceService';
+import type { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { IPC_CHANNELS } from '@shared/ipc';
 
 interface ServiceContainer {
   workspaceService: WorkspaceService;
   documentService: DocumentService;
   documentTypeService: DocumentTypeService;
+  workspaceCatalogService: WorkspaceCatalogService;
   catalogService: AppCatalogService;
 }
 
@@ -67,8 +69,14 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsCreate, (_event, rootPath: string, input) =>
     services.documentService.create(rootPath, input)
   );
+  ipcMain.handle(IPC_CHANNELS.documentsUpdate, (_event, rootPath: string, input) =>
+    services.documentService.updateDocument(rootPath, input)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (_event, rootPath: string, input) =>
     services.documentService.createVersion(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsUpdateLatestVersion, (_event, rootPath: string, input) =>
+    services.documentService.updateLatestVersion(rootPath, input)
   );
   ipcMain.handle(IPC_CHANNELS.documentsAddVersionFiles, (_event, rootPath: string, input) =>
     services.documentService.addVersionFiles(rootPath, input)
@@ -84,9 +92,6 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
   ipcMain.handle(IPC_CHANNELS.documentsSyncVersionFiles, (_event, rootPath: string, documentVersionId: number) =>
     services.documentService.syncVersionFiles(rootPath, documentVersionId)
-  );
-  ipcMain.handle(IPC_CHANNELS.documentsUpdateStatus, (_event, rootPath: string, input) =>
-    services.documentService.updateStatus(rootPath, input)
   );
   ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFile, (_event, rootPath: string, fileId: number) =>
     services.documentService.openVersionFile(rootPath, fileId)
@@ -109,6 +114,47 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
   ipcMain.handle(IPC_CHANNELS.documentTypesDelete, (_event, rootPath: string, id: number) =>
     services.documentTypeService.delete(rootPath, id)
+  );
+
+  ipcMain.handle(IPC_CHANNELS.projectsList, (_event, rootPath: string) =>
+    services.workspaceCatalogService.listProjects(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.projectsCreate, (_event, rootPath: string, input) =>
+    services.workspaceCatalogService.createProject(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.projectsUpdate, (_event, rootPath: string, id: number, input) =>
+    services.workspaceCatalogService.updateProject(rootPath, id, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.projectsDelete, (_event, rootPath: string, id: number) =>
+    services.workspaceCatalogService.deleteProject(rootPath, id)
+  );
+
+  ipcMain.handle(IPC_CHANNELS.confidentialityClassesList, (_event, rootPath: string) =>
+    services.workspaceCatalogService.listConfidentialityClasses(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.confidentialityClassesCreate, (_event, rootPath: string, input) =>
+    services.workspaceCatalogService.createConfidentialityClass(rootPath, input)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.confidentialityClassesUpdate,
+    (_event, rootPath: string, id: number, input) =>
+      services.workspaceCatalogService.updateConfidentialityClass(rootPath, id, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.confidentialityClassesDelete, (_event, rootPath: string, id: number) =>
+    services.workspaceCatalogService.deleteConfidentialityClass(rootPath, id)
+  );
+
+  ipcMain.handle(IPC_CHANNELS.languagesList, (_event, rootPath: string) =>
+    services.workspaceCatalogService.listLanguages(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.languagesCreate, (_event, rootPath: string, input) =>
+    services.workspaceCatalogService.createLanguage(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.languagesUpdate, (_event, rootPath: string, id: number, input) =>
+    services.workspaceCatalogService.updateLanguage(rootPath, id, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.languagesDelete, (_event, rootPath: string, id: number) =>
+    services.workspaceCatalogService.deleteLanguage(rootPath, id)
   );
 
   ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => services.catalogService.getApplicationSettings());

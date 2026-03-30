@@ -4,6 +4,7 @@ import type { WorkspaceContext, WorkspaceManager } from '@main/database/workspac
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { nowIso } from '@main/utils/date';
 import { DOCUMENT_STATUSES } from '@shared/types';
 import type { DocumentType, OpenWorkspaceResult, WorkspaceCreateInput } from '@shared/types';
@@ -11,6 +12,7 @@ import {
   DEFAULT_WORKSPACE_SETTINGS,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
+  normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -25,6 +27,7 @@ export class WorkspaceService {
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentService: DocumentService,
     private readonly fileStorageService: FileStorageService,
+    private readonly workspaceCatalogService: WorkspaceCatalogService,
     private readonly catalogService: AppCatalogService,
     private readonly documentIdGenerator: DocumentIdGeneratorService
   ) {}
@@ -80,6 +83,9 @@ export class WorkspaceService {
         settings: context.settings,
         documents: this.documentService.list(rootPath),
         documentTypes: this.mapTypeRows(typeRows),
+        projects: this.workspaceCatalogService.listProjects(rootPath),
+        confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
+        languages: this.workspaceCatalogService.listLanguages(rootPath),
         statuses: [...DOCUMENT_STATUSES]
       },
       warnings
@@ -89,15 +95,19 @@ export class WorkspaceService {
   updateSettings(rootPath: string, settings: WorkspaceSettings): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
     const nextSettings = this.normalizeWorkspaceSettings(settings);
+    const requiresStorageMigration =
+      context.settings.storageLayoutPreset !== nextSettings.storageLayoutPreset ||
+      context.settings.fileOrganizationMode !== nextSettings.fileOrganizationMode;
 
-    if (
-      context.settings.storageLayoutPreset === nextSettings.storageLayoutPreset &&
-      context.settings.fileOrganizationMode === nextSettings.fileOrganizationMode
-    ) {
+    if (this.areWorkspaceSettingsEqual(context.settings, nextSettings)) {
       return this.getSummary(rootPath);
     }
 
-    const warnings = this.migrateWorkspaceStorageLayout(context, nextSettings);
+    const warnings = requiresStorageMigration
+      ? this.migrateWorkspaceStorageLayout(context, nextSettings)
+      : [];
+
+    this.persistWorkspaceSettings(context, nextSettings);
     context.settings = nextSettings;
     this.ensureDocumentTypeDirectories(context);
     return this.getSummary(rootPath, warnings);
@@ -117,6 +127,43 @@ export class WorkspaceService {
     for (const type of STARTER_TYPES) {
       insert.run(type.name, type.numberPrefix);
     }
+  }
+
+  private persistWorkspaceSettings(context: WorkspaceContext, settings: WorkspaceSettings): void {
+    context.db
+      .prepare(
+        `
+          UPDATE Workspaces
+          SET
+            StorageLayoutPreset = ?,
+            FileOrganizationMode = ?,
+            VisibleDocumentColumns = ?,
+            DefaultCompany = ?,
+            DefaultDepartment = ?,
+            AutoMarkPreviousVersionObsolete = ?
+          WHERE Id = 1
+        `
+      )
+      .run(
+        settings.storageLayoutPreset,
+        settings.fileOrganizationMode,
+        JSON.stringify(settings.visibleDocumentColumns),
+        settings.defaultCompany,
+        settings.defaultDepartment,
+        settings.autoMarkPreviousVersionObsolete ? 1 : 0
+      );
+  }
+
+  private areWorkspaceSettingsEqual(left: WorkspaceSettings, right: WorkspaceSettings): boolean {
+    return (
+      left.storageLayoutPreset === right.storageLayoutPreset &&
+      left.fileOrganizationMode === right.fileOrganizationMode &&
+      left.defaultCompany === right.defaultCompany &&
+      left.defaultDepartment === right.defaultDepartment &&
+      left.autoMarkPreviousVersionObsolete === right.autoMarkPreviousVersionObsolete &&
+      left.visibleDocumentColumns.length === right.visibleDocumentColumns.length &&
+      left.visibleDocumentColumns.every((column, index) => column === right.visibleDocumentColumns[index])
+    );
   }
 
   private ensureDocumentTypeDirectories(context: WorkspaceContext): void {
@@ -416,7 +463,7 @@ export class WorkspaceService {
       versions: Array<{
         versionLabel: string;
         sequenceNumber: number;
-        status: 'Draft' | 'In Review' | 'Released' | 'Archived';
+        status: 'Draft' | 'In Review' | 'Released' | 'Archived' | 'Obsolete';
         notes: string;
         role: 'working' | 'concept-pdf' | 'final-pdf' | 'other';
         fileName: string;
@@ -543,7 +590,15 @@ export class WorkspaceService {
 
     return {
       storageLayoutPreset: settings.storageLayoutPreset,
-      fileOrganizationMode: settings.fileOrganizationMode
+      fileOrganizationMode: settings.fileOrganizationMode,
+      visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
+      defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
+      defaultDepartment:
+        typeof settings.defaultDepartment === 'string' ? settings.defaultDepartment.trim() : '',
+      autoMarkPreviousVersionObsolete:
+        typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
+          ? settings.autoMarkPreviousVersionObsolete
+          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
     };
   }
 

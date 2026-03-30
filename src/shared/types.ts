@@ -6,7 +6,7 @@ import type {
 import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
-export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived'] as const;
+export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
@@ -24,6 +24,21 @@ export interface DocumentType {
   numberPrefix: string;
 }
 
+export interface Project {
+  id: number;
+  name: string;
+}
+
+export interface ConfidentialityClass {
+  id: number;
+  name: string;
+}
+
+export interface WorkspaceLanguage {
+  id: number;
+  code: string;
+}
+
 export interface DocumentListItem {
   id: number;
   documentId: string;
@@ -33,9 +48,21 @@ export interface DocumentListItem {
   versionScheme: DocumentVersionScheme;
   status: DocumentStatus | null;
   latestVersionLabel: string | null;
+  releasedDate: string | null;
+  approvedBy: string;
+  revisionDescription: string;
   modifiedDate: string;
   createdDate: string;
   author: string;
+  languageId: number | null;
+  languageCode: string | null;
+  confidentialityClassId: number | null;
+  confidentialityClassName: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  company: string;
+  department: string;
+  revisionIntervalMonths: number | null;
 }
 
 export interface DocumentVersionFile {
@@ -56,8 +83,10 @@ export interface DocumentVersion {
   sequenceNumber: number;
   versionLabel: string;
   status: DocumentStatus;
+  releasedDate: string | null;
+  approvedBy: string;
   createdDate: string;
-  notes: string;
+  revisionDescription: string;
   files: DocumentVersionFile[];
   unmanagedPaths: string[];
 }
@@ -73,6 +102,15 @@ export interface DocumentDetail {
   createdDate: string;
   modifiedDate: string;
   author: string;
+  languageId: number | null;
+  languageCode: string | null;
+  confidentialityClassId: number | null;
+  confidentialityClassName: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  company: string;
+  department: string;
+  revisionIntervalMonths: number | null;
   versions: DocumentVersion[];
 }
 
@@ -81,22 +119,55 @@ export interface CreateDocumentInput {
   documentTypeId: number;
   author: string;
   versionScheme: DocumentVersionScheme;
+  languageId?: number | null;
+  confidentialityClassId?: number | null;
+  projectId?: number | null;
+  company?: string;
+  department?: string;
+  revisionIntervalMonths?: number | null;
 }
 
 export interface CreateVersionInput {
   documentRecordId: number;
-  notes: string;
+  revisionDescription: string;
   bumpType?: VersionBumpType;
 }
 
-export interface UpdateDocumentStatusInput {
+export interface UpdateDocumentInput {
+  documentRecordId: number;
+  title: string;
+  author: string;
+  languageId?: number | null;
+  confidentialityClassId?: number | null;
+  projectId?: number | null;
+  company?: string;
+  department?: string;
+  revisionIntervalMonths?: number | null;
+}
+
+export interface UpdateLatestVersionInput {
   documentRecordId: number;
   status: DocumentStatus;
+  releasedDate: string | null;
+  approvedBy: string;
+  revisionDescription: string;
 }
 
 export interface DocumentTypeInput {
   name: string;
   numberPrefix: string;
+}
+
+export interface ProjectInput {
+  name: string;
+}
+
+export interface ConfidentialityClassInput {
+  name: string;
+}
+
+export interface WorkspaceLanguageInput {
+  code: string;
 }
 
 export interface AddDocumentVersionFilesInput {
@@ -124,6 +195,9 @@ export interface WorkspaceSummary {
   settings: WorkspaceSettings;
   documents: DocumentListItem[];
   documentTypes: DocumentType[];
+  projects: Project[];
+  confidentialityClasses: ConfidentialityClass[];
+  languages: WorkspaceLanguage[];
   statuses: DocumentStatus[];
 }
 

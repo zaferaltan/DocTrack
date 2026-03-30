@@ -7,6 +7,7 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 
 let mainWindow: BrowserWindowType | null = null;
@@ -53,10 +54,12 @@ app.whenReady().then(async () => {
     fileStorageService
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
+  const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
   const workspaceService = new WorkspaceService(
     workspaceManager,
     documentService,
     fileStorageService,
+    workspaceCatalogService,
     catalogService,
     documentIdGenerator
   );
@@ -65,6 +68,7 @@ app.whenReady().then(async () => {
     workspaceService,
     documentService,
     documentTypeService,
+    workspaceCatalogService,
     catalogService
   });
 
