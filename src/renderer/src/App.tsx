@@ -5,8 +5,8 @@ import {
   useEffectEvent,
   useMemo,
   useRef,
-  useState
-} from 'react';
+  useState,
+} from "react";
 import {
   ArrowUpDown,
   ChevronDown,
@@ -33,8 +33,8 @@ import {
   SunMoon,
   Table2,
   Upload,
-  X
-} from 'lucide-react';
+  X,
+} from "lucide-react";
 import {
   flexRender,
   getCoreRowModel,
@@ -42,23 +42,28 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
-  type SortingState
-} from '@tanstack/react-table';
-import { Badge } from '@renderer/components/ui/badge';
-import { Button } from '@renderer/components/ui/button';
+  type SortingState,
+} from "@tanstack/react-table";
+import { Badge } from "@renderer/components/ui/badge";
+import { Button } from "@renderer/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog';
-import { Input } from '@renderer/components/ui/input';
-import { Select } from '@renderer/components/ui/select';
-import { Textarea } from '@renderer/components/ui/textarea';
-import { cn, formatDateShort, formatDateTime, formatUserFacingError } from '@renderer/lib/utils';
-import { useAppStore } from '@renderer/store/useAppStore';
+  DialogTitle,
+} from "@renderer/components/ui/dialog";
+import { Input } from "@renderer/components/ui/input";
+import { Select } from "@renderer/components/ui/select";
+import { Textarea } from "@renderer/components/ui/textarea";
+import {
+  cn,
+  formatDateShort,
+  formatDateTime,
+  formatUserFacingError,
+} from "@renderer/lib/utils";
+import { useAppStore } from "@renderer/store/useAppStore";
 import {
   APPLICATION_LAUNCH_BEHAVIOR_OPTIONS,
   DEFAULT_KEYBOARD_SHORTCUTS,
@@ -79,16 +84,16 @@ import {
   type KeyboardShortcutAction,
   type KeyboardShortcutMap,
   type KeyboardShortcutValue,
-  type ThemeMode
-} from '@shared/applicationSettings';
+  type ThemeMode,
+} from "@shared/applicationSettings";
 import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
   DOCUMENT_VERSION_SCHEME_LABELS,
   type DocumentVersionFileRole,
   type DocumentVersionScheme,
-  type VersionBumpType
-} from '@shared/documentModel';
+  type VersionBumpType,
+} from "@shared/documentModel";
 import {
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
@@ -106,8 +111,8 @@ import {
   normalizeDocumentIdFormatTemplate,
   resolveDocumentIdFormatTemplate,
   type DocumentTableColumn,
-  type WorkspaceSettings
-} from '@shared/workspaceLayout';
+  type WorkspaceSettings,
+} from "@shared/workspaceLayout";
 import type {
   ConfidentialityClass,
   CreateDocumentInput,
@@ -125,88 +130,95 @@ import type {
   UpdateDocumentInput,
   UpdateLatestVersionInput,
   WorkspaceLanguage,
-  WorkspaceSettingsUpdateInput
-} from '@shared/types';
+  WorkspaceSettingsUpdateInput,
+} from "@shared/types";
 
-type NotificationTone = 'success' | 'error';
+type NotificationTone = "success" | "error";
 
-const STATUS_VARIANTS: Record<DocumentStatus, 'success' | 'warning' | 'muted' | 'default'> = {
-  Draft: 'warning',
-  'In Review': 'default',
-  Released: 'success',
-  Archived: 'muted',
-  Obsolete: 'muted'
+const STATUS_VARIANTS: Record<
+  DocumentStatus,
+  "success" | "warning" | "muted" | "default"
+> = {
+  Draft: "warning",
+  "In Review": "default",
+  Released: "success",
+  Archived: "muted",
+  Obsolete: "muted",
 };
 
 const THEME_MODE_ICONS: Record<ThemeMode, typeof Sun> = {
   light: Sun,
   dark: Moon,
-  system: SunMoon
+  system: SunMoon,
 };
 
 const SUCCESS_NOTIFICATION_TIMEOUT_MS = 3500;
 
 const getSystemTheme = (): ThemeMode =>
-  window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
 const applyTheme = (themeMode: ThemeMode): void => {
   const root = document.documentElement;
-  const effectiveTheme = themeMode === 'system' ? getSystemTheme() : themeMode;
-  root.classList.toggle('dark', effectiveTheme === 'dark');
+  const effectiveTheme = themeMode === "system" ? getSystemTheme() : themeMode;
+  root.classList.toggle("dark", effectiveTheme === "dark");
 };
 
 const buildWorkspaceDialogState = (
-  applicationSettings: ApplicationSettings
+  applicationSettings: ApplicationSettings,
 ): WorkspaceDialogState => ({
   ...defaultWorkspaceDialogState,
   open: true,
-  includeExampleData: applicationSettings.defaultIncludeExampleData
+  includeExampleData: applicationSettings.defaultIncludeExampleData,
 });
 
 const buildCreateDocumentDialogState = (
   applicationSettings: ApplicationSettings,
-  workspaceSettings: WorkspaceSettings
+  workspaceSettings: WorkspaceSettings,
 ): DocumentDialogState => ({
   ...defaultDocumentDialogState,
-  mode: 'create',
+  mode: "create",
   open: true,
   author: applicationSettings.defaultDocumentAuthor,
   versionScheme: applicationSettings.defaultDocumentVersionScheme,
   company: workspaceSettings.defaultCompany,
-  department: workspaceSettings.defaultDepartment
+  department: workspaceSettings.defaultDepartment,
 });
 
-const buildEditDocumentDialogState = (documentDetail: DocumentDetail): DocumentDialogState => ({
+const buildEditDocumentDialogState = (
+  documentDetail: DocumentDetail,
+): DocumentDialogState => ({
   ...defaultDocumentDialogState,
-  mode: 'edit',
+  mode: "edit",
   open: true,
   documentRecordId: documentDetail.id,
   title: documentDetail.title,
   documentTypeId: String(documentDetail.typeId),
   author: documentDetail.author,
   versionScheme: documentDetail.versionScheme,
-  languageId: documentDetail.languageId ? String(documentDetail.languageId) : '',
+  languageId: documentDetail.languageId
+    ? String(documentDetail.languageId)
+    : "",
   confidentialityClassId: documentDetail.confidentialityClassId
     ? String(documentDetail.confidentialityClassId)
-    : '',
-  projectId: documentDetail.projectId ? String(documentDetail.projectId) : '',
+    : "",
+  projectId: documentDetail.projectId ? String(documentDetail.projectId) : "",
   company: documentDetail.company,
   department: documentDetail.department,
   revisionIntervalMonths:
     documentDetail.revisionIntervalMonths !== null
       ? String(documentDetail.revisionIntervalMonths)
-      : ''
+      : "",
 });
 
 const buildApplicationSettingsDialogState = (
-  applicationSettings: ApplicationSettings
+  applicationSettings: ApplicationSettings,
 ): ApplicationSettingsDialogState => ({
   open: true,
   settings: {
     ...applicationSettings,
-    keyboardShortcuts: { ...applicationSettings.keyboardShortcuts }
+    keyboardShortcuts: { ...applicationSettings.keyboardShortcuts },
   },
-  isSubmitting: false
+  isSubmitting: false,
 });
 
 interface WorkspaceDialogState {
@@ -243,7 +255,7 @@ interface TableColumnsDialogState {
 }
 
 interface DocumentDialogState {
-  mode: 'create' | 'edit';
+  mode: "create" | "edit";
   documentRecordId?: number;
   open: boolean;
   title: string;
@@ -318,7 +330,7 @@ interface LanguageDialogState {
   isSubmitting: boolean;
 }
 
-type DocumentExportScope = 'current-table' | 'whole-workspace';
+type DocumentExportScope = "current-table" | "whole-workspace";
 type ExportGroupingOption = {
   value: DocumentExportGrouping;
   label: string;
@@ -326,7 +338,7 @@ type ExportGroupingOption = {
 
 interface DocumentExportDialogState {
   open: boolean;
-  format: 'csv' | 'pdf';
+  format: "csv" | "pdf";
   scope: DocumentExportScope;
   groupBy: DocumentExportGrouping;
   pdfColorMode: DocumentExportPdfColorMode;
@@ -335,122 +347,122 @@ interface DocumentExportDialogState {
 
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
-  name: '',
-  folderName: '',
+  name: "",
+  folderName: "",
   useCustomFolderName: false,
-  parentPath: '',
+  parentPath: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   includeExampleData: true,
-  isSubmitting: false
+  isSubmitting: false,
 };
 
 const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   open: false,
   rootPath: undefined,
-  workspaceName: '',
+  workspaceName: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   companyLogoSourceFilePath: null,
   clearCompanyLogo: false,
-  isSubmitting: false
+  isSubmitting: false,
 };
 
 const defaultApplicationSettingsDialogState: ApplicationSettingsDialogState = {
   open: false,
   settings: {
     ...DEFAULT_APPLICATION_SETTINGS,
-    keyboardShortcuts: { ...DEFAULT_APPLICATION_SETTINGS.keyboardShortcuts }
+    keyboardShortcuts: { ...DEFAULT_APPLICATION_SETTINGS.keyboardShortcuts },
   },
-  isSubmitting: false
+  isSubmitting: false,
 };
 
 const defaultTableColumnsDialogState: TableColumnsDialogState = {
   open: false,
   visibleColumns: [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS],
-  isSubmitting: false
+  isSubmitting: false,
 };
 
 const defaultDocumentDialogState: DocumentDialogState = {
-  mode: 'create',
+  mode: "create",
   documentRecordId: undefined,
   open: false,
-  title: '',
-  documentTypeId: '',
-  author: '',
-  versionScheme: 'numeric-3',
-  languageId: '',
-  confidentialityClassId: '',
-  projectId: '',
-  company: '',
-  department: '',
-  revisionIntervalMonths: '',
-  isSubmitting: false
+  title: "",
+  documentTypeId: "",
+  author: "",
+  versionScheme: "numeric-3",
+  languageId: "",
+  confidentialityClassId: "",
+  projectId: "",
+  company: "",
+  department: "",
+  revisionIntervalMonths: "",
+  isSubmitting: false,
 };
 
 const defaultVersionDialogState: VersionDialogState = {
   open: false,
-  revisionDescription: '',
-  bumpType: 'minor',
-  isSubmitting: false
+  revisionDescription: "",
+  bumpType: "minor",
+  isSubmitting: false,
 };
 
 const defaultFilesDialogState: FilesDialogState = {
   open: false,
   versionId: undefined,
-  addRole: 'working',
-  isSubmitting: false
+  addRole: "working",
+  isSubmitting: false,
 };
 
 const defaultLatestVersionDialogState: LatestVersionDialogState = {
   open: false,
-  status: 'Draft',
-  releasedDate: '',
-  approvedBy: '',
-  revisionDescription: '',
-  isSubmitting: false
+  status: "Draft",
+  releasedDate: "",
+  approvedBy: "",
+  revisionDescription: "",
+  isSubmitting: false,
 };
 
 const defaultStatusChangeDialogState: StatusChangeDialogState = {
   open: false,
   document: undefined,
-  nextStatus: 'Draft',
-  isSubmitting: false
+  nextStatus: "Draft",
+  isSubmitting: false,
 };
 
 const defaultTypeDialogState: TypeDialogState = {
   open: false,
-  name: '',
-  numberPrefix: '',
-  isSubmitting: false
+  name: "",
+  numberPrefix: "",
+  isSubmitting: false,
 };
 
 const defaultProjectDialogState: ProjectDialogState = {
   open: false,
   id: undefined,
-  name: '',
-  isSubmitting: false
+  name: "",
+  isSubmitting: false,
 };
 
 const defaultClassificationDialogState: ClassificationDialogState = {
   open: false,
   id: undefined,
-  name: '',
-  isSubmitting: false
+  name: "",
+  isSubmitting: false,
 };
 
 const defaultLanguageDialogState: LanguageDialogState = {
   open: false,
   id: undefined,
-  code: '',
-  isSubmitting: false
+  code: "",
+  isSubmitting: false,
 };
 
 const defaultDocumentExportDialogState: DocumentExportDialogState = {
   open: false,
-  format: 'csv',
-  scope: 'current-table',
-  groupBy: 'documentType',
-  pdfColorMode: 'color',
-  isSubmitting: false
+  format: "csv",
+  scope: "current-table",
+  groupBy: "documentType",
+  pdfColorMode: "color",
+  isSubmitting: false,
 };
 
 const parseOptionalSelectNumber = (value: string): number | null =>
@@ -466,14 +478,17 @@ const parseOptionalPositiveInteger = (value: string): number | null => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : Number.NaN;
 };
 
-const normalizeDocumentIdPreviewSegment = (value: string, fallback: string): string => {
+const normalizeDocumentIdPreviewSegment = (
+  value: string,
+  fallback: string,
+): string => {
   const normalized = value
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .replace(/_/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .replace(/_/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .toUpperCase();
 
   return normalized || fallback;
@@ -481,59 +496,63 @@ const normalizeDocumentIdPreviewSegment = (value: string, fallback: string): str
 
 const buildDocumentIdPreview = (
   settings: WorkspaceSettings,
-  sequenceNumber: number
+  sequenceNumber: number,
 ): string => {
-  const createdDate = new Date('2026-03-31T09:00:00.000Z');
+  const createdDate = new Date("2026-03-31T09:00:00.000Z");
   const year = String(createdDate.getUTCFullYear());
   const replacements: Record<string, string> = {
-    doctypeprefix: '02',
-    documenttypeprefix: '02',
-    prefix: '02',
-    doctype: 'PROCEDURE',
-    documenttype: 'PROCEDURE',
+    doctypeprefix: "02",
+    documenttypeprefix: "02",
+    prefix: "02",
+    doctype: "PROCEDURE",
+    documenttype: "PROCEDURE",
     year,
     year2: year.slice(-2),
-    month: String(createdDate.getUTCMonth() + 1).padStart(2, '0'),
-    day: String(createdDate.getUTCDate()).padStart(2, '0'),
-    author: normalizeDocumentIdPreviewSegment('Jordan Singh', 'UNKNOWN'),
-    language: 'EN',
-    languagecode: 'EN',
-    company: normalizeDocumentIdPreviewSegment('Acme Manufacturing', 'NA'),
-    department: normalizeDocumentIdPreviewSegment('Quality Assurance', 'NA'),
-    project: normalizeDocumentIdPreviewSegment('QMS Rollout', 'NA'),
-    projectname: normalizeDocumentIdPreviewSegment('QMS Rollout', 'NA'),
-    title: normalizeDocumentIdPreviewSegment('Operating Procedure', 'UNTITLED')
+    month: String(createdDate.getUTCMonth() + 1).padStart(2, "0"),
+    day: String(createdDate.getUTCDate()).padStart(2, "0"),
+    author: normalizeDocumentIdPreviewSegment("Jordan Singh", "UNKNOWN"),
+    language: "EN",
+    languagecode: "EN",
+    company: normalizeDocumentIdPreviewSegment("Acme Manufacturing", "NA"),
+    department: normalizeDocumentIdPreviewSegment("Quality Assurance", "NA"),
+    project: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
+    projectname: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
+    title: normalizeDocumentIdPreviewSegment("Operating Procedure", "UNTITLED"),
   };
 
-  return resolveDocumentIdFormatTemplate(settings).replace(/<([^>]+)>/gi, (_match, tokenContent) => {
-    const [rawName, rawArgument] = String(tokenContent).split(':', 2);
-    const tokenName = rawName.trim().toLowerCase();
+  return resolveDocumentIdFormatTemplate(settings).replace(
+    /<([^>]+)>/gi,
+    (_match, tokenContent) => {
+      const [rawName, rawArgument] = String(tokenContent).split(":", 2);
+      const tokenName = rawName.trim().toLowerCase();
 
-    if (tokenName === 'sequence') {
-      const width = Number(rawArgument?.trim() || '5');
-      const safeWidth = Number.isInteger(width) && width > 0 ? width : 5;
-      return String(sequenceNumber).padStart(safeWidth, '0');
-    }
+      if (tokenName === "sequence") {
+        const width = Number(rawArgument?.trim() || "5");
+        const safeWidth = Number.isInteger(width) && width > 0 ? width : 5;
+        return String(sequenceNumber).padStart(safeWidth, "0");
+      }
 
-    return replacements[tokenName] ?? `<${tokenContent}>`;
-  });
+      return replacements[tokenName] ?? `<${tokenContent}>`;
+    },
+  );
 };
 
-const toDateInputValue = (value: string | null | undefined): string => (value ? value.slice(0, 10) : '');
+const toDateInputValue = (value: string | null | undefined): string =>
+  value ? value.slice(0, 10) : "";
 
 const toDocumentUpdateInput = (
   document: Pick<
     DocumentListItem,
-    | 'id'
-    | 'title'
-    | 'author'
-    | 'languageId'
-    | 'confidentialityClassId'
-    | 'projectId'
-    | 'company'
-    | 'department'
-    | 'revisionIntervalMonths'
-  >
+    | "id"
+    | "title"
+    | "author"
+    | "languageId"
+    | "confidentialityClassId"
+    | "projectId"
+    | "company"
+    | "department"
+    | "revisionIntervalMonths"
+  >,
 ): UpdateDocumentInput => ({
   documentRecordId: document.id,
   title: document.title,
@@ -543,68 +562,78 @@ const toDocumentUpdateInput = (
   projectId: document.projectId,
   company: document.company,
   department: document.department,
-  revisionIntervalMonths: document.revisionIntervalMonths
+  revisionIntervalMonths: document.revisionIntervalMonths,
 });
 
 const getEffectiveDocumentTableVisibleColumns = (
   appVisibleColumns: DocumentTableColumn[],
-  workspaceAvailableColumns: DocumentTableColumn[]
+  workspaceAvailableColumns: DocumentTableColumn[],
 ): DocumentTableColumn[] => {
-  const filtered = appVisibleColumns.filter((column) => workspaceAvailableColumns.includes(column));
+  const filtered = appVisibleColumns.filter((column) =>
+    workspaceAvailableColumns.includes(column),
+  );
   if (filtered.length > 0) {
     return filtered;
   }
 
-  const defaultFiltered = DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS.filter((column) =>
-    workspaceAvailableColumns.includes(column)
+  const defaultFiltered = DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS.filter(
+    (column) => workspaceAvailableColumns.includes(column),
   );
-  return defaultFiltered.length > 0 ? defaultFiltered : [...workspaceAvailableColumns];
+  return defaultFiltered.length > 0
+    ? defaultFiltered
+    : [...workspaceAvailableColumns];
 };
 
 const getDocumentExportGroupingOptions = (
-  availableColumns: DocumentTableColumn[]
+  availableColumns: DocumentTableColumn[],
 ): ExportGroupingOption[] => {
   const options: ExportGroupingOption[] = [
-    { value: 'none', label: 'No Grouping' },
-    { value: 'documentType', label: 'Document Type' },
-    { value: 'status', label: 'Status' }
+    { value: "none", label: "No Grouping" },
+    { value: "documentType", label: "Document Type" },
+    { value: "status", label: "Status" },
   ];
 
-  if (availableColumns.includes('project')) {
-    options.push({ value: 'project', label: 'Project' });
+  if (availableColumns.includes("project")) {
+    options.push({ value: "project", label: "Project" });
   }
 
-  if (availableColumns.includes('language')) {
-    options.push({ value: 'language', label: 'Language' });
+  if (availableColumns.includes("language")) {
+    options.push({ value: "language", label: "Language" });
   }
 
-  if (availableColumns.includes('confidentialityClass')) {
-    options.push({ value: 'confidentialityClass', label: 'Confidentiality Class' });
+  if (availableColumns.includes("confidentialityClass")) {
+    options.push({
+      value: "confidentialityClass",
+      label: "Confidentiality Class",
+    });
   }
 
-  if (availableColumns.includes('company')) {
-    options.push({ value: 'company', label: 'Company' });
+  if (availableColumns.includes("company")) {
+    options.push({ value: "company", label: "Company" });
   }
 
-  if (availableColumns.includes('department')) {
-    options.push({ value: 'department', label: 'Department' });
+  if (availableColumns.includes("department")) {
+    options.push({ value: "department", label: "Department" });
   }
 
-  if (availableColumns.includes('author')) {
-    options.push({ value: 'author', label: 'Author' });
+  if (availableColumns.includes("author")) {
+    options.push({ value: "author", label: "Author" });
   }
 
   return options;
 };
 
 const getDocumentExportScopeLabel = (scope: DocumentExportScope): string =>
-  scope === 'current-table' ? 'Current Table' : 'Whole Workspace';
+  scope === "current-table" ? "Current Table" : "Whole Workspace";
 
-const getPathFileName = (value: string): string => value.split(/[/\\]/).pop() ?? value;
+const getPathFileName = (value: string): string =>
+  value.split(/[/\\]/).pop() ?? value;
 
-const cloneApplicationSettings = (settings: ApplicationSettings): ApplicationSettings => ({
+const cloneApplicationSettings = (
+  settings: ApplicationSettings,
+): ApplicationSettings => ({
   ...settings,
-  keyboardShortcuts: { ...settings.keyboardShortcuts }
+  keyboardShortcuts: { ...settings.keyboardShortcuts },
 });
 
 const normalizeShortcutKey = (value: string): string | null => {
@@ -614,23 +643,23 @@ const normalizeShortcutKey = (value: string): string | null => {
   }
 
   const aliases: Record<string, string> = {
-    ',': ',',
-    '.': '.',
-    '/': '/',
-    '\\': '\\',
-    ';': ';',
+    ",": ",",
+    ".": ".",
+    "/": "/",
+    "\\": "\\",
+    ";": ";",
     "'": "'",
-    '-': '-',
-    '=': '=',
-    '[': '[',
-    ']': ']',
-    '`': '`',
-    escape: 'Escape',
-    esc: 'Escape',
-    enter: 'Enter',
-    return: 'Enter',
-    tab: 'Tab',
-    space: 'Space'
+    "-": "-",
+    "=": "=",
+    "[": "[",
+    "]": "]",
+    "`": "`",
+    escape: "Escape",
+    esc: "Escape",
+    enter: "Enter",
+    return: "Enter",
+    tab: "Tab",
+    space: "Space",
   };
   const lower = key.toLowerCase();
 
@@ -651,54 +680,61 @@ const normalizeShortcutKey = (value: string): string | null => {
     : null;
 };
 
-const getShortcutFromKeyboardEvent = (event: KeyboardEvent): KeyboardShortcutValue => {
+const getShortcutFromKeyboardEvent = (
+  event: KeyboardEvent,
+): KeyboardShortcutValue => {
   const key = normalizeShortcutKey(event.key);
   if (!key) {
     return null;
   }
 
   const parts = [
-    ...(event.metaKey || event.ctrlKey ? ['Mod'] : []),
-    ...(event.altKey ? ['Alt'] : []),
-    ...(event.shiftKey ? ['Shift'] : []),
-    key
+    ...(event.metaKey || event.ctrlKey ? ["Mod"] : []),
+    ...(event.altKey ? ["Alt"] : []),
+    ...(event.shiftKey ? ["Shift"] : []),
+    key,
   ];
 
-  return parts.join('+');
+  return parts.join("+");
 };
 
-const doesEventMatchShortcut = (event: KeyboardEvent, shortcut: KeyboardShortcutValue): boolean =>
+const doesEventMatchShortcut = (
+  event: KeyboardEvent,
+  shortcut: KeyboardShortcutValue,
+): boolean =>
   shortcut !== null && getShortcutFromKeyboardEvent(event) === shortcut;
 
 const formatShortcutForDisplay = (
   shortcut: KeyboardShortcutValue,
-  options: { isMacOs: boolean }
+  options: { isMacOs: boolean },
 ): string => {
   if (!shortcut) {
-    return 'Disabled';
+    return "Disabled";
   }
 
   return shortcut
-    .split('+')
+    .split("+")
     .map((token) => {
-      if (token === 'Mod') {
-        return options.isMacOs ? 'Cmd' : 'Ctrl';
+      if (token === "Mod") {
+        return options.isMacOs ? "Cmd" : "Ctrl";
       }
 
-      if (token === 'Alt') {
-        return options.isMacOs ? 'Option' : 'Alt';
+      if (token === "Alt") {
+        return options.isMacOs ? "Option" : "Alt";
       }
 
-      if (token === 'Space') {
-        return 'Space';
+      if (token === "Space") {
+        return "Space";
       }
 
       return token;
     })
-    .join(' + ');
+    .join(" + ");
 };
 
-const getShortcutConflictActions = (shortcuts: KeyboardShortcutMap): KeyboardShortcutAction[] => {
+const getShortcutConflictActions = (
+  shortcuts: KeyboardShortcutMap,
+): KeyboardShortcutAction[] => {
   const owners = new Map<string, KeyboardShortcutAction[]>();
 
   for (const action of KEYBOARD_SHORTCUT_ACTIONS) {
@@ -710,9 +746,7 @@ const getShortcutConflictActions = (shortcuts: KeyboardShortcutMap): KeyboardSho
     owners.set(shortcut, [...(owners.get(shortcut) ?? []), action]);
   }
 
-  return [...owners.values()]
-    .filter((actions) => actions.length > 1)
-    .flat();
+  return [...owners.values()].filter((actions) => actions.length > 1).flat();
 };
 
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
@@ -738,58 +772,84 @@ function App() {
     setWorkspaceView,
     setSelectedDocument,
     updateApplicationSettings,
-    setNotification
+    setNotification,
   } = useAppStore();
 
-  const [workspaceDialog, setWorkspaceDialog] = useState(defaultWorkspaceDialogState);
+  const [workspaceDialog, setWorkspaceDialog] = useState(
+    defaultWorkspaceDialogState,
+  );
   const [workspaceSettingsDialog, setWorkspaceSettingsDialog] = useState(
-    defaultWorkspaceSettingsDialogState
+    defaultWorkspaceSettingsDialogState,
   );
   const [applicationSettingsDialog, setApplicationSettingsDialog] = useState(
-    defaultApplicationSettingsDialogState
+    defaultApplicationSettingsDialogState,
   );
-  const [tableColumnsDialog, setTableColumnsDialog] = useState(defaultTableColumnsDialogState);
-  const [documentDialog, setDocumentDialog] = useState(defaultDocumentDialogState);
+  const [tableColumnsDialog, setTableColumnsDialog] = useState(
+    defaultTableColumnsDialogState,
+  );
+  const [documentDialog, setDocumentDialog] = useState(
+    defaultDocumentDialogState,
+  );
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
   const [filesDialog, setFilesDialog] = useState(defaultFilesDialogState);
-  const [filesDialogVersion, setFilesDialogVersion] = useState<DocumentVersion | null>(null);
-  const [latestVersionDialog, setLatestVersionDialog] = useState(defaultLatestVersionDialogState);
-  const [statusChangeDialog, setStatusChangeDialog] = useState(defaultStatusChangeDialogState);
+  const [filesDialogVersion, setFilesDialogVersion] =
+    useState<DocumentVersion | null>(null);
+  const [latestVersionDialog, setLatestVersionDialog] = useState(
+    defaultLatestVersionDialogState,
+  );
+  const [statusChangeDialog, setStatusChangeDialog] = useState(
+    defaultStatusChangeDialogState,
+  );
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
   const [projectDialog, setProjectDialog] = useState(defaultProjectDialogState);
-  const [classificationDialog, setClassificationDialog] = useState(defaultClassificationDialogState);
-  const [languageDialog, setLanguageDialog] = useState(defaultLanguageDialogState);
-  const [selectedDocumentDetail, setSelectedDocumentDetail] = useState<DocumentDetail | null>(null);
+  const [classificationDialog, setClassificationDialog] = useState(
+    defaultClassificationDialogState,
+  );
+  const [languageDialog, setLanguageDialog] = useState(
+    defaultLanguageDialogState,
+  );
+  const [selectedDocumentDetail, setSelectedDocumentDetail] =
+    useState<DocumentDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
 
   const workspaceTabs = Object.values(openWorkspaces);
-  const activeWorkspace = activeWorkspacePath ? openWorkspaces[activeWorkspacePath] : undefined;
+  const activeWorkspace = activeWorkspacePath
+    ? openWorkspaces[activeWorkspacePath]
+    : undefined;
   const activeWorkspaceAvailableColumns =
-    activeWorkspace?.settings.visibleDocumentColumns ?? DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
-  const workspaceSupportsProjects = activeWorkspaceAvailableColumns.includes('project');
+    activeWorkspace?.settings.visibleDocumentColumns ??
+    DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
+  const workspaceSupportsProjects =
+    activeWorkspaceAvailableColumns.includes("project");
   const workspaceSupportsConfidentialityClasses =
-    activeWorkspaceAvailableColumns.includes('confidentialityClass');
-  const workspaceSupportsLanguages = activeWorkspaceAvailableColumns.includes('language');
+    activeWorkspaceAvailableColumns.includes("confidentialityClass");
+  const workspaceSupportsLanguages =
+    activeWorkspaceAvailableColumns.includes("language");
   const activeFilesVersion =
-    selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ??
-    filesDialogVersion;
+    selectedDocumentDetail?.versions.find(
+      (version) => version.id === filesDialog.versionId,
+    ) ?? filesDialogVersion;
   const previewThemeMode = applicationSettingsDialog.open
     ? applicationSettingsDialog.settings.themeMode
     : applicationSettings.themeMode;
   const detailViewMode = applicationSettings.documentDetailViewMode;
   const isMacOs = useMemo(
-    () => /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac OS X/.test(navigator.userAgent),
-    []
+    () =>
+      /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
+      /Mac OS X/.test(navigator.userAgent),
+    [],
   );
-  const notifyError = useEffectEvent((error: unknown, fallbackMessage: string): void => {
-    setNotification({
-      tone: 'error',
-      message: getErrorMessage(error, fallbackMessage)
-    });
-  });
+  const notifyError = useEffectEvent(
+    (error: unknown, fallbackMessage: string): void => {
+      setNotification({
+        tone: "error",
+        message: getErrorMessage(error, fallbackMessage),
+      });
+    },
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -803,9 +863,12 @@ function App() {
           return;
         }
 
-        const message = getErrorMessage(error, 'DocTrack failed to initialize the desktop shell.');
+        const message = getErrorMessage(
+          error,
+          "DocTrack failed to initialize the desktop shell.",
+        );
         setBootError(message);
-        notifyError(error, 'DocTrack failed to initialize the desktop shell.');
+        notifyError(error, "DocTrack failed to initialize the desktop shell.");
       }
     };
 
@@ -821,23 +884,23 @@ function App() {
   }, [previewThemeMode]);
 
   useEffect(() => {
-    if (previewThemeMode !== 'system') {
+    if (previewThemeMode !== "system") {
       return undefined;
     }
 
-    const query = window.matchMedia('(prefers-color-scheme: dark)');
-    const listener = () => applyTheme('system');
-    query.addEventListener('change', listener);
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const listener = () => applyTheme("system");
+    query.addEventListener("change", listener);
 
     return () => {
-      query.removeEventListener('change', listener);
+      query.removeEventListener("change", listener);
     };
   }, [previewThemeMode]);
 
   useEffect(() => {
     if (
       !notification ||
-      notification.tone !== 'success' ||
+      notification.tone !== "success" ||
       !applicationSettings.autoDismissSuccessNotifications
     ) {
       return undefined;
@@ -850,7 +913,11 @@ function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [applicationSettings.autoDismissSuccessNotifications, notification, setNotification]);
+  }, [
+    applicationSettings.autoDismissSuccessNotifications,
+    notification,
+    setNotification,
+  ]);
 
   useEffect(() => {
     if (!isWorkspaceMenuOpen) {
@@ -867,19 +934,22 @@ function App() {
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener("pointerdown", handlePointerDown);
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [isWorkspaceMenuOpen]);
 
   useEffect(() => {
-    if (detailViewMode !== 'sidebar' || !activeWorkspace?.selectedDocumentRecordId) {
+    if (
+      detailViewMode !== "sidebar" ||
+      !activeWorkspace?.selectedDocumentRecordId
+    ) {
       return undefined;
     }
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         if (!activeWorkspacePath) {
           return;
         }
@@ -889,9 +959,14 @@ function App() {
       }
     };
 
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, detailViewMode, setSelectedDocument]);
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [
+    activeWorkspace?.selectedDocumentRecordId,
+    activeWorkspacePath,
+    detailViewMode,
+    setSelectedDocument,
+  ]);
 
   useEffect(() => {
     const loadSelectedDocumentDetail = async () => {
@@ -904,11 +979,11 @@ function App() {
       try {
         const detail = await window.docTrack.documents.detail(
           activeWorkspacePath,
-          activeWorkspace.selectedDocumentRecordId
+          activeWorkspace.selectedDocumentRecordId,
         );
         setSelectedDocumentDetail(detail);
       } catch (error) {
-        notifyError(error, 'Unable to load the selected document.');
+        notifyError(error, "Unable to load the selected document.");
       } finally {
         setIsDetailLoading(false);
       }
@@ -919,18 +994,28 @@ function App() {
 
   const fetchDocumentDetail = async (
     rootPath: string,
-    documentRecordId: number
-  ): Promise<DocumentDetail> => window.docTrack.documents.detail(rootPath, documentRecordId);
+    documentRecordId: number,
+  ): Promise<DocumentDetail> =>
+    window.docTrack.documents.detail(rootPath, documentRecordId);
 
-  const loadDocumentDetail = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
+  const loadDocumentDetail = async (
+    rootPath: string,
+    documentRecordId: number,
+  ): Promise<DocumentDetail> => {
     const detail = await fetchDocumentDetail(rootPath, documentRecordId);
     setSelectedDocument(rootPath, documentRecordId);
     setSelectedDocumentDetail(detail);
     return detail;
   };
 
-  const refreshSelectedDocument = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
-    const [detail] = await Promise.all([loadDocumentDetail(rootPath, documentRecordId), refreshWorkspace(rootPath)]);
+  const refreshSelectedDocument = async (
+    rootPath: string,
+    documentRecordId: number,
+  ): Promise<DocumentDetail> => {
+    const [detail] = await Promise.all([
+      loadDocumentDetail(rootPath, documentRecordId),
+      refreshWorkspace(rootPath),
+    ]);
     return detail;
   };
 
@@ -943,12 +1028,19 @@ function App() {
     if (
       filesDialog.versionId &&
       selectedDocumentDetail &&
-      !selectedDocumentDetail.versions.some((version) => version.id === filesDialog.versionId)
+      !selectedDocumentDetail.versions.some(
+        (version) => version.id === filesDialog.versionId,
+      )
     ) {
       setFilesDialogVersion(null);
       setFilesDialog(defaultFilesDialogState);
     }
-  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, filesDialog.versionId, selectedDocumentDetail]);
+  }, [
+    activeWorkspace?.selectedDocumentRecordId,
+    activeWorkspacePath,
+    filesDialog.versionId,
+    selectedDocumentDetail,
+  ]);
 
   useEffect(() => {
     if (!filesDialog.versionId || !selectedDocumentDetail) {
@@ -956,7 +1048,7 @@ function App() {
     }
 
     const matchingVersion = selectedDocumentDetail.versions.find(
-      (version) => version.id === filesDialog.versionId
+      (version) => version.id === filesDialog.versionId,
     );
     if (matchingVersion) {
       setFilesDialogVersion(matchingVersion);
@@ -973,7 +1065,7 @@ function App() {
     try {
       await openWorkspace(rootPath);
     } catch (error) {
-      notifyError(error, 'Unable to open workspace.');
+      notifyError(error, "Unable to open workspace.");
     }
   };
 
@@ -987,7 +1079,12 @@ function App() {
       return;
     }
 
-    setDocumentDialog(buildCreateDocumentDialogState(applicationSettings, activeWorkspace.settings));
+    setDocumentDialog(
+      buildCreateDocumentDialogState(
+        applicationSettings,
+        activeWorkspace.settings,
+      ),
+    );
   };
 
   const openEditDocumentDialog = async (documentRecordId?: number) => {
@@ -1008,11 +1105,13 @@ function App() {
   };
 
   const openApplicationSettingsDialog = () => {
-    setApplicationSettingsDialog(buildApplicationSettingsDialogState(applicationSettings));
+    setApplicationSettingsDialog(
+      buildApplicationSettingsDialogState(applicationSettings),
+    );
   };
 
   const saveApplicationSettingsPartial = async (
-    nextPartial: Partial<ApplicationSettings>
+    nextPartial: Partial<ApplicationSettings>,
   ): Promise<void> => {
     await updateApplicationSettings(
       cloneApplicationSettings({
@@ -1020,8 +1119,8 @@ function App() {
         ...nextPartial,
         keyboardShortcuts: nextPartial.keyboardShortcuts
           ? { ...nextPartial.keyboardShortcuts }
-          : { ...applicationSettings.keyboardShortcuts }
-      })
+          : { ...applicationSettings.keyboardShortcuts },
+      }),
     );
   };
 
@@ -1046,25 +1145,40 @@ function App() {
       settings: { ...activeWorkspace.settings },
       companyLogoSourceFilePath: null,
       clearCompanyLogo: false,
-      isSubmitting: false
+      isSubmitting: false,
     });
   };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.openSettings)) {
+      if (
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.openSettings,
+        )
+      ) {
         event.preventDefault();
         openApplicationSettingsDialog();
         return;
       }
 
-      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.newWorkspace)) {
+      if (
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.newWorkspace,
+        )
+      ) {
         event.preventDefault();
         openCreateWorkspaceDialog();
         return;
       }
 
-      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.openWorkspaceFolder)) {
+      if (
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.openWorkspaceFolder,
+        )
+      ) {
         event.preventDefault();
         void openWorkspacePicker();
         return;
@@ -1072,15 +1186,25 @@ function App() {
 
       if (
         activeWorkspace &&
-        doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.newDocument)
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.newDocument,
+        )
       ) {
         event.preventDefault();
         openCreateDocumentDialog();
         return;
       }
 
-      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.focusSearch)) {
-        const searchInput = document.querySelector<HTMLInputElement>('[data-doc-search="true"]');
+      if (
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.focusSearch,
+        )
+      ) {
+        const searchInput = document.querySelector<HTMLInputElement>(
+          '[data-doc-search="true"]',
+        );
         if (searchInput) {
           event.preventDefault();
           searchInput.focus();
@@ -1089,8 +1213,8 @@ function App() {
       }
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeWorkspace, applicationSettings.keyboardShortcuts]);
 
   const handleCreateWorkspace = async () => {
@@ -1100,16 +1224,16 @@ function App() {
         name: workspaceDialog.name,
         ...(workspaceDialog.useCustomFolderName
           ? {
-              folderName: workspaceDialog.folderName
+              folderName: workspaceDialog.folderName,
             }
           : {}),
         parentPath: workspaceDialog.parentPath,
         settings: workspaceDialog.settings,
-        includeExampleData: workspaceDialog.includeExampleData
+        includeExampleData: workspaceDialog.includeExampleData,
       });
       setWorkspaceDialog(defaultWorkspaceDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to create workspace.');
+      notifyError(error, "Unable to create workspace.");
       setWorkspaceDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1123,60 +1247,73 @@ function App() {
       setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: true }));
       await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, {
         settings: workspaceSettingsDialog.settings,
-        companyLogoSourceFilePath: workspaceSettingsDialog.companyLogoSourceFilePath,
-        clearCompanyLogo: workspaceSettingsDialog.clearCompanyLogo
+        companyLogoSourceFilePath:
+          workspaceSettingsDialog.companyLogoSourceFilePath,
+        clearCompanyLogo: workspaceSettingsDialog.clearCompanyLogo,
       } satisfies WorkspaceSettingsUpdateInput);
       setWorkspaceSettingsDialog(defaultWorkspaceSettingsDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to save workspace settings.');
-      setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: false }));
+      notifyError(error, "Unable to save workspace settings.");
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+      }));
     }
   };
 
   const handleSaveApplicationSettings = async () => {
     try {
-      setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: true }));
-      await updateApplicationSettings(cloneApplicationSettings(applicationSettingsDialog.settings));
+      setApplicationSettingsDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+      }));
+      await updateApplicationSettings(
+        cloneApplicationSettings(applicationSettingsDialog.settings),
+      );
       setApplicationSettingsDialog(defaultApplicationSettingsDialogState);
       setNotification({
-        tone: 'success',
-        message: 'Application settings saved.'
+        tone: "success",
+        message: "Application settings saved.",
       });
     } catch (error) {
-      notifyError(error, 'Unable to save application settings.');
-      setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: false }));
+      notifyError(error, "Unable to save application settings.");
+      setApplicationSettingsDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+      }));
     }
   };
 
   const handleSaveTableColumns = async () => {
     const workspaceAvailableColumns =
-      activeWorkspace?.settings.visibleDocumentColumns ?? DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
+      activeWorkspace?.settings.visibleDocumentColumns ??
+      DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
 
     try {
       setTableColumnsDialog((state) => ({ ...state, isSubmitting: true }));
-      const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter((column) =>
-        workspaceAvailableColumns.includes(column)
+      const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter(
+        (column) => workspaceAvailableColumns.includes(column),
       );
 
       if (nextVisibleColumns.length === 0) {
         setNotification({
-          tone: 'error',
-          message: 'Select at least one table column.'
+          tone: "error",
+          message: "Select at least one table column.",
         });
         setTableColumnsDialog((state) => ({ ...state, isSubmitting: false }));
         return;
       }
 
       await saveApplicationSettingsPartial({
-        documentTableVisibleColumns: nextVisibleColumns
+        documentTableVisibleColumns: nextVisibleColumns,
       });
       setTableColumnsDialog(defaultTableColumnsDialogState);
       setNotification({
-        tone: 'success',
-        message: 'Table view settings saved.'
+        tone: "success",
+        message: "Table view settings saved.",
       });
     } catch (error) {
-      notifyError(error, 'Unable to save table view settings.');
+      notifyError(error, "Unable to save table view settings.");
       setTableColumnsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1187,15 +1324,18 @@ function App() {
     }
 
     try {
-      const result = await window.docTrack.documents.export(activeWorkspacePath, request);
+      const result = await window.docTrack.documents.export(
+        activeWorkspacePath,
+        request,
+      );
       if (!result.canceled && result.filePath) {
         setNotification({
-          tone: 'success',
-          message: `Export saved to ${result.filePath}`
+          tone: "success",
+          message: `Export saved to ${result.filePath}`,
         });
       }
     } catch (error) {
-      notifyError(error, 'Unable to export the documents report.');
+      notifyError(error, "Unable to export the documents report.");
       throw error;
     }
   };
@@ -1207,53 +1347,67 @@ function App() {
 
     try {
       setDocumentDialog((state) => ({ ...state, isSubmitting: true }));
-      const revisionIntervalMonths = parseOptionalPositiveInteger(documentDialog.revisionIntervalMonths);
+      const revisionIntervalMonths = parseOptionalPositiveInteger(
+        documentDialog.revisionIntervalMonths,
+      );
       const availableColumns = activeWorkspace.settings.visibleDocumentColumns;
       const documentInput = {
         title: documentDialog.title,
-        author: availableColumns.includes('author') ? documentDialog.author : '',
-        languageId: availableColumns.includes('language')
+        author: availableColumns.includes("author")
+          ? documentDialog.author
+          : "",
+        languageId: availableColumns.includes("language")
           ? parseOptionalSelectNumber(documentDialog.languageId)
           : null,
-        confidentialityClassId: availableColumns.includes('confidentialityClass')
+        confidentialityClassId: availableColumns.includes(
+          "confidentialityClass",
+        )
           ? parseOptionalSelectNumber(documentDialog.confidentialityClassId)
           : null,
-        projectId: availableColumns.includes('project')
+        projectId: availableColumns.includes("project")
           ? parseOptionalSelectNumber(documentDialog.projectId)
           : null,
-        company: availableColumns.includes('company') ? documentDialog.company : '',
-        department: availableColumns.includes('department') ? documentDialog.department : '',
-        revisionIntervalMonths: availableColumns.includes('revisionIntervalMonths')
+        company: availableColumns.includes("company")
+          ? documentDialog.company
+          : "",
+        department: availableColumns.includes("department")
+          ? documentDialog.department
+          : "",
+        revisionIntervalMonths: availableColumns.includes(
+          "revisionIntervalMonths",
+        )
           ? revisionIntervalMonths
-          : null
+          : null,
       };
 
       const detail =
-        documentDialog.mode === 'create'
+        documentDialog.mode === "create"
           ? await window.docTrack.documents.create(activeWorkspacePath, {
               ...documentInput,
               documentTypeId: Number(documentDialog.documentTypeId),
-              versionScheme: documentDialog.versionScheme
+              versionScheme: documentDialog.versionScheme,
             } satisfies CreateDocumentInput)
           : await window.docTrack.documents.update(activeWorkspacePath, {
               documentRecordId: documentDialog.documentRecordId!,
-              ...documentInput
+              ...documentInput,
             } satisfies UpdateDocumentInput);
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
       setDocumentDialog(defaultDocumentDialogState);
       setNotification({
-        tone: 'success',
+        tone: "success",
         message:
-          documentDialog.mode === 'create'
+          documentDialog.mode === "create"
             ? `Created ${detail.documentId}.`
-            : `Updated ${detail.documentId}.`
+            : `Updated ${detail.documentId}.`,
       });
     } catch (error) {
       notifyError(
         error,
-        documentDialog.mode === 'create' ? 'Unable to create document.' : 'Unable to update document.'
+        documentDialog.mode === "create"
+          ? "Unable to create document."
+          : "Unable to update document.",
       );
       setDocumentDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1266,21 +1420,24 @@ function App() {
 
     try {
       setVersionDialog((state) => ({ ...state, isSubmitting: true }));
-      const detail = await window.docTrack.documents.createVersion(activeWorkspacePath, {
-        documentRecordId: selectedDocumentDetail.id,
-        revisionDescription: versionDialog.revisionDescription,
-        bumpType: versionDialog.bumpType
-      } satisfies CreateVersionInput);
+      const detail = await window.docTrack.documents.createVersion(
+        activeWorkspacePath,
+        {
+          documentRecordId: selectedDocumentDetail.id,
+          revisionDescription: versionDialog.revisionDescription,
+          bumpType: versionDialog.bumpType,
+        } satisfies CreateVersionInput,
+      );
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
       setVersionDialog(defaultVersionDialogState);
       setNotification({
-        tone: 'success',
-        message: `Version ${detail.versions[0]?.versionLabel ?? ''} created for ${detail.documentId}.`
+        tone: "success",
+        message: `Version ${detail.versions[0]?.versionLabel ?? ""} created for ${detail.documentId}.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to create document version.');
+      notifyError(error, "Unable to create document version.");
       setVersionDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1292,29 +1449,39 @@ function App() {
 
     try {
       setLatestVersionDialog((state) => ({ ...state, isSubmitting: true }));
-      const detail = await window.docTrack.documents.updateLatestVersion(activeWorkspacePath, {
-        documentRecordId: selectedDocumentDetail.id,
-        status: latestVersionDialog.status,
-        releasedDate: latestVersionDialog.releasedDate || null,
-        approvedBy: latestVersionDialog.approvedBy,
-        revisionDescription: latestVersionDialog.revisionDescription
-      } satisfies UpdateLatestVersionInput);
+      const detail = await window.docTrack.documents.updateLatestVersion(
+        activeWorkspacePath,
+        {
+          documentRecordId: selectedDocumentDetail.id,
+          status: latestVersionDialog.status,
+          releasedDate: latestVersionDialog.releasedDate || null,
+          approvedBy: latestVersionDialog.approvedBy,
+          revisionDescription: latestVersionDialog.revisionDescription,
+        } satisfies UpdateLatestVersionInput,
+      );
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
       setLatestVersionDialog(defaultLatestVersionDialogState);
       setNotification({
-        tone: 'success',
-        message: `Updated latest version for ${detail.documentId}.`
+        tone: "success",
+        message: `Updated latest version for ${detail.documentId}.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to update the latest version.');
+      notifyError(error, "Unable to update the latest version.");
       setLatestVersionDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
-  const handleRequestStatusChange = (document: DocumentListItem, nextStatus: DocumentStatus) => {
-    if (!document.latestVersionLabel || !document.status || document.status === nextStatus) {
+  const handleRequestStatusChange = (
+    document: DocumentListItem,
+    nextStatus: DocumentStatus,
+  ) => {
+    if (
+      !document.latestVersionLabel ||
+      !document.status ||
+      document.status === nextStatus
+    ) {
       return;
     }
 
@@ -1322,7 +1489,7 @@ function App() {
       open: true,
       document,
       nextStatus,
-      isSubmitting: false
+      isSubmitting: false,
     });
   };
 
@@ -1335,13 +1502,16 @@ function App() {
 
     try {
       setStatusChangeDialog((state) => ({ ...state, isSubmitting: true }));
-      const detail = await window.docTrack.documents.updateLatestVersion(activeWorkspacePath, {
-        documentRecordId: document.id,
-        status: statusChangeDialog.nextStatus,
-        releasedDate: document.releasedDate,
-        approvedBy: document.approvedBy,
-        revisionDescription: document.revisionDescription
-      } satisfies UpdateLatestVersionInput);
+      const detail = await window.docTrack.documents.updateLatestVersion(
+        activeWorkspacePath,
+        {
+          documentRecordId: document.id,
+          status: statusChangeDialog.nextStatus,
+          releasedDate: document.releasedDate,
+          approvedBy: document.approvedBy,
+          revisionDescription: document.revisionDescription,
+        } satisfies UpdateLatestVersionInput,
+      );
       await refreshWorkspace(activeWorkspacePath);
 
       if (selectedDocumentDetail?.id === detail.id) {
@@ -1350,11 +1520,11 @@ function App() {
 
       setStatusChangeDialog(defaultStatusChangeDialogState);
       setNotification({
-        tone: 'success',
-        message: `Status changed to ${statusChangeDialog.nextStatus} for ${detail.documentId}.`
+        tone: "success",
+        message: `Status changed to ${statusChangeDialog.nextStatus} for ${detail.documentId}.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to update the document status.');
+      notifyError(error, "Unable to update the document status.");
       setStatusChangeDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1368,21 +1538,25 @@ function App() {
       setTypeDialog((state) => ({ ...state, isSubmitting: true }));
 
       if (typeDialog.id) {
-        await window.docTrack.documentTypes.update(activeWorkspacePath, typeDialog.id, {
-          name: typeDialog.name,
-          numberPrefix: typeDialog.numberPrefix
-        });
+        await window.docTrack.documentTypes.update(
+          activeWorkspacePath,
+          typeDialog.id,
+          {
+            name: typeDialog.name,
+            numberPrefix: typeDialog.numberPrefix,
+          },
+        );
       } else {
         await window.docTrack.documentTypes.create(activeWorkspacePath, {
           name: typeDialog.name,
-          numberPrefix: typeDialog.numberPrefix
+          numberPrefix: typeDialog.numberPrefix,
         });
       }
 
       await refreshWorkspace(activeWorkspacePath);
       setTypeDialog(defaultTypeDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to save document type.');
+      notifyError(error, "Unable to save document type.");
       setTypeDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1403,11 +1577,11 @@ function App() {
       await window.docTrack.documentTypes.delete(activeWorkspacePath, type.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
-        tone: 'success',
-        message: `"${type.name}" removed from this workspace.`
+        tone: "success",
+        message: `"${type.name}" removed from this workspace.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to delete document type.');
+      notifyError(error, "Unable to delete document type.");
     }
   };
 
@@ -1420,19 +1594,23 @@ function App() {
       setProjectDialog((state) => ({ ...state, isSubmitting: true }));
 
       if (projectDialog.id) {
-        await window.docTrack.projects.update(activeWorkspacePath, projectDialog.id, {
-          name: projectDialog.name
-        });
+        await window.docTrack.projects.update(
+          activeWorkspacePath,
+          projectDialog.id,
+          {
+            name: projectDialog.name,
+          },
+        );
       } else {
         await window.docTrack.projects.create(activeWorkspacePath, {
-          name: projectDialog.name
+          name: projectDialog.name,
         });
       }
 
       await refreshWorkspace(activeWorkspacePath);
       setProjectDialog(defaultProjectDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to save project.');
+      notifyError(error, "Unable to save project.");
       setProjectDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1453,11 +1631,11 @@ function App() {
       await window.docTrack.projects.delete(activeWorkspacePath, project.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
-        tone: 'success',
-        message: `"${project.name}" removed from this workspace.`
+        tone: "success",
+        message: `"${project.name}" removed from this workspace.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to delete project.');
+      notifyError(error, "Unable to delete project.");
     }
   };
 
@@ -1474,24 +1652,29 @@ function App() {
           activeWorkspacePath,
           classificationDialog.id,
           {
-            name: classificationDialog.name
-          }
+            name: classificationDialog.name,
+          },
         );
       } else {
-        await window.docTrack.confidentialityClasses.create(activeWorkspacePath, {
-          name: classificationDialog.name
-        });
+        await window.docTrack.confidentialityClasses.create(
+          activeWorkspacePath,
+          {
+            name: classificationDialog.name,
+          },
+        );
       }
 
       await refreshWorkspace(activeWorkspacePath);
       setClassificationDialog(defaultClassificationDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to save confidentiality class.');
+      notifyError(error, "Unable to save confidentiality class.");
       setClassificationDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
-  const handleDeleteConfidentialityClass = async (item: ConfidentialityClass) => {
+  const handleDeleteConfidentialityClass = async (
+    item: ConfidentialityClass,
+  ) => {
     if (!activeWorkspacePath) {
       return;
     }
@@ -1504,14 +1687,17 @@ function App() {
     }
 
     try {
-      await window.docTrack.confidentialityClasses.delete(activeWorkspacePath, item.id);
+      await window.docTrack.confidentialityClasses.delete(
+        activeWorkspacePath,
+        item.id,
+      );
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
-        tone: 'success',
-        message: `"${item.name}" removed from this workspace.`
+        tone: "success",
+        message: `"${item.name}" removed from this workspace.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to delete confidentiality class.');
+      notifyError(error, "Unable to delete confidentiality class.");
     }
   };
 
@@ -1524,19 +1710,23 @@ function App() {
       setLanguageDialog((state) => ({ ...state, isSubmitting: true }));
 
       if (languageDialog.id) {
-        await window.docTrack.languages.update(activeWorkspacePath, languageDialog.id, {
-          code: languageDialog.code
-        });
+        await window.docTrack.languages.update(
+          activeWorkspacePath,
+          languageDialog.id,
+          {
+            code: languageDialog.code,
+          },
+        );
       } else {
         await window.docTrack.languages.create(activeWorkspacePath, {
-          code: languageDialog.code
+          code: languageDialog.code,
         });
       }
 
       await refreshWorkspace(activeWorkspacePath);
       setLanguageDialog(defaultLanguageDialogState);
     } catch (error) {
-      notifyError(error, 'Unable to save language.');
+      notifyError(error, "Unable to save language.");
       setLanguageDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1557,30 +1747,36 @@ function App() {
       await window.docTrack.languages.delete(activeWorkspacePath, item.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
-        tone: 'success',
-        message: `"${item.code}" removed from this workspace.`
+        tone: "success",
+        message: `"${item.code}" removed from this workspace.`,
       });
     } catch (error) {
-      notifyError(error, 'Unable to delete language.');
+      notifyError(error, "Unable to delete language.");
     }
   };
 
-  const handleAssignProjectToDocument = async (document: DocumentListItem, nextProjectId: string) => {
+  const handleAssignProjectToDocument = async (
+    document: DocumentListItem,
+    nextProjectId: string,
+  ) => {
     if (!activeWorkspacePath) {
       return;
     }
 
     try {
-      const detail = await window.docTrack.documents.update(activeWorkspacePath, {
-        ...toDocumentUpdateInput(document),
-        projectId: parseOptionalSelectNumber(nextProjectId)
-      });
+      const detail = await window.docTrack.documents.update(
+        activeWorkspacePath,
+        {
+          ...toDocumentUpdateInput(document),
+          projectId: parseOptionalSelectNumber(nextProjectId),
+        },
+      );
       await refreshWorkspace(activeWorkspacePath);
       if (selectedDocumentDetail?.id === detail.id) {
         setSelectedDocumentDetail(detail);
       }
     } catch (error) {
-      notifyError(error, 'Unable to assign the document to a project.');
+      notifyError(error, "Unable to assign the document to a project.");
     }
   };
 
@@ -1598,8 +1794,8 @@ function App() {
 
       if (!latestVersion) {
         setNotification({
-          tone: 'error',
-          message: 'Create a version before showing version files.'
+          tone: "error",
+          message: "Create a version before showing version files.",
         });
         return;
       }
@@ -1608,11 +1804,11 @@ function App() {
       setFilesDialog({
         open: true,
         versionId: latestVersion.id,
-        addRole: 'working',
-        isSubmitting: false
+        addRole: "working",
+        isSubmitting: false,
       });
     } catch (error) {
-      notifyError(error, 'Unable to load version files.');
+      notifyError(error, "Unable to load version files.");
     }
   };
 
@@ -1623,10 +1819,16 @@ function App() {
 
     try {
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
-      await window.docTrack.documents.syncVersionFiles(activeWorkspacePath, documentVersionId);
-      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+      await window.docTrack.documents.syncVersionFiles(
+        activeWorkspacePath,
+        documentVersionId,
+      );
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
     } catch (error) {
-      notifyError(error, 'Unable to refresh version files.');
+      notifyError(error, "Unable to refresh version files.");
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1647,11 +1849,14 @@ function App() {
       await window.docTrack.documents.addVersionFiles(activeWorkspacePath, {
         documentVersionId,
         role: filesDialog.addRole,
-        sourceFilePaths
+        sourceFilePaths,
       });
-      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
     } catch (error) {
-      notifyError(error, 'Unable to add files to this version.');
+      notifyError(error, "Unable to add files to this version.");
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1662,7 +1867,7 @@ function App() {
       return;
     }
 
-    const nextFileName = window.prompt('Rename file', file.fileName)?.trim();
+    const nextFileName = window.prompt("Rename file", file.fileName)?.trim();
     if (!nextFileName || nextFileName === file.fileName) {
       return;
     }
@@ -1671,11 +1876,14 @@ function App() {
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
       await window.docTrack.documents.renameVersionFile(activeWorkspacePath, {
         fileId: file.id,
-        nextFileName
+        nextFileName,
       });
-      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
     } catch (error) {
-      notifyError(error, 'Unable to rename the selected file.');
+      notifyError(error, "Unable to rename the selected file.");
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1696,11 +1904,14 @@ function App() {
     try {
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
       await window.docTrack.documents.deleteVersionFile(activeWorkspacePath, {
-        fileId: file.id
+        fileId: file.id,
       });
-      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
     } catch (error) {
-      notifyError(error, 'Unable to delete the selected file.');
+      notifyError(error, "Unable to delete the selected file.");
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1708,7 +1919,7 @@ function App() {
 
   const handleChangeVersionFileRole = async (
     file: DocumentVersionFile,
-    role: DocumentVersionFileRole
+    role: DocumentVersionFileRole,
   ) => {
     if (!activeWorkspacePath || !selectedDocumentDetail || role === file.role) {
       return;
@@ -1716,13 +1927,19 @@ function App() {
 
     try {
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
-      await window.docTrack.documents.changeVersionFileRole(activeWorkspacePath, {
-        fileId: file.id,
-        role
-      });
-      await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
+      await window.docTrack.documents.changeVersionFileRole(
+        activeWorkspacePath,
+        {
+          fileId: file.id,
+          role,
+        },
+      );
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
     } catch (error) {
-      notifyError(error, 'Unable to change the selected file role.');
+      notifyError(error, "Unable to change the selected file role.");
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1738,21 +1955,24 @@ function App() {
         onOpenWorkspace={() => void openWorkspacePicker()}
         onOpenRecent={(rootPath) => {
           void openWorkspace(rootPath).catch((error: Error) => {
-            notifyError(error, 'Unable to open workspace.');
+            notifyError(error, "Unable to open workspace.");
           });
         }}
         onDismissRecent={(rootPath) => {
           void dismissRecentWorkspace(rootPath).catch((error: Error) => {
-            notifyError(error, 'Unable to remove the recent workspace.');
+            notifyError(error, "Unable to remove the recent workspace.");
           });
         }}
       />
     );
   } else if (
-    activeWorkspace.selectedView === 'documents' ||
-    (activeWorkspace.selectedView === 'projects' && !workspaceSupportsProjects) ||
-    (activeWorkspace.selectedView === 'classifications' && !workspaceSupportsConfidentialityClasses) ||
-    (activeWorkspace.selectedView === 'languages' && !workspaceSupportsLanguages)
+    activeWorkspace.selectedView === "documents" ||
+    (activeWorkspace.selectedView === "projects" &&
+      !workspaceSupportsProjects) ||
+    (activeWorkspace.selectedView === "classifications" &&
+      !workspaceSupportsConfidentialityClasses) ||
+    (activeWorkspace.selectedView === "languages" &&
+      !workspaceSupportsLanguages)
   ) {
     activeWorkspaceContent = (
       <DocumentsView
@@ -1762,12 +1982,15 @@ function App() {
         documentTableDensity={applicationSettings.documentTableDensity}
         visibleTableColumns={getEffectiveDocumentTableVisibleColumns(
           applicationSettings.documentTableVisibleColumns,
-          activeWorkspace.settings.visibleDocumentColumns
+          activeWorkspace.settings.visibleDocumentColumns,
         )}
         selectedDocumentDetail={selectedDocumentDetail}
         isDetailLoading={isDetailLoading}
         onSelectDocument={(documentRecordId) =>
-          setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
+          setSelectedDocument(
+            activeWorkspace.workspace.rootPath,
+            documentRecordId,
+          )
         }
         onCloseDocumentDetail={clearSelectedDocument}
         onShowFiles={handleShowFilesForDocument}
@@ -1779,21 +2002,23 @@ function App() {
             open: true,
             visibleColumns: getEffectiveDocumentTableVisibleColumns(
               applicationSettings.documentTableVisibleColumns,
-              activeWorkspace.settings.visibleDocumentColumns
+              activeWorkspace.settings.visibleDocumentColumns,
             ),
-            isSubmitting: false
+            isSubmitting: false,
           })
         }
         onRequestEditDocument={(documentRecordId) => {
-          void openEditDocumentDialog(documentRecordId).catch((error: Error) => {
-            notifyError(error, 'Unable to load the selected document.');
-          });
+          void openEditDocumentDialog(documentRecordId).catch(
+            (error: Error) => {
+              notifyError(error, "Unable to load the selected document.");
+            },
+          );
         }}
         onRequestNewVersion={() => {
           if (selectedDocumentDetail) {
             setVersionDialog((state) => ({
               ...state,
-              open: true
+              open: true,
             }));
           }
         }}
@@ -1804,8 +2029,12 @@ function App() {
 
           void (async () => {
             const detail =
-              documentRecordId && selectedDocumentDetail?.id !== documentRecordId
-                ? await loadDocumentDetail(activeWorkspacePath, documentRecordId)
+              documentRecordId &&
+              selectedDocumentDetail?.id !== documentRecordId
+                ? await loadDocumentDetail(
+                    activeWorkspacePath,
+                    documentRecordId,
+                  )
                 : selectedDocumentDetail;
 
             const latestVersion = detail?.versions[0];
@@ -1819,10 +2048,10 @@ function App() {
               releasedDate: toDateInputValue(latestVersion.releasedDate),
               approvedBy: latestVersion.approvedBy,
               revisionDescription: latestVersion.revisionDescription,
-              isSubmitting: false
+              isSubmitting: false,
             });
           })().catch((error: Error) => {
-            notifyError(error, 'Unable to load the latest version details.');
+            notifyError(error, "Unable to load the latest version details.");
           });
         }}
         onShowDocumentFolder={() => {
@@ -1833,35 +2062,37 @@ function App() {
           void window.docTrack.documents
             .openDocumentFolder(activeWorkspacePath, selectedDocumentDetail.id)
             .catch((error: Error) => {
-              notifyError(error, 'Unable to open the document folder.');
+              notifyError(error, "Unable to open the document folder.");
             });
         }}
-        onShowVersionFiles={(documentVersionId) =>
-          {
-            const version =
-              selectedDocumentDetail?.versions.find((item) => item.id === documentVersionId) ?? null;
-            setFilesDialogVersion(version);
-            setFilesDialog({
-              open: true,
-              versionId: documentVersionId,
-              addRole: 'working',
-              isSubmitting: false
-            });
-          }
-        }
+        onShowVersionFiles={(documentVersionId) => {
+          const version =
+            selectedDocumentDetail?.versions.find(
+              (item) => item.id === documentVersionId,
+            ) ?? null;
+          setFilesDialogVersion(version);
+          setFilesDialog({
+            open: true,
+            versionId: documentVersionId,
+            addRole: "working",
+            isSubmitting: false,
+          });
+        }}
         onUpdateSidebarWidth={(nextWidth) =>
-          saveApplicationSettingsPartial({ documentDetailSidebarWidth: nextWidth })
+          saveApplicationSettingsPartial({
+            documentDetailSidebarWidth: nextWidth,
+          })
         }
       />
     );
-  } else if (activeWorkspace.selectedView === 'documentTypes') {
+  } else if (activeWorkspace.selectedView === "documentTypes") {
     activeWorkspaceContent = (
       <DocumentTypesView
         workspace={activeWorkspace}
         onCreateType={() =>
           setTypeDialog({
             ...defaultTypeDialogState,
-            open: true
+            open: true,
           })
         }
         onEditType={(type) =>
@@ -1870,37 +2101,39 @@ function App() {
             id: type.id,
             name: type.name,
             numberPrefix: type.numberPrefix,
-            isSubmitting: false
+            isSubmitting: false,
           })
         }
         onDeleteType={handleDeleteDocumentType}
       />
     );
-  } else if (activeWorkspace.selectedView === 'projects') {
+  } else if (activeWorkspace.selectedView === "projects") {
     activeWorkspaceContent = (
       <ProjectsView
         workspace={activeWorkspace}
-        onCreateProject={() => setProjectDialog({ ...defaultProjectDialogState, open: true })}
+        onCreateProject={() =>
+          setProjectDialog({ ...defaultProjectDialogState, open: true })
+        }
         onEditProject={(project) =>
           setProjectDialog({
             open: true,
             id: project.id,
             name: project.name,
-            isSubmitting: false
+            isSubmitting: false,
           })
         }
         onDeleteProject={handleDeleteProject}
         onAssignProject={handleAssignProjectToDocument}
       />
     );
-  } else if (activeWorkspace.selectedView === 'classifications') {
+  } else if (activeWorkspace.selectedView === "classifications") {
     activeWorkspaceContent = (
       <ClassificationsView
         workspace={activeWorkspace}
         onCreateConfidentialityClass={() =>
           setClassificationDialog({
             ...defaultClassificationDialogState,
-            open: true
+            open: true,
           })
         }
         onEditConfidentialityClass={(item) =>
@@ -1908,23 +2141,25 @@ function App() {
             open: true,
             id: item.id,
             name: item.name,
-            isSubmitting: false
+            isSubmitting: false,
           })
         }
         onDeleteConfidentialityClass={handleDeleteConfidentialityClass}
       />
     );
-  } else if (activeWorkspace.selectedView === 'languages') {
+  } else if (activeWorkspace.selectedView === "languages") {
     activeWorkspaceContent = (
       <LanguagesView
         workspace={activeWorkspace}
-        onCreateLanguage={() => setLanguageDialog({ ...defaultLanguageDialogState, open: true })}
+        onCreateLanguage={() =>
+          setLanguageDialog({ ...defaultLanguageDialogState, open: true })
+        }
         onEditLanguage={(item) =>
           setLanguageDialog({
             open: true,
             id: item.id,
             code: item.code,
-            isSubmitting: false
+            isSubmitting: false,
           })
         }
         onDeleteLanguage={handleDeleteLanguage}
@@ -1940,7 +2175,9 @@ function App() {
             <div className="text-base font-semibold text-[#C4554D] dark:text-[#FFB7B2]">
               DocTrack could not start
             </div>
-            <div className="mt-2 text-sm text-muted-foreground">{bootError}</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              {bootError}
+            </div>
             <div className="mt-4 flex gap-2">
               <Button
                 onClick={() => {
@@ -1948,10 +2185,13 @@ function App() {
                   void bootstrap().catch((error) => {
                     const message = getErrorMessage(
                       error,
-                      'DocTrack failed to initialize the desktop shell.'
+                      "DocTrack failed to initialize the desktop shell.",
                     );
                     setBootError(message);
-                    notifyError(error, 'DocTrack failed to initialize the desktop shell.');
+                    notifyError(
+                      error,
+                      "DocTrack failed to initialize the desktop shell.",
+                    );
                   });
                 }}
               >
@@ -1972,7 +2212,12 @@ function App() {
   }
 
   return (
-    <div className={cn('app-surface flex h-full flex-col', isMacOs && 'platform-macos')}>
+    <div
+      className={cn(
+        "app-surface flex h-full flex-col",
+        isMacOs && "platform-macos",
+      )}
+    >
       <header className="app-header window-drag-region relative z-40 border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
         <div className="app-header-row flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -1980,7 +2225,9 @@ function App() {
               <FileStack className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-base font-semibold tracking-tight">DocTrack</div>
+              <div className="text-base font-semibold tracking-tight">
+                DocTrack
+              </div>
               <div className="text-[13px] text-muted-foreground">
                 Offline document workspaces with version control
               </div>
@@ -2030,17 +2277,25 @@ function App() {
                             className="min-w-0 flex-1 text-left"
                             onClick={() => {
                               setIsWorkspaceMenuOpen(false);
-                              void openWorkspace(workspace.rootPath).catch((error: Error) => {
-                                notifyError(error, 'Unable to open workspace.');
-                              });
+                              void openWorkspace(workspace.rootPath).catch(
+                                (error: Error) => {
+                                  notifyError(
+                                    error,
+                                    "Unable to open workspace.",
+                                  );
+                                },
+                              );
                             }}
                           >
-                            <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
+                            <div className="truncate text-[13px] font-semibold">
+                              {workspace.name}
+                            </div>
                             <div className="mt-1 truncate text-xs text-muted-foreground">
                               {workspace.rootPath}
                             </div>
                             <div className="mt-2 text-xs text-muted-foreground">
-                              Last opened {formatDateTime(workspace.lastOpenedDate)}
+                              Last opened{" "}
+                              {formatDateTime(workspace.lastOpenedDate)}
                             </div>
                           </button>
                           <button
@@ -2048,8 +2303,13 @@ function App() {
                             aria-label={`Dismiss ${workspace.name}`}
                             onClick={(event) => {
                               event.stopPropagation();
-                              void dismissRecentWorkspace(workspace.rootPath).catch((error: Error) => {
-                                notifyError(error, 'Unable to remove the recent workspace.');
+                              void dismissRecentWorkspace(
+                                workspace.rootPath,
+                              ).catch((error: Error) => {
+                                notifyError(
+                                  error,
+                                  "Unable to remove the recent workspace.",
+                                );
                               });
                             }}
                           >
@@ -2077,7 +2337,8 @@ function App() {
         <div className="window-no-drag mt-3 flex gap-1.5 overflow-x-auto pb-1">
           {workspaceTabs.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">
-              No workspace open yet. Create one or open an existing workspace folder.
+              No workspace open yet. Create one or open an existing workspace
+              folder.
             </div>
           ) : (
             workspaceTabs.map((workspaceTab) => (
@@ -2086,13 +2347,13 @@ function App() {
                 role="button"
                 tabIndex={0}
                 className={cn(
-                  'group flex items-center gap-2 rounded-xl border px-3 text-left transition',
-                  applicationSettings.workspaceTabDensity === 'compact'
-                    ? 'min-w-[160px] py-1.5'
-                    : 'min-w-[190px] py-2.5',
+                  "group flex items-center gap-2 rounded-xl border px-3 text-left transition",
+                  applicationSettings.workspaceTabDensity === "compact"
+                    ? "min-w-[160px] py-1.5"
+                    : "min-w-[190px] py-2.5",
                   activeWorkspacePath === workspaceTab.workspace.rootPath
-                    ? 'border-border bg-secondary text-foreground'
-                    : 'border-border bg-background text-muted-foreground hover:bg-accent'
+                    ? "border-border bg-secondary text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-accent",
                 )}
                 onClick={() => {
                   startTransition(() => {
@@ -2100,7 +2361,7 @@ function App() {
                   });
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
+                  if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     startTransition(() => {
                       setActiveWorkspace(workspaceTab.workspace.rootPath);
@@ -2109,8 +2370,10 @@ function App() {
                 }}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold">{workspaceTab.workspace.name}</div>
-                  {applicationSettings.workspaceTabDensity === 'comfortable' ? (
+                  <div className="truncate text-[13px] font-semibold">
+                    {workspaceTab.workspace.name}
+                  </div>
+                  {applicationSettings.workspaceTabDensity === "comfortable" ? (
                     <div className="truncate text-xs text-muted-foreground">
                       {workspaceTab.documents.length} docs
                     </div>
@@ -2148,45 +2411,60 @@ function App() {
             <SidebarButton
               icon={Table2}
               label="Documents"
-              active={activeWorkspace?.selectedView === 'documents'}
+              active={activeWorkspace?.selectedView === "documents"}
               disabled={!activeWorkspace}
-              onClick={() => activeWorkspacePath && setWorkspaceView(activeWorkspacePath, 'documents')}
+              onClick={() =>
+                activeWorkspacePath &&
+                setWorkspaceView(activeWorkspacePath, "documents")
+              }
             />
             <SidebarButton
               icon={LayoutPanelLeft}
               label="Document Types"
-              active={activeWorkspace?.selectedView === 'documentTypes'}
+              active={activeWorkspace?.selectedView === "documentTypes"}
               disabled={!activeWorkspace}
-              onClick={() => activeWorkspacePath && setWorkspaceView(activeWorkspacePath, 'documentTypes')}
+              onClick={() =>
+                activeWorkspacePath &&
+                setWorkspaceView(activeWorkspacePath, "documentTypes")
+              }
             />
-	            {workspaceSupportsProjects ? (
-	              <SidebarButton
-	                icon={FolderOpen}
-	                label="Projects"
-	                active={activeWorkspace?.selectedView === 'projects'}
-	                disabled={!activeWorkspace}
-	                onClick={() => activeWorkspacePath && setWorkspaceView(activeWorkspacePath, 'projects')}
-	              />
-	            ) : null}
-	            {workspaceSupportsConfidentialityClasses ? (
-	              <SidebarButton
-	                icon={Settings2}
-	                label="Classifications"
-	                active={activeWorkspace?.selectedView === 'classifications'}
-	                disabled={!activeWorkspace}
-	                onClick={() => activeWorkspacePath && setWorkspaceView(activeWorkspacePath, 'classifications')}
-	              />
-	            ) : null}
-	            {workspaceSupportsLanguages ? (
-	              <SidebarButton
-	                icon={Pencil}
-	                label="Languages"
-	                active={activeWorkspace?.selectedView === 'languages'}
-	                disabled={!activeWorkspace}
-	                onClick={() => activeWorkspacePath && setWorkspaceView(activeWorkspacePath, 'languages')}
-	              />
-	            ) : null}
-	          </div>
+            {workspaceSupportsProjects ? (
+              <SidebarButton
+                icon={FolderOpen}
+                label="Projects"
+                active={activeWorkspace?.selectedView === "projects"}
+                disabled={!activeWorkspace}
+                onClick={() =>
+                  activeWorkspacePath &&
+                  setWorkspaceView(activeWorkspacePath, "projects")
+                }
+              />
+            ) : null}
+            {workspaceSupportsConfidentialityClasses ? (
+              <SidebarButton
+                icon={Settings2}
+                label="Classifications"
+                active={activeWorkspace?.selectedView === "classifications"}
+                disabled={!activeWorkspace}
+                onClick={() =>
+                  activeWorkspacePath &&
+                  setWorkspaceView(activeWorkspacePath, "classifications")
+                }
+              />
+            ) : null}
+            {workspaceSupportsLanguages ? (
+              <SidebarButton
+                icon={Pencil}
+                label="Languages"
+                active={activeWorkspace?.selectedView === "languages"}
+                disabled={!activeWorkspace}
+                onClick={() =>
+                  activeWorkspacePath &&
+                  setWorkspaceView(activeWorkspacePath, "languages")
+                }
+              />
+            ) : null}
+          </div>
 
           <div className="mt-3 rounded-xl border border-border bg-background p-2.5 shadow-sm">
             <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -2234,7 +2512,9 @@ function App() {
 
       <TableColumnsDialog
         state={tableColumnsDialog}
-        availableColumns={activeWorkspace?.settings.visibleDocumentColumns ?? []}
+        availableColumns={
+          activeWorkspace?.settings.visibleDocumentColumns ?? []
+        }
         onStateChange={setTableColumnsDialog}
         onSubmit={handleSaveTableColumns}
       />
@@ -2242,7 +2522,9 @@ function App() {
       <DocumentDialog
         open={documentDialog.open}
         onOpenChange={(open) =>
-          setDocumentDialog(open ? { ...documentDialog, open } : defaultDocumentDialogState)
+          setDocumentDialog(
+            open ? { ...documentDialog, open } : defaultDocumentDialogState,
+          )
         }
         state={documentDialog}
         onStateChange={setDocumentDialog}
@@ -2257,7 +2539,9 @@ function App() {
       <VersionDialog
         open={versionDialog.open}
         onOpenChange={(open) =>
-          setVersionDialog(open ? { ...versionDialog, open } : defaultVersionDialogState)
+          setVersionDialog(
+            open ? { ...versionDialog, open } : defaultVersionDialogState,
+          )
         }
         state={versionDialog}
         onStateChange={setVersionDialog}
@@ -2269,7 +2553,9 @@ function App() {
         open={latestVersionDialog.open}
         onOpenChange={(open) =>
           setLatestVersionDialog(
-            open ? { ...latestVersionDialog, open } : defaultLatestVersionDialogState
+            open
+              ? { ...latestVersionDialog, open }
+              : defaultLatestVersionDialogState,
           )
         }
         state={latestVersionDialog}
@@ -2282,14 +2568,20 @@ function App() {
       <StatusChangeDialog
         state={statusChangeDialog}
         onOpenChange={(open) =>
-          setStatusChangeDialog(open ? { ...statusChangeDialog, open } : defaultStatusChangeDialogState)
+          setStatusChangeDialog(
+            open
+              ? { ...statusChangeDialog, open }
+              : defaultStatusChangeDialogState,
+          )
         }
         onSubmit={handleConfirmStatusChange}
       />
 
       <DocumentTypeDialog
         open={typeDialog.open}
-        onOpenChange={(open) => setTypeDialog(open ? { ...typeDialog, open } : defaultTypeDialogState)}
+        onOpenChange={(open) =>
+          setTypeDialog(open ? { ...typeDialog, open } : defaultTypeDialogState)
+        }
         state={typeDialog}
         onStateChange={setTypeDialog}
         onSubmit={handleSaveDocumentType}
@@ -2297,7 +2589,11 @@ function App() {
 
       <ProjectDialog
         open={projectDialog.open}
-        onOpenChange={(open) => setProjectDialog(open ? { ...projectDialog, open } : defaultProjectDialogState)}
+        onOpenChange={(open) =>
+          setProjectDialog(
+            open ? { ...projectDialog, open } : defaultProjectDialogState,
+          )
+        }
         state={projectDialog}
         onStateChange={setProjectDialog}
         onSubmit={handleSaveProject}
@@ -2306,7 +2602,11 @@ function App() {
       <ConfidentialityClassDialog
         open={classificationDialog.open}
         onOpenChange={(open) =>
-          setClassificationDialog(open ? { ...classificationDialog, open } : defaultClassificationDialogState)
+          setClassificationDialog(
+            open
+              ? { ...classificationDialog, open }
+              : defaultClassificationDialogState,
+          )
         }
         state={classificationDialog}
         onStateChange={setClassificationDialog}
@@ -2316,7 +2616,9 @@ function App() {
       <LanguageDialog
         open={languageDialog.open}
         onOpenChange={(open) =>
-          setLanguageDialog(open ? { ...languageDialog, open } : defaultLanguageDialogState)
+          setLanguageDialog(
+            open ? { ...languageDialog, open } : defaultLanguageDialogState,
+          )
         }
         state={languageDialog}
         onStateChange={setLanguageDialog}
@@ -2339,8 +2641,8 @@ function App() {
         version={activeFilesVersion}
         canEdit={Boolean(
           selectedDocumentDetail &&
-            activeFilesVersion &&
-            selectedDocumentDetail.versions[0]?.id === activeFilesVersion.id
+          activeFilesVersion &&
+          selectedDocumentDetail.versions[0]?.id === activeFilesVersion.id,
         )}
         onRefresh={handleRefreshVersionFiles}
         onAddFiles={handleAddFilesToVersion}
@@ -2349,9 +2651,11 @@ function App() {
             return;
           }
 
-          void window.docTrack.documents.openVersionFile(activeWorkspacePath, fileId).catch((error: Error) => {
-            notifyError(error, 'Unable to open the selected file.');
-          });
+          void window.docTrack.documents
+            .openVersionFile(activeWorkspacePath, fileId)
+            .catch((error: Error) => {
+              notifyError(error, "Unable to open the selected file.");
+            });
         }}
         onOpenFolder={(documentVersionId) => {
           if (!activeWorkspacePath) {
@@ -2361,7 +2665,7 @@ function App() {
           void window.docTrack.documents
             .openVersionFolder(activeWorkspacePath, documentVersionId)
             .catch((error: Error) => {
-              notifyError(error, 'Unable to open the version folder.');
+              notifyError(error, "Unable to open the version folder.");
             });
         }}
         onRenameFile={handleRenameVersionFile}
@@ -2374,7 +2678,7 @@ function App() {
 
 function ThemeToggle({
   themeMode,
-  onChange
+  onChange,
 }: {
   themeMode: ThemeMode;
   onChange: (value: ThemeMode) => void;
@@ -2391,10 +2695,10 @@ function ThemeToggle({
             type="button"
             aria-pressed={isSelected}
             className={cn(
-              'w-full rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+              "w-full rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
               isSelected
-                ? 'border-ring bg-card text-foreground shadow-sm'
-                : 'border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-accent/60 hover:text-foreground'
+                ? "border-ring bg-card text-foreground shadow-sm"
+                : "border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-accent/60 hover:text-foreground",
             )}
             onClick={() => onChange(option.value)}
           >
@@ -2404,12 +2708,14 @@ function ThemeToggle({
                   <Icon className="h-4 w-4" />
                   {option.label}
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">{option.description}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {option.description}
+                </div>
               </div>
               <div
                 className={cn(
-                  'mt-0.5 h-2.5 w-2.5 rounded-full transition',
-                  isSelected ? 'bg-primary' : 'bg-border'
+                  "mt-0.5 h-2.5 w-2.5 rounded-full transition",
+                  isSelected ? "bg-primary" : "bg-border",
                 )}
               />
             </div>
@@ -2424,10 +2730,12 @@ function ApplicationSettingsDialog({
   state,
   onStateChange,
   onSubmit,
-  isMacOs
+  isMacOs,
 }: {
   state: ApplicationSettingsDialogState;
-  onStateChange: React.Dispatch<React.SetStateAction<ApplicationSettingsDialogState>>;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<ApplicationSettingsDialogState>
+  >;
   onSubmit: () => Promise<void>;
   isMacOs: boolean;
 }) {
@@ -2439,257 +2747,297 @@ function ApplicationSettingsDialog({
         ...partial,
         keyboardShortcuts: partial.keyboardShortcuts
           ? { ...partial.keyboardShortcuts }
-          : { ...current.settings.keyboardShortcuts }
-      }
+          : { ...current.settings.keyboardShortcuts },
+      },
     }));
   };
   const selectedLaunchBehavior =
     APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.find(
-      (option) => option.value === state.settings.launchBehavior
+      (option) => option.value === state.settings.launchBehavior,
     ) ?? APPLICATION_LAUNCH_BEHAVIOR_OPTIONS[0];
   const selectedWorkspaceView =
-    WORKSPACE_VIEW_OPTIONS.find((option) => option.value === state.settings.defaultWorkspaceView) ??
-    WORKSPACE_VIEW_OPTIONS[0];
+    WORKSPACE_VIEW_OPTIONS.find(
+      (option) => option.value === state.settings.defaultWorkspaceView,
+    ) ?? WORKSPACE_VIEW_OPTIONS[0];
   const selectedDetailView =
     DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.find(
-      (option) => option.value === state.settings.documentDetailViewMode
+      (option) => option.value === state.settings.documentDetailViewMode,
     ) ?? DOCUMENT_DETAIL_VIEW_MODE_OPTIONS[0];
   const selectedDensity =
     DOCUMENT_TABLE_DENSITY_OPTIONS.find(
-      (option) => option.value === state.settings.documentTableDensity
+      (option) => option.value === state.settings.documentTableDensity,
     ) ?? DOCUMENT_TABLE_DENSITY_OPTIONS[0];
   const selectedTabDensity =
     WORKSPACE_TAB_DENSITY_OPTIONS.find(
-      (option) => option.value === state.settings.workspaceTabDensity
+      (option) => option.value === state.settings.workspaceTabDensity,
     ) ?? WORKSPACE_TAB_DENSITY_OPTIONS[0];
-  const shortcutConflicts = getShortcutConflictActions(state.settings.keyboardShortcuts);
+  const shortcutConflicts = getShortcutConflictActions(
+    state.settings.keyboardShortcuts,
+  );
   const hasShortcutConflicts = shortcutConflicts.length > 0;
 
   return (
     <Dialog
       open={state.open}
       onOpenChange={(open) =>
-        onStateChange(open ? { ...state, open } : defaultApplicationSettingsDialogState)
+        onStateChange(
+          open ? { ...state, open } : defaultApplicationSettingsDialogState,
+        )
       }
     >
       <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Customize how DocTrack looks, launches, and behaves across every workspace.
+            Customize how DocTrack looks, launches, and behaves across every
+            workspace.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 overflow-y-auto pr-1">
           <div className="grid gap-4">
-          <SettingsSection
-            title="Appearance"
-            description="Set the look and feel for the whole app."
-          >
-            <div className="grid gap-2">
-              <div className="text-[13px] font-medium text-foreground/90">Theme</div>
-              <ThemeToggle
-                themeMode={state.settings.themeMode}
-                onChange={(themeMode) => updateSettings({ themeMode })}
-              />
-              <div className="text-xs text-muted-foreground">
-                Theme changes preview immediately while this modal is open. Save to keep them.
+            <SettingsSection
+              title="Appearance"
+              description="Set the look and feel for the whole app."
+            >
+              <div className="grid gap-2">
+                <div className="text-[13px] font-medium text-foreground/90">
+                  Theme
+                </div>
+                <ThemeToggle
+                  themeMode={state.settings.themeMode}
+                  onChange={(themeMode) => updateSettings({ themeMode })}
+                />
+                <div className="text-xs text-muted-foreground">
+                  Theme changes preview immediately while this modal is open.
+                  Save to keep them.
+                </div>
               </div>
-            </div>
-          </SettingsSection>
+            </SettingsSection>
 
-          <SettingsSection
-            title="Startup & Navigation"
-            description="Choose where DocTrack starts and which workspace view opens first."
-          >
-            <Field label="Launch Behavior">
-              <Select
-                value={state.settings.launchBehavior}
-                onChange={(event) =>
-                  updateSettings({
-                    launchBehavior: event.target.value as ApplicationSettings['launchBehavior']
-                  })
-                }
-              >
-                {APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <div className="text-xs text-muted-foreground">{selectedLaunchBehavior.description}</div>
-            </Field>
-
-            <Field label="Default Workspace View">
-              <Select
-                value={state.settings.defaultWorkspaceView}
-                onChange={(event) =>
-                  updateSettings({
-                    defaultWorkspaceView:
-                      event.target.value as ApplicationSettings['defaultWorkspaceView']
-                  })
-                }
-              >
-                {WORKSPACE_VIEW_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <div className="text-xs text-muted-foreground">{selectedWorkspaceView.description}</div>
-            </Field>
-          </SettingsSection>
-
-          <SettingsSection
-            title="Creation Defaults"
-            description="Pre-fill common choices when users create workspaces and documents."
-          >
-            <ToggleSetting
-              title="Seed starter data in new workspaces"
-              description="New workspace dialogs start with example document types and sample documents enabled."
-              checked={state.settings.defaultIncludeExampleData}
-              onChange={(checked) => updateSettings({ defaultIncludeExampleData: checked })}
-            />
-
-            <Field label="Default Document Author">
-              <Input
-                placeholder="Jordan Singh"
-                value={state.settings.defaultDocumentAuthor}
-                onChange={(event) => updateSettings({ defaultDocumentAuthor: event.target.value })}
-              />
-              <div className="text-xs text-muted-foreground">
-                New document dialogs start with this author name pre-filled.
-              </div>
-            </Field>
-
-            <Field label="Default Document Version Scheme">
-              <Select
-                value={state.settings.defaultDocumentVersionScheme}
-                onChange={(event) =>
-                  updateSettings({
-                    defaultDocumentVersionScheme:
-                      event.target.value as ApplicationSettings['defaultDocumentVersionScheme']
-                  })
-                }
-              >
-                {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </SettingsSection>
-
-          <SettingsSection title="Workspace Interface" description="Tune document detail presentation and workspace tab density.">
-            <Field label="Document Detail View">
-              <Select
-                value={state.settings.documentDetailViewMode}
-                onChange={(event) =>
-                  updateSettings({
-                    documentDetailViewMode: event.target.value as DocumentDetailViewMode
-                  })
-                }
-              >
-                {DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <div className="text-xs text-muted-foreground">{selectedDetailView.description}</div>
-            </Field>
-
-            <Field label="Workspace Tab Density">
-              <Select
-                value={state.settings.workspaceTabDensity}
-                onChange={(event) =>
-                  updateSettings({
-                    workspaceTabDensity: event.target.value as ApplicationSettings['workspaceTabDensity']
-                  })
-                }
-              >
-                {WORKSPACE_TAB_DENSITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <div className="text-xs text-muted-foreground">{selectedTabDensity.description}</div>
-            </Field>
-
-          </SettingsSection>
-
-          <SettingsSection title="Table & Display" description="Tune how dense the main document workspace feels.">
-            <Field label="Document Table Density">
-              <Select
-                value={state.settings.documentTableDensity}
-                onChange={(event) =>
-                  updateSettings({
-                    documentTableDensity:
-                      event.target.value as ApplicationSettings['documentTableDensity']
-                  })
-                }
-              >
-                {DOCUMENT_TABLE_DENSITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <div className="text-xs text-muted-foreground">{selectedDensity.description}</div>
-            </Field>
-          </SettingsSection>
-
-          <SettingsSection
-            title="Keyboard Shortcuts"
-            description="Record custom shortcuts for common app actions or clear one to disable it."
-          >
-            {hasShortcutConflicts ? (
-              <div className="rounded-xl border border-[#F0D5D3] bg-[#FFF7F6] px-3 py-2 text-[13px] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]">
-                Duplicate shortcuts found. Each action needs a unique shortcut before you can save.
-              </div>
-            ) : null}
-
-            <div className="grid gap-3">
-              {KEYBOARD_SHORTCUT_ACTIONS.map((action) => (
-                <ShortcutSettingRow
-                  key={action}
-                  action={action}
-                  shortcut={state.settings.keyboardShortcuts[action]}
-                  isConflicting={shortcutConflicts.includes(action)}
-                  isMacOs={isMacOs}
-                  onChange={(shortcut) =>
+            <SettingsSection
+              title="Startup & Navigation"
+              description="Choose where DocTrack starts and which workspace view opens first."
+            >
+              <Field label="Launch Behavior">
+                <Select
+                  value={state.settings.launchBehavior}
+                  onChange={(event) =>
                     updateSettings({
-                      keyboardShortcuts: {
-                        ...state.settings.keyboardShortcuts,
-                        [action]: shortcut
-                      }
+                      launchBehavior: event.target
+                        .value as ApplicationSettings["launchBehavior"],
+                    })
+                  }
+                >
+                  {APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedLaunchBehavior.description}
+                </div>
+              </Field>
+
+              <Field label="Default Workspace View">
+                <Select
+                  value={state.settings.defaultWorkspaceView}
+                  onChange={(event) =>
+                    updateSettings({
+                      defaultWorkspaceView: event.target
+                        .value as ApplicationSettings["defaultWorkspaceView"],
+                    })
+                  }
+                >
+                  {WORKSPACE_VIEW_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedWorkspaceView.description}
+                </div>
+              </Field>
+            </SettingsSection>
+
+            <SettingsSection
+              title="Creation Defaults"
+              description="Pre-fill common choices when users create workspaces and documents."
+            >
+              <ToggleSetting
+                title="Seed starter data in new workspaces"
+                description="New workspace dialogs start with example document types and sample documents enabled."
+                checked={state.settings.defaultIncludeExampleData}
+                onChange={(checked) =>
+                  updateSettings({ defaultIncludeExampleData: checked })
+                }
+              />
+
+              <Field label="Default Document Author">
+                <Input
+                  placeholder="Jordan Singh"
+                  value={state.settings.defaultDocumentAuthor}
+                  onChange={(event) =>
+                    updateSettings({
+                      defaultDocumentAuthor: event.target.value,
                     })
                   }
                 />
-              ))}
-            </div>
-          </SettingsSection>
+                <div className="text-xs text-muted-foreground">
+                  New document dialogs start with this author name pre-filled.
+                </div>
+              </Field>
 
-          <SettingsSection
-            title="Feedback & Safety"
-            description="Control confirmation prompts and how long success messages stay visible."
-          >
-            <ToggleSetting
-              title="Confirm destructive actions"
-              description="Ask before deleting document types or version files."
-              checked={state.settings.confirmDestructiveActions}
-              onChange={(checked) => updateSettings({ confirmDestructiveActions: checked })}
-            />
+              <Field label="Default Document Version Scheme">
+                <Select
+                  value={state.settings.defaultDocumentVersionScheme}
+                  onChange={(event) =>
+                    updateSettings({
+                      defaultDocumentVersionScheme: event.target
+                        .value as ApplicationSettings["defaultDocumentVersionScheme"],
+                    })
+                  }
+                >
+                  {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </Field>
+            </SettingsSection>
 
-            <ToggleSetting
-              title="Auto-dismiss success notifications"
-              description="Success messages fade away automatically while error messages stay visible."
-              checked={state.settings.autoDismissSuccessNotifications}
-              onChange={(checked) => updateSettings({ autoDismissSuccessNotifications: checked })}
-            />
-          </SettingsSection>
+            <SettingsSection
+              title="Workspace Interface"
+              description="Tune document detail presentation and workspace tab density."
+            >
+              <Field label="Document Detail View">
+                <Select
+                  value={state.settings.documentDetailViewMode}
+                  onChange={(event) =>
+                    updateSettings({
+                      documentDetailViewMode: event.target
+                        .value as DocumentDetailViewMode,
+                    })
+                  }
+                >
+                  {DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedDetailView.description}
+                </div>
+              </Field>
+
+              <Field label="Workspace Tab Density">
+                <Select
+                  value={state.settings.workspaceTabDensity}
+                  onChange={(event) =>
+                    updateSettings({
+                      workspaceTabDensity: event.target
+                        .value as ApplicationSettings["workspaceTabDensity"],
+                    })
+                  }
+                >
+                  {WORKSPACE_TAB_DENSITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedTabDensity.description}
+                </div>
+              </Field>
+            </SettingsSection>
+
+            <SettingsSection
+              title="Table & Display"
+              description="Tune how dense the main document workspace feels."
+            >
+              <Field label="Document Table Density">
+                <Select
+                  value={state.settings.documentTableDensity}
+                  onChange={(event) =>
+                    updateSettings({
+                      documentTableDensity: event.target
+                        .value as ApplicationSettings["documentTableDensity"],
+                    })
+                  }
+                >
+                  {DOCUMENT_TABLE_DENSITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedDensity.description}
+                </div>
+              </Field>
+            </SettingsSection>
+
+            <SettingsSection
+              title="Keyboard Shortcuts"
+              description="Record custom shortcuts for common app actions or clear one to disable it."
+            >
+              {hasShortcutConflicts ? (
+                <div className="rounded-xl border border-[#F0D5D3] bg-[#FFF7F6] px-3 py-2 text-[13px] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]">
+                  Duplicate shortcuts found. Each action needs a unique shortcut
+                  before you can save.
+                </div>
+              ) : null}
+
+              <div className="grid gap-3">
+                {KEYBOARD_SHORTCUT_ACTIONS.map((action) => (
+                  <ShortcutSettingRow
+                    key={action}
+                    action={action}
+                    shortcut={state.settings.keyboardShortcuts[action]}
+                    isConflicting={shortcutConflicts.includes(action)}
+                    isMacOs={isMacOs}
+                    onChange={(shortcut) =>
+                      updateSettings({
+                        keyboardShortcuts: {
+                          ...state.settings.keyboardShortcuts,
+                          [action]: shortcut,
+                        },
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </SettingsSection>
+
+            <SettingsSection
+              title="Feedback & Safety"
+              description="Control confirmation prompts and how long success messages stay visible."
+            >
+              <ToggleSetting
+                title="Confirm destructive actions"
+                description="Ask before deleting document types or version files."
+                checked={state.settings.confirmDestructiveActions}
+                onChange={(checked) =>
+                  updateSettings({ confirmDestructiveActions: checked })
+                }
+              />
+
+              <ToggleSetting
+                title="Auto-dismiss success notifications"
+                description="Success messages fade away automatically while error messages stay visible."
+                checked={state.settings.autoDismissSuccessNotifications}
+                onChange={(checked) =>
+                  updateSettings({ autoDismissSuccessNotifications: checked })
+                }
+              />
+            </SettingsSection>
           </div>
         </div>
 
@@ -2700,8 +3048,15 @@ function ApplicationSettingsDialog({
           >
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting || hasShortcutConflicts} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
+          <Button
+            disabled={state.isSubmitting || hasShortcutConflicts}
+            onClick={() => void onSubmit()}
+          >
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings className="h-4 w-4" />
+            )}
             Save Settings
           </Button>
         </DialogFooter>
@@ -2715,7 +3070,7 @@ function ShortcutSettingRow({
   shortcut,
   isConflicting,
   isMacOs,
-  onChange
+  onChange,
 }: {
   action: KeyboardShortcutAction;
   shortcut: KeyboardShortcutValue;
@@ -2733,7 +3088,9 @@ function ShortcutSettingRow({
             <Keyboard className="h-4 w-4 text-muted-foreground" />
             {detail.label}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">{detail.description}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {detail.description}
+          </div>
           {isConflicting ? (
             <div className="mt-2 text-xs font-medium text-[#C4554D] dark:text-[#FFB7B2]">
               This shortcut is duplicated by another action.
@@ -2741,7 +3098,11 @@ function ShortcutSettingRow({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <ShortcutRecorderInput shortcut={shortcut} isMacOs={isMacOs} onChange={onChange} />
+          <ShortcutRecorderInput
+            shortcut={shortcut}
+            isMacOs={isMacOs}
+            onChange={onChange}
+          />
           <Button variant="ghost" size="sm" onClick={() => onChange(null)}>
             Clear
           </Button>
@@ -2764,7 +3125,7 @@ function ShortcutSettingRow({
 function ShortcutRecorderInput({
   shortcut,
   isMacOs,
-  onChange
+  onChange,
 }: {
   shortcut: KeyboardShortcutValue;
   isMacOs: boolean;
@@ -2776,10 +3137,14 @@ function ShortcutRecorderInput({
     <Input
       readOnly
       aria-label="Shortcut"
-      value={isRecording ? 'Press keys...' : formatShortcutForDisplay(shortcut, { isMacOs })}
+      value={
+        isRecording
+          ? "Press keys..."
+          : formatShortcutForDisplay(shortcut, { isMacOs })
+      }
       className={cn(
-        'w-[180px] cursor-text',
-        isRecording && 'border-ring ring-2 ring-ring'
+        "w-[180px] cursor-text",
+        isRecording && "border-ring ring-2 ring-ring",
       )}
       onFocus={() => setIsRecording(true)}
       onBlur={() => setIsRecording(false)}
@@ -2787,7 +3152,7 @@ function ShortcutRecorderInput({
         event.preventDefault();
         event.stopPropagation();
 
-        if (event.key === 'Escape') {
+        if (event.key === "Escape") {
           setIsRecording(false);
           return;
         }
@@ -2805,7 +3170,7 @@ function ShortcutRecorderInput({
 function SettingsSection({
   title,
   description,
-  children
+  children,
 }: {
   title: string;
   description: string;
@@ -2815,7 +3180,9 @@ function SettingsSection({
     <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
       <div className="pb-3">
         <div className="text-sm font-semibold">{title}</div>
-        <div className="mt-1 text-[13px] text-muted-foreground">{description}</div>
+        <div className="mt-1 text-[13px] text-muted-foreground">
+          {description}
+        </div>
       </div>
       <div className="grid gap-4">{children}</div>
     </section>
@@ -2826,7 +3193,7 @@ function ToggleSetting({
   title,
   description,
   checked,
-  onChange
+  onChange,
 }: {
   title: string;
   description: string;
@@ -2852,7 +3219,7 @@ function ToggleSetting({
 function NotificationBar({
   tone,
   message,
-  onClose
+  onClose,
 }: {
   tone: NotificationTone;
   message: string;
@@ -2861,14 +3228,17 @@ function NotificationBar({
   return (
     <div
       className={cn(
-        'fixed left-1/2 top-4 z-[80] flex w-[min(92vw,560px)] -translate-x-1/2 items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-lg',
-        tone === 'success'
-          ? 'border-[#CFE3D5] bg-[#F6FBF7] text-[#2F6B48] dark:border-[#35503F] dark:bg-[#1F2E25] dark:text-[#8FD9A8]'
-          : 'border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21] dark:text-[#FFB7B2]'
+        "fixed left-1/2 top-4 z-[80] flex w-[min(92vw,560px)] -translate-x-1/2 items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-lg",
+        tone === "success"
+          ? "border-[#CFE3D5] bg-[#F6FBF7] text-[#2F6B48] dark:border-[#35503F] dark:bg-[#1F2E25] dark:text-[#8FD9A8]"
+          : "border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21] dark:text-[#FFB7B2]",
       )}
     >
       <div>{message}</div>
-      <button className="rounded-full p-1 hover:bg-black/5 dark:hover:bg-white/10" onClick={onClose}>
+      <button
+        className="rounded-full p-1 hover:bg-black/5 dark:hover:bg-white/10"
+        onClick={onClose}
+      >
         <X className="h-4 w-4" />
       </button>
     </div>
@@ -2880,7 +3250,7 @@ function SidebarButton({
   label,
   active,
   disabled,
-  onClick
+  onClick,
 }: {
   icon: typeof Table2;
   label: string;
@@ -2891,9 +3261,11 @@ function SidebarButton({
   return (
     <button
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition',
-        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-        disabled && 'cursor-not-allowed opacity-50'
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
+        active
+          ? "bg-accent text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        disabled && "cursor-not-allowed opacity-50",
       )}
       disabled={disabled}
       onClick={onClick}
@@ -2920,9 +3292,13 @@ function WelcomeView({
   onCreateWorkspace,
   onOpenWorkspace,
   onOpenRecent,
-  onDismissRecent
+  onDismissRecent,
 }: {
-  recentWorkspaces: Array<{ rootPath: string; name: string; lastOpenedDate: string }>;
+  recentWorkspaces: Array<{
+    rootPath: string;
+    name: string;
+    lastOpenedDate: string;
+  }>;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
   onOpenRecent: (rootPath: string) => void;
@@ -2936,11 +3312,13 @@ function WelcomeView({
           Workspace-first document operations
         </Badge>
         <h1 className="max-w-2xl text-3xl font-semibold tracking-tight">
-          Keep every document, version, and status inside a portable offline workspace.
+          Keep every document, version, and status inside a portable offline
+          workspace.
         </h1>
         <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-          Create a new workspace folder or reopen an existing one. Each workspace opens in its own
-          tab, with document tables, version history, and type configuration ready to go.
+          Create a new workspace folder or reopen an existing one. Each
+          workspace opens in its own tab, with document tables, version history,
+          and type configuration ready to go.
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           <Button size="lg" onClick={onCreateWorkspace}>
@@ -2967,7 +3345,8 @@ function WelcomeView({
         <div className="mt-4 space-y-2">
           {recentWorkspaces.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-3 py-4 text-[13px] text-muted-foreground">
-              No recent workspaces yet. Your newly created workspaces will appear here.
+              No recent workspaces yet. Your newly created workspaces will
+              appear here.
             </div>
           ) : (
             recentWorkspaces.map((workspace) => (
@@ -2975,9 +3354,16 @@ function WelcomeView({
                 key={workspace.rootPath}
                 className="flex items-start gap-2 rounded-xl border border-border bg-background p-3 transition hover:bg-accent"
               >
-                <button className="min-w-0 flex-1 text-left" onClick={() => onOpenRecent(workspace.rootPath)}>
-                  <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
-                  <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.rootPath}</div>
+                <button
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => onOpenRecent(workspace.rootPath)}
+                >
+                  <div className="truncate text-[13px] font-semibold">
+                    {workspace.name}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {workspace.rootPath}
+                  </div>
                   <div className="mt-2 text-xs text-muted-foreground">
                     Last opened {formatDateTime(workspace.lastOpenedDate)}
                   </div>
@@ -3021,9 +3407,9 @@ function DocumentsView({
   onRequestLatestVersionEdit,
   onShowDocumentFolder,
   onShowVersionFiles,
-  onUpdateSidebarWidth
+  onUpdateSidebarWidth,
 }: {
-  workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   applicationSettings: ApplicationSettings;
   isMacOs: boolean;
   documentTableDensity: DocumentTableDensity;
@@ -3033,7 +3419,10 @@ function DocumentsView({
   onSelectDocument: (documentRecordId: number) => void;
   onCloseDocumentDetail: () => void;
   onShowFiles: (documentRecordId: number) => void;
-  onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
+  onRequestStatusChange: (
+    document: DocumentListItem,
+    nextStatus: DocumentStatus,
+  ) => void;
   onRequestNewDocument: () => void;
   onExportDocuments: (request: DocumentExportRequest) => Promise<void>;
   onOpenTableSettings: () => void;
@@ -3044,82 +3433,104 @@ function DocumentsView({
   onShowVersionFiles: (documentVersionId: number) => void;
   onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
 }) {
-  const fallbackSortingColumn = visibleTableColumns.includes('modifiedDate')
-    ? 'modifiedDate'
-    : (visibleTableColumns[0] ?? 'documentId');
-  const [search, setSearch] = useState('');
+  const fallbackSortingColumn = visibleTableColumns.includes("modifiedDate")
+    ? "modifiedDate"
+    : (visibleTableColumns[0] ?? "documentId");
+  const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([
     {
       id: fallbackSortingColumn,
-      desc: fallbackSortingColumn === 'modifiedDate'
-    }
+      desc: fallbackSortingColumn === "modifiedDate",
+    },
   ]);
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All');
-  const [projectFilter, setProjectFilter] = useState<string>('All');
-  const [exportDialog, setExportDialog] = useState(defaultDocumentExportDialogState);
-  const [sidebarWidth, setSidebarWidth] = useState(applicationSettings.documentDetailSidebarWidth);
+  const [statusFilter, setStatusFilter] = useState<DocumentStatus | "All">(
+    "All",
+  );
+  const [projectFilter, setProjectFilter] = useState<string>("All");
+  const [exportDialog, setExportDialog] = useState(
+    defaultDocumentExportDialogState,
+  );
+  const [sidebarWidth, setSidebarWidth] = useState(
+    applicationSettings.documentDetailSidebarWidth,
+  );
   const [isSidebarEntered, setIsSidebarEntered] = useState(false);
   const availableColumns = workspace.settings.visibleDocumentColumns;
-  const projectFeatureEnabled = availableColumns.includes('project');
+  const projectFeatureEnabled = availableColumns.includes("project");
   const deferredSearch = useDeferredValue(search);
   const detailViewMode = applicationSettings.documentDetailViewMode;
   const hasSelectedDocument = Boolean(workspace.selectedDocumentRecordId);
-  const isSidebarOpen = detailViewMode === 'sidebar' && hasSelectedDocument;
+  const isSidebarOpen = detailViewMode === "sidebar" && hasSelectedDocument;
   const headerCellClassName =
-    documentTableDensity === 'compact'
-      ? 'whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground'
-      : 'whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground';
+    documentTableDensity === "compact"
+      ? "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground"
+      : "whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground";
   const bodyCellClassName =
-    documentTableDensity === 'compact' ? 'px-3 py-2 align-middle' : 'px-3 py-2.5 align-middle';
+    documentTableDensity === "compact"
+      ? "px-3 py-2 align-middle"
+      : "px-3 py-2.5 align-middle";
   const emptyStateClassName =
-    documentTableDensity === 'compact'
-      ? 'px-6 py-10 text-center text-muted-foreground'
-      : 'px-6 py-12 text-center text-muted-foreground';
+    documentTableDensity === "compact"
+      ? "px-6 py-10 text-center text-muted-foreground"
+      : "px-6 py-12 text-center text-muted-foreground";
 
-  const statusOptions = useMemo(() => ['All', ...workspace.statuses] as const, [workspace.statuses]);
+  const statusOptions = useMemo(
+    () => ["All", ...workspace.statuses] as const,
+    [workspace.statuses],
+  );
   const exportGroupingOptions = useMemo(
     () => getDocumentExportGroupingOptions(availableColumns),
-    [availableColumns]
+    [availableColumns],
   );
   const latestVersion = selectedDocumentDetail?.versions[0] ?? null;
 
   useEffect(() => {
     setSorting((current) => {
-      if (current.every((entry) => visibleTableColumns.includes(entry.id as DocumentTableColumn))) {
+      if (
+        current.every((entry) =>
+          visibleTableColumns.includes(entry.id as DocumentTableColumn),
+        )
+      ) {
         return current;
       }
 
       return [
         {
           id: fallbackSortingColumn,
-          desc: fallbackSortingColumn === 'modifiedDate'
-        }
+          desc: fallbackSortingColumn === "modifiedDate",
+        },
       ];
     });
   }, [fallbackSortingColumn, visibleTableColumns]);
 
   useEffect(() => {
     setExportDialog((current) => {
-      if (exportGroupingOptions.some((option) => option.value === current.groupBy)) {
+      if (
+        exportGroupingOptions.some((option) => option.value === current.groupBy)
+      ) {
         return current;
       }
 
       return {
         ...current,
-        groupBy: exportGroupingOptions[0]?.value ?? 'none'
+        groupBy: exportGroupingOptions[0]?.value ?? "none",
       };
     });
   }, [exportGroupingOptions]);
 
   useEffect(() => {
     const appWidth = window.innerWidth;
-    const minWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
-    const maxWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
+    const minWidth =
+      (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
+    const maxWidth =
+      (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
 
     setSidebarWidth(() =>
       appWidth > 0
-        ? Math.max(minWidth, Math.min(maxWidth, applicationSettings.documentDetailSidebarWidth))
-        : applicationSettings.documentDetailSidebarWidth
+        ? Math.max(
+            minWidth,
+            Math.min(maxWidth, applicationSettings.documentDetailSidebarWidth),
+          )
+        : applicationSettings.documentDetailSidebarWidth,
     );
   }, [applicationSettings.documentDetailSidebarWidth]);
 
@@ -3140,235 +3551,268 @@ function DocumentsView({
   const filteredDocuments = useMemo(
     () =>
       workspace.documents.filter((document) => {
-        const matchesStatus = statusFilter === 'All' || document.status === statusFilter;
+        const matchesStatus =
+          statusFilter === "All" || document.status === statusFilter;
         const matchesProject =
           !projectFeatureEnabled ||
-          projectFilter === 'All' ||
-          String(document.projectId ?? '') === projectFilter;
+          projectFilter === "All" ||
+          String(document.projectId ?? "") === projectFilter;
         return matchesStatus && matchesProject;
       }),
-    [projectFeatureEnabled, projectFilter, statusFilter, workspace.documents]
+    [projectFeatureEnabled, projectFilter, statusFilter, workspace.documents],
   );
 
-  const getSortValue = (document: DocumentListItem, column: DocumentTableColumn): string | number => {
+  const getSortValue = (
+    document: DocumentListItem,
+    column: DocumentTableColumn,
+  ): string | number => {
     switch (column) {
-      case 'documentId':
+      case "documentId":
         return document.documentId;
-      case 'title':
+      case "title":
         return document.title;
-      case 'documentType':
+      case "documentType":
         return document.typeName;
-      case 'version':
-        return document.latestVersionLabel ?? '';
-      case 'status':
-        return document.status ?? '';
-      case 'author':
+      case "version":
+        return document.latestVersionLabel ?? "";
+      case "status":
+        return document.status ?? "";
+      case "author":
         return document.author;
-      case 'language':
-        return document.languageCode ?? '';
-      case 'confidentialityClass':
-        return document.confidentialityClassName ?? '';
-      case 'project':
-        return document.projectName ?? '';
-      case 'company':
+      case "language":
+        return document.languageCode ?? "";
+      case "confidentialityClass":
+        return document.confidentialityClassName ?? "";
+      case "project":
+        return document.projectName ?? "";
+      case "company":
         return document.company;
-      case 'department':
+      case "department":
         return document.department;
-      case 'createdDate':
+      case "createdDate":
         return document.createdDate;
-      case 'modifiedDate':
+      case "modifiedDate":
         return document.modifiedDate;
-      case 'releasedDate':
-        return document.releasedDate ?? '';
-      case 'approvedBy':
+      case "releasedDate":
+        return document.releasedDate ?? "";
+      case "approvedBy":
         return document.approvedBy;
-      case 'revisionIntervalMonths':
+      case "revisionIntervalMonths":
         return document.revisionIntervalMonths ?? -1;
-      case 'revisionDescription':
+      case "revisionDescription":
         return document.revisionDescription;
     }
   };
 
-  const compareSortValues = (left: string | number, right: string | number): number => {
-    if (typeof left === 'number' || typeof right === 'number') {
+  const compareSortValues = (
+    left: string | number,
+    right: string | number,
+  ): number => {
+    if (typeof left === "number" || typeof right === "number") {
       return Number(left) - Number(right);
     }
 
     return String(left).localeCompare(String(right), undefined, {
       numeric: true,
-      sensitivity: 'base'
+      sensitivity: "base",
     });
   };
 
-  const columns = useMemo<Array<ColumnDef<DocumentListItem>>>(
-    () => {
-      const fixedColumns: Array<ColumnDef<DocumentListItem> & { id: DocumentTableColumn }> = [
-        {
-          id: 'documentId',
-          accessorKey: 'documentId',
-          header: columnHeader('Document ID'),
-          cell: ({ row }) => <span className="font-mono text-xs">{row.original.documentId}</span>
-        },
-        {
-          id: 'title',
-          accessorKey: 'title',
-          header: columnHeader('Title'),
-          cell: ({ row }) => <span className="font-medium">{row.original.title}</span>
-        },
-        {
-          id: 'documentType',
-          accessorFn: (row) => row.typeName,
-          header: columnHeader('Document Type')
-        },
-        {
-          id: 'version',
-          accessorFn: (row) => row.latestVersionLabel ?? '',
-          header: columnHeader('Version'),
-          cell: ({ row }) => <span>{row.original.latestVersionLabel ?? '—'}</span>
-        },
-        {
-          id: 'status',
-          accessorFn: (row) => row.status ?? '',
-          header: columnHeader('Status'),
-          cell: ({ row }) => (
-            <DocumentStatusSelect
-              document={row.original}
-              statuses={workspace.statuses}
-              onRequestStatusChange={onRequestStatusChange}
-            />
-          )
-        },
-        {
-          id: 'author',
-          accessorKey: 'author',
-          header: columnHeader('Author')
-        },
-        {
-          id: 'language',
-          accessorFn: (row) => row.languageCode ?? '',
-          header: columnHeader('Language'),
-          cell: ({ row }) => <span>{row.original.languageCode ?? '—'}</span>
-        },
-        {
-          id: 'confidentialityClass',
-          accessorFn: (row) => row.confidentialityClassName ?? '',
-          header: columnHeader('Confidentiality Class'),
-          cell: ({ row }) => <span>{row.original.confidentialityClassName ?? '—'}</span>
-        },
-        {
-          id: 'project',
-          accessorFn: (row) => row.projectName ?? '',
-          header: columnHeader('Project'),
-          cell: ({ row }) => <span>{row.original.projectName ?? '—'}</span>
-        },
-        {
-          id: 'company',
-          accessorKey: 'company',
-          header: columnHeader('Company'),
-          cell: ({ row }) => <span>{row.original.company || '—'}</span>
-        },
-        {
-          id: 'department',
-          accessorKey: 'department',
-          header: columnHeader('Department'),
-          cell: ({ row }) => <span>{row.original.department || '—'}</span>
-        },
-        {
-          id: 'createdDate',
-          accessorKey: 'createdDate',
-          header: columnHeader('Created Date'),
-          cell: ({ row }) => <span>{formatDateShort(row.original.createdDate)}</span>
-        },
-        {
-          id: 'modifiedDate',
-          accessorKey: 'modifiedDate',
-          header: columnHeader('Modified Date'),
-          cell: ({ row }) => <span>{formatDateShort(row.original.modifiedDate)}</span>
-        },
-        {
-          id: 'releasedDate',
-          accessorFn: (row) => row.releasedDate ?? '',
-          header: columnHeader('Released Date'),
-          cell: ({ row }) => <span>{row.original.releasedDate ? formatDateShort(row.original.releasedDate) : '—'}</span>
-        },
-        {
-          id: 'approvedBy',
-          accessorKey: 'approvedBy',
-          header: columnHeader('Approved By'),
-          cell: ({ row }) => <span>{row.original.approvedBy || '—'}</span>
-        },
-        {
-          id: 'revisionIntervalMonths',
-          accessorFn: (row) => row.revisionIntervalMonths ?? '',
-          header: columnHeader('Revision Interval'),
-          cell: ({ row }) => (
-            <span>{row.original.revisionIntervalMonths ? `${row.original.revisionIntervalMonths} months` : '—'}</span>
-          )
-        },
-        {
-          id: 'revisionDescription',
-          accessorKey: 'revisionDescription',
-          header: columnHeader('Revision Description'),
-          cell: ({ row }) => (
-            <span className="inline-block max-w-[240px] truncate" title={row.original.revisionDescription}>
-              {row.original.revisionDescription || '—'}
-            </span>
-          )
-        }
-      ];
+  const columns = useMemo<Array<ColumnDef<DocumentListItem>>>(() => {
+    const fixedColumns: Array<
+      ColumnDef<DocumentListItem> & { id: DocumentTableColumn }
+    > = [
+      {
+        id: "documentId",
+        accessorKey: "documentId",
+        header: columnHeader("Document ID"),
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.documentId}</span>
+        ),
+      },
+      {
+        id: "title",
+        accessorKey: "title",
+        header: columnHeader("Title"),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.original.title}</span>
+        ),
+      },
+      {
+        id: "documentType",
+        accessorFn: (row) => row.typeName,
+        header: columnHeader("Document Type"),
+      },
+      {
+        id: "version",
+        accessorFn: (row) => row.latestVersionLabel ?? "",
+        header: columnHeader("Version"),
+        cell: ({ row }) => (
+          <span>{row.original.latestVersionLabel ?? "—"}</span>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.status ?? "",
+        header: columnHeader("Status"),
+        cell: ({ row }) => (
+          <DocumentStatusSelect
+            document={row.original}
+            statuses={workspace.statuses}
+            onRequestStatusChange={onRequestStatusChange}
+          />
+        ),
+      },
+      {
+        id: "author",
+        accessorKey: "author",
+        header: columnHeader("Author"),
+      },
+      {
+        id: "language",
+        accessorFn: (row) => row.languageCode ?? "",
+        header: columnHeader("Language"),
+        cell: ({ row }) => <span>{row.original.languageCode ?? "—"}</span>,
+      },
+      {
+        id: "confidentialityClass",
+        accessorFn: (row) => row.confidentialityClassName ?? "",
+        header: columnHeader("Confidentiality Class"),
+        cell: ({ row }) => (
+          <span>{row.original.confidentialityClassName ?? "—"}</span>
+        ),
+      },
+      {
+        id: "project",
+        accessorFn: (row) => row.projectName ?? "",
+        header: columnHeader("Project"),
+        cell: ({ row }) => <span>{row.original.projectName ?? "—"}</span>,
+      },
+      {
+        id: "company",
+        accessorKey: "company",
+        header: columnHeader("Company"),
+        cell: ({ row }) => <span>{row.original.company || "—"}</span>,
+      },
+      {
+        id: "department",
+        accessorKey: "department",
+        header: columnHeader("Department"),
+        cell: ({ row }) => <span>{row.original.department || "—"}</span>,
+      },
+      {
+        id: "createdDate",
+        accessorKey: "createdDate",
+        header: columnHeader("Created Date"),
+        cell: ({ row }) => (
+          <span>{formatDateShort(row.original.createdDate)}</span>
+        ),
+      },
+      {
+        id: "modifiedDate",
+        accessorKey: "modifiedDate",
+        header: columnHeader("Modified Date"),
+        cell: ({ row }) => (
+          <span>{formatDateShort(row.original.modifiedDate)}</span>
+        ),
+      },
+      {
+        id: "releasedDate",
+        accessorFn: (row) => row.releasedDate ?? "",
+        header: columnHeader("Released Date"),
+        cell: ({ row }) => (
+          <span>
+            {row.original.releasedDate
+              ? formatDateShort(row.original.releasedDate)
+              : "—"}
+          </span>
+        ),
+      },
+      {
+        id: "approvedBy",
+        accessorKey: "approvedBy",
+        header: columnHeader("Approved By"),
+        cell: ({ row }) => <span>{row.original.approvedBy || "—"}</span>,
+      },
+      {
+        id: "revisionIntervalMonths",
+        accessorFn: (row) => row.revisionIntervalMonths ?? "",
+        header: columnHeader("Revision Interval"),
+        cell: ({ row }) => (
+          <span>
+            {row.original.revisionIntervalMonths
+              ? `${row.original.revisionIntervalMonths} months`
+              : "—"}
+          </span>
+        ),
+      },
+      {
+        id: "revisionDescription",
+        accessorKey: "revisionDescription",
+        header: columnHeader("Revision Description"),
+        cell: ({ row }) => (
+          <span
+            className="inline-block max-w-[240px] truncate"
+            title={row.original.revisionDescription}
+          >
+            {row.original.revisionDescription || "—"}
+          </span>
+        ),
+      },
+    ];
 
-      return [
-        ...fixedColumns.filter((column) => visibleTableColumns.includes(column.id)),
-        {
-          id: 'actions',
-          header: () => <span className="text-right">Actions</span>,
-          enableSorting: false,
-          cell: ({ row }) => (
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(event) => {
-                  stopRowAction(event);
-                  onRequestEditDocument(row.original.id);
-                }}
-              >
-                <PencilLine className="h-4 w-4" />
-                Edit
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!row.original.latestVersionLabel}
-                onClick={(event) => {
-                  stopRowAction(event);
-                  void onShowFiles(row.original.id);
-                }}
-              >
-                <FolderOpen className="h-4 w-4" />
-                Show Files
-              </Button>
-            </div>
-          )
-        }
-      ];
-    },
-    [
-      onRequestStatusChange,
-      onRequestEditDocument,
-      onRequestLatestVersionEdit,
-      onShowFiles,
-      workspace.statuses,
-      visibleTableColumns
-    ]
-  );
+    return [
+      ...fixedColumns.filter((column) =>
+        visibleTableColumns.includes(column.id),
+      ),
+      {
+        id: "actions",
+        header: () => <span className="text-right">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(event) => {
+                stopRowAction(event);
+                onRequestEditDocument(row.original.id);
+              }}
+            >
+              <PencilLine className="h-4 w-4" />
+              Edit
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!row.original.latestVersionLabel}
+              onClick={(event) => {
+                stopRowAction(event);
+                void onShowFiles(row.original.id);
+              }}
+            >
+              <FolderOpen className="h-4 w-4" />
+              Show Files
+            </Button>
+          </div>
+        ),
+      },
+    ];
+  }, [
+    onRequestStatusChange,
+    onRequestEditDocument,
+    onRequestLatestVersionEdit,
+    onShowFiles,
+    workspace.statuses,
+    visibleTableColumns,
+  ]);
 
   const table = useReactTable({
     data: filteredDocuments,
     columns,
     state: {
       sorting,
-      globalFilter: deferredSearch
+      globalFilter: deferredSearch,
     },
     onSortingChange: setSorting,
     globalFilterFn: (row, _columnId, filterValue) => {
@@ -3376,26 +3820,30 @@ function DocumentsView({
         row.original.documentId,
         row.original.title,
         row.original.typeName,
-        availableColumns.includes('author') ? row.original.author : '',
-        row.original.status ?? '',
-        availableColumns.includes('language') ? row.original.languageCode ?? '' : '',
-        availableColumns.includes('confidentialityClass')
-          ? row.original.confidentialityClassName ?? ''
-          : '',
-        projectFeatureEnabled ? row.original.projectName ?? '' : '',
-        availableColumns.includes('company') ? row.original.company : '',
-        availableColumns.includes('department') ? row.original.department : '',
-        availableColumns.includes('approvedBy') ? row.original.approvedBy : '',
-        availableColumns.includes('revisionDescription') ? row.original.revisionDescription : ''
+        availableColumns.includes("author") ? row.original.author : "",
+        row.original.status ?? "",
+        availableColumns.includes("language")
+          ? (row.original.languageCode ?? "")
+          : "",
+        availableColumns.includes("confidentialityClass")
+          ? (row.original.confidentialityClassName ?? "")
+          : "",
+        projectFeatureEnabled ? (row.original.projectName ?? "") : "",
+        availableColumns.includes("company") ? row.original.company : "",
+        availableColumns.includes("department") ? row.original.department : "",
+        availableColumns.includes("approvedBy") ? row.original.approvedBy : "",
+        availableColumns.includes("revisionDescription")
+          ? row.original.revisionDescription
+          : "",
       ]
-        .join(' ')
+        .join(" ")
         .toLowerCase();
 
       return haystack.includes(String(filterValue).toLowerCase());
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel()
+    getSortedRowModel: getSortedRowModel(),
   });
 
   const currentTableRows = table.getRowModel().rows.map((row) => row.original);
@@ -3406,20 +3854,23 @@ function DocumentsView({
       sorting.every(
         (entry) =>
           DOCUMENT_TABLE_COLUMNS.includes(entry.id as DocumentTableColumn) &&
-          availableColumns.includes(entry.id as DocumentTableColumn)
+          availableColumns.includes(entry.id as DocumentTableColumn),
       )
         ? sorting
         : [
             {
-              id: 'modifiedDate',
-              desc: true
-            }
+              id: "modifiedDate",
+              desc: true,
+            },
           ];
 
     return [...workspace.documents].sort((left, right) => {
       for (const entry of sortingToUse) {
         const column = entry.id as DocumentTableColumn;
-        const result = compareSortValues(getSortValue(left, column), getSortValue(right, column));
+        const result = compareSortValues(
+          getSortValue(left, column),
+          getSortValue(right, column),
+        );
         if (result !== 0) {
           return entry.desc ? -result : result;
         }
@@ -3431,43 +3882,50 @@ function DocumentsView({
 
   const handleSubmitExport = async () => {
     const columns =
-      exportDialog.scope === 'current-table'
+      exportDialog.scope === "current-table"
         ? visibleTableColumns
-        : DOCUMENT_TABLE_COLUMNS.filter((column) => availableColumns.includes(column));
-    const rows = exportDialog.scope === 'current-table' ? currentTableRows : wholeWorkspaceRows;
+        : DOCUMENT_TABLE_COLUMNS.filter((column) =>
+            availableColumns.includes(column),
+          );
+    const rows =
+      exportDialog.scope === "current-table"
+        ? currentTableRows
+        : wholeWorkspaceRows;
     const selectedProject =
-      exportDialog.scope === 'current-table' && projectFeatureEnabled
-        ? workspace.projects.find((project) => String(project.id) === projectFilter)?.name ??
-          (projectFilter === '' ? 'No project' : 'All projects')
-        : '';
+      exportDialog.scope === "current-table" && projectFeatureEnabled
+        ? (workspace.projects.find(
+            (project) => String(project.id) === projectFilter,
+          )?.name ?? (projectFilter === "" ? "No project" : "All projects"))
+        : "";
 
     try {
       setExportDialog((current) => ({ ...current, isSubmitting: true }));
       await onExportDocuments({
         format: exportDialog.format,
         scope: exportDialog.scope,
-        groupBy: exportDialog.format === 'pdf' ? exportDialog.groupBy : 'none',
-        pdfColorMode: exportDialog.format === 'pdf' ? exportDialog.pdfColorMode : 'color',
+        groupBy: exportDialog.format === "pdf" ? exportDialog.groupBy : "none",
+        pdfColorMode:
+          exportDialog.format === "pdf" ? exportDialog.pdfColorMode : "color",
         workspaceName: workspace.workspace.name,
         companyLogoPath: workspace.settings.companyLogoPath || null,
         exportTimestamp: new Date().toISOString(),
         columns: columns.map((column) => ({
           key: column,
-          label: getDocumentTableColumnLabel(column)
+          label: getDocumentTableColumnLabel(column),
         })),
         rows,
         filters:
-          exportDialog.scope === 'current-table'
+          exportDialog.scope === "current-table"
             ? {
                 search: deferredSearch.trim(),
                 status: statusFilter,
-                project: selectedProject
+                project: selectedProject,
               }
             : {
-                search: '',
-                status: 'All',
-                project: ''
-              }
+                search: "",
+                status: "All",
+                project: "",
+              },
       });
       setExportDialog(defaultDocumentExportDialogState);
     } catch (error) {
@@ -3476,7 +3934,7 @@ function DocumentsView({
     }
   };
 
-  const renderDetailContent = (layout: 'sidebar' | 'modal' | 'page') => (
+  const renderDetailContent = (layout: "sidebar" | "modal" | "page") => (
     <DocumentDetailSurface
       layout={layout}
       documentDetail={selectedDocumentDetail}
@@ -3492,15 +3950,19 @@ function DocumentsView({
     />
   );
 
-  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleSidebarResizeStart = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     event.preventDefault();
     const appWidth = window.innerWidth;
     if (appWidth <= 0) {
       return;
     }
 
-    const minWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
-    const maxWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
+    const minWidth =
+      (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
+    const maxWidth =
+      (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
     const startX = event.clientX;
     const startWidth = Math.max(minWidth, Math.min(maxWidth, sidebarWidth));
     let nextWidth = startWidth;
@@ -3509,27 +3971,24 @@ function DocumentsView({
     const handlePointerMove = (moveEvent: PointerEvent) => {
       nextWidth = Math.max(
         minWidth,
-        Math.min(
-          maxWidth,
-          startWidth + (startX - moveEvent.clientX)
-        )
+        Math.min(maxWidth, startWidth + (startX - moveEvent.clientX)),
       );
       setSidebarWidth(nextWidth);
     };
 
     const handlePointerUp = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
       const persistedWidth = Math.round(nextWidth);
       setSidebarWidth(persistedWidth);
       void onUpdateSidebarWidth(persistedWidth);
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
   };
 
-  if (detailViewMode === 'page' && hasSelectedDocument) {
+  if (detailViewMode === "page" && hasSelectedDocument) {
     return (
       <>
         <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-sm">
@@ -3539,7 +3998,9 @@ function DocumentsView({
               Back to Documents
             </Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden p-3">{renderDetailContent('page')}</div>
+          <div className="min-h-0 flex-1 overflow-hidden p-3">
+            {renderDetailContent("page")}
+          </div>
         </div>
         <DocumentExportDialog
           state={exportDialog}
@@ -3557,7 +4018,9 @@ function DocumentsView({
         <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
             <div>
-              <div className="text-lg font-semibold">{workspace.workspace.name}</div>
+              <div className="text-lg font-semibold">
+                {workspace.workspace.name}
+              </div>
               <div className="mt-1 text-[13px] text-muted-foreground">
                 {workspace.documents.length} documents tracked in this workspace
               </div>
@@ -3569,7 +4032,12 @@ function DocumentsView({
               </Button>
               <Button
                 variant="outline"
-                onClick={() => setExportDialog({ ...defaultDocumentExportDialogState, open: true })}
+                onClick={() =>
+                  setExportDialog({
+                    ...defaultDocumentExportDialogState,
+                    open: true,
+                  })
+                }
               >
                 <FileStack className="h-4 w-4" />
                 Export
@@ -3586,41 +4054,63 @@ function DocumentsView({
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2.5">
-            <div className="relative min-w-[240px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                data-doc-search="true"
-                className="pl-10"
-                placeholder="Search by ID, title, type, author, project, status, or metadata"
-                value={search}
-                onChange={(event) => {
-                  startTransition(() => {
-                    setSearch(event.target.value);
-                  });
-                }}
-              />
+          <div className="mt-3 flex flex-wrap items-end gap-2.5">
+            {/* Search */}
+            <div className="min-w-[240px] flex-1">
+              <label
+                htmlFor="doc-search"
+                className="mb-1 block text-sm font-medium text-foreground"
+              >
+                Search
+              </label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="doc-search"
+                  data-doc-search="true"
+                  className="pl-10"
+                  placeholder="ID, title, type, author, project, status, metadata..."
+                  value={search}
+                  onChange={(event) => {
+                    startTransition(() => {
+                      setSearch(event.target.value);
+                    });
+                  }}
+                />
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {statusOptions.map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  className={cn(
-                    'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
-                    statusFilter === status
-                      ? 'border-border bg-secondary text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
-                  )}
-                  onClick={() => setStatusFilter(status)}
-                >
-                  {status}
-                </button>
-              ))}
+
+            {/* Status filter */}
+            <div className="flex flex-col">
+              <span className="mb-1 text-sm font-medium text-foreground">
+                Status
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {statusOptions.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    className={cn(
+                      "rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition",
+                      statusFilter === status
+                        ? "border-border bg-secondary text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                    onClick={() => setStatusFilter(status)}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* Project filter */}
             {projectFeatureEnabled ? (
               <Field label="Project">
-                <Select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+                <Select
+                  value={projectFilter}
+                  onChange={(event) => setProjectFilter(event.target.value)}
+                >
                   <option value="All">All projects</option>
                   {workspace.projects.map((project) => (
                     <option key={project.id} value={String(project.id)}>
@@ -3644,12 +4134,15 @@ function DocumentsView({
                           key={header.id}
                           className={cn(
                             headerCellClassName,
-                            header.id === 'actions' && 'text-right'
+                            header.id === "actions" && "text-right",
                           )}
                         >
                           {header.isPlaceholder
                             ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
                         </th>
                       ))}
                     </tr>
@@ -3658,8 +4151,12 @@ function DocumentsView({
                 <tbody>
                   {table.getRowModel().rows.length === 0 ? (
                     <tr>
-                      <td colSpan={columns.length} className={emptyStateClassName}>
-                        No documents match the current search and filter settings.
+                      <td
+                        colSpan={columns.length}
+                        className={emptyStateClassName}
+                      >
+                        No documents match the current search and filter
+                        settings.
                       </td>
                     </tr>
                   ) : (
@@ -3667,8 +4164,9 @@ function DocumentsView({
                       <tr
                         key={row.id}
                         className={cn(
-                          'cursor-pointer border-b border-border/60 transition hover:bg-accent/70',
-                          workspace.selectedDocumentRecordId === row.original.id && 'bg-accent/70'
+                          "cursor-pointer border-b border-border/60 transition hover:bg-accent/70",
+                          workspace.selectedDocumentRecordId ===
+                            row.original.id && "bg-accent/70",
                         )}
                         onClick={() => onSelectDocument(row.original.id)}
                       >
@@ -3677,10 +4175,13 @@ function DocumentsView({
                             key={cell.id}
                             className={cn(
                               bodyCellClassName,
-                              cell.column.id === 'actions' && 'min-w-[180px]'
+                              cell.column.id === "actions" && "min-w-[180px]",
                             )}
                           >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
                           </td>
                         ))}
                       </tr>
@@ -3693,230 +4194,314 @@ function DocumentsView({
         </div>
 
         {false ? (
-        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
-        <div className="flex items-center justify-between border-b border-border/80 pb-3">
-          <div>
-            <div className="text-base font-semibold">Document Detail</div>
-            <div className="text-[13px] text-muted-foreground">
-              Inspect metadata, latest-version fields, and managed folders
+          <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+            <div className="flex items-center justify-between border-b border-border/80 pb-3">
+              <div>
+                <div className="text-base font-semibold">Document Detail</div>
+                <div className="text-[13px] text-muted-foreground">
+                  Inspect metadata, latest-version fields, and managed folders
+                </div>
+              </div>
+              {selectedDocumentDetail ? (
+                <DocumentProgressBadge status={latestVersion?.status ?? null} />
+              ) : null}
             </div>
-          </div>
-          {selectedDocumentDetail ? <DocumentProgressBadge status={latestVersion?.status ?? null} /> : null}
-        </div>
 
-        {!selectedDocumentDetail && !isDetailLoading ? (
-          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background p-5 text-center text-[13px] text-muted-foreground">
-            Select a document from the table to view versions, show files, or open its folder.
-          </div>
-        ) : null}
+            {!selectedDocumentDetail && !isDetailLoading ? (
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background p-5 text-center text-[13px] text-muted-foreground">
+                Select a document from the table to view versions, show files,
+                or open its folder.
+              </div>
+            ) : null}
 
-        {isDetailLoading ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading document detail
-          </div>
-        ) : null}
+            {isDetailLoading ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading document detail
+              </div>
+            ) : null}
 
-        {selectedDocumentDetail ? (
-          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-            <div className="rounded-xl border border-border bg-background p-3.5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="font-mono text-xs text-primary">{selectedDocumentDetail!.documentId}</div>
-                  <div className="mt-1.5 text-lg font-semibold">{selectedDocumentDetail!.title}</div>
-                  <div className="mt-1 text-[13px] text-muted-foreground">
-                    {selectedDocumentDetail!.typeName} • {selectedDocumentDetail!.author}
+            {selectedDocumentDetail ? (
+              <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                <div className="rounded-xl border border-border bg-background p-3.5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-mono text-xs text-primary">
+                        {selectedDocumentDetail!.documentId}
+                      </div>
+                      <div className="mt-1.5 text-lg font-semibold">
+                        {selectedDocumentDetail!.title}
+                      </div>
+                      <div className="mt-1 text-[13px] text-muted-foreground">
+                        {selectedDocumentDetail!.typeName} •{" "}
+                        {selectedDocumentDetail!.author}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          onRequestEditDocument(selectedDocumentDetail!.id)
+                        }
+                      >
+                        <PencilLine className="h-4 w-4" />
+                        Edit Document
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!latestVersion}
+                        onClick={() =>
+                          onRequestLatestVersionEdit(selectedDocumentDetail!.id)
+                        }
+                      >
+                        <CircleDot className="h-4 w-4" />
+                        Edit Latest Version
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onShowDocumentFolder}
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        Show Folder
+                      </Button>
+                      <Button size="sm" onClick={onRequestNewVersion}>
+                        <PencilLine className="h-4 w-4" />
+                        {selectedDocumentDetail!.versions.length === 0
+                          ? "Create First Version"
+                          : "New Version"}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+                    <InfoCard
+                      label="Document Type"
+                      value={selectedDocumentDetail!.typeName}
+                    />
+                    {availableColumns.includes("author") ? (
+                      <InfoCard
+                        label="Author"
+                        value={selectedDocumentDetail!.author}
+                      />
+                    ) : null}
+                    {availableColumns.includes("language") ? (
+                      <InfoCard
+                        label="Language"
+                        value={selectedDocumentDetail!.languageCode ?? "—"}
+                      />
+                    ) : null}
+                    {availableColumns.includes("confidentialityClass") ? (
+                      <InfoCard
+                        label="Confidentiality"
+                        value={
+                          selectedDocumentDetail!.confidentialityClassName ??
+                          "—"
+                        }
+                      />
+                    ) : null}
+                    {projectFeatureEnabled ? (
+                      <InfoCard
+                        label="Project"
+                        value={selectedDocumentDetail!.projectName ?? "—"}
+                      />
+                    ) : null}
+                    {availableColumns.includes("company") ? (
+                      <InfoCard
+                        label="Company"
+                        value={selectedDocumentDetail!.company || "—"}
+                      />
+                    ) : null}
+                    {availableColumns.includes("department") ? (
+                      <InfoCard
+                        label="Department"
+                        value={selectedDocumentDetail!.department || "—"}
+                      />
+                    ) : null}
+                    {availableColumns.includes("revisionIntervalMonths") ? (
+                      <InfoCard
+                        label="Revision Interval"
+                        value={
+                          selectedDocumentDetail!.revisionIntervalMonths
+                            ? `${selectedDocumentDetail!.revisionIntervalMonths} months`
+                            : "—"
+                        }
+                      />
+                    ) : null}
+                    {availableColumns.includes("createdDate") ? (
+                      <InfoCard
+                        label="Created"
+                        value={formatDateTime(
+                          selectedDocumentDetail!.createdDate,
+                        )}
+                      />
+                    ) : null}
+                    {availableColumns.includes("modifiedDate") ? (
+                      <InfoCard
+                        label="Modified"
+                        value={formatDateTime(
+                          selectedDocumentDetail!.modifiedDate,
+                        )}
+                      />
+                    ) : null}
+                    {availableColumns.includes("releasedDate") ? (
+                      <InfoCard
+                        label="Released"
+                        value={
+                          latestVersion?.releasedDate
+                            ? formatDateTime(latestVersion?.releasedDate ?? "")
+                            : "—"
+                        }
+                      />
+                    ) : null}
+                    {availableColumns.includes("approvedBy") ? (
+                      <InfoCard
+                        label="Approved By"
+                        value={latestVersion?.approvedBy || "—"}
+                      />
+                    ) : null}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onRequestEditDocument(selectedDocumentDetail!.id)}
-                  >
-                    <PencilLine className="h-4 w-4" />
-                    Edit Document
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!latestVersion}
-                    onClick={() => onRequestLatestVersionEdit(selectedDocumentDetail!.id)}
-                  >
-                    <CircleDot className="h-4 w-4" />
-                    Edit Latest Version
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={onShowDocumentFolder}>
-                    <FolderOpen className="h-4 w-4" />
-                    Show Folder
-                  </Button>
-                  <Button size="sm" onClick={onRequestNewVersion}>
-                    <PencilLine className="h-4 w-4" />
-                    {selectedDocumentDetail!.versions.length === 0 ? 'Create First Version' : 'New Version'}
-                  </Button>
-                </div>
-              </div>
-	              <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-	                <InfoCard label="Document Type" value={selectedDocumentDetail!.typeName} />
-	                {availableColumns.includes('author') ? (
-	                  <InfoCard label="Author" value={selectedDocumentDetail!.author} />
-	                ) : null}
-	                {availableColumns.includes('language') ? (
-	                  <InfoCard label="Language" value={selectedDocumentDetail!.languageCode ?? '—'} />
-	                ) : null}
-	                {availableColumns.includes('confidentialityClass') ? (
-	                  <InfoCard
-	                    label="Confidentiality"
-	                    value={selectedDocumentDetail!.confidentialityClassName ?? '—'}
-	                  />
-	                ) : null}
-	                {projectFeatureEnabled ? (
-	                  <InfoCard label="Project" value={selectedDocumentDetail!.projectName ?? '—'} />
-	                ) : null}
-	                {availableColumns.includes('company') ? (
-	                  <InfoCard label="Company" value={selectedDocumentDetail!.company || '—'} />
-	                ) : null}
-	                {availableColumns.includes('department') ? (
-	                  <InfoCard label="Department" value={selectedDocumentDetail!.department || '—'} />
-	                ) : null}
-	                {availableColumns.includes('revisionIntervalMonths') ? (
-	                  <InfoCard
-	                    label="Revision Interval"
-	                    value={
-	                      selectedDocumentDetail!.revisionIntervalMonths
-	                        ? `${selectedDocumentDetail!.revisionIntervalMonths} months`
-	                        : '—'
-	                    }
-	                  />
-	                ) : null}
-	                {availableColumns.includes('createdDate') ? (
-	                  <InfoCard label="Created" value={formatDateTime(selectedDocumentDetail!.createdDate)} />
-	                ) : null}
-	                {availableColumns.includes('modifiedDate') ? (
-	                  <InfoCard label="Modified" value={formatDateTime(selectedDocumentDetail!.modifiedDate)} />
-	                ) : null}
-	                {availableColumns.includes('releasedDate') ? (
-	                  <InfoCard
-	                    label="Released"
-	                    value={latestVersion?.releasedDate ? formatDateTime(latestVersion?.releasedDate ?? '') : '—'}
-	                  />
-	                ) : null}
-	                {availableColumns.includes('approvedBy') ? (
-	                  <InfoCard label="Approved By" value={latestVersion?.approvedBy || '—'} />
-	                ) : null}
-	              </div>
-            </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-background p-3.5">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-[13px] font-semibold">Versions</div>
-                <Badge variant="outline">{selectedDocumentDetail!.versions.length} total</Badge>
-              </div>
-              {selectedDocumentDetail!.versions.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
-                  This document shell has no versions yet. Create the first version to start tracking files.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {selectedDocumentDetail!.versions.map((version) => (
-                    <div
-                      key={version.id}
-                      className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-semibold">Version {version.versionLabel}</div>
-                            <StatusBadge status={version.status} />
-                            <Badge variant="outline">{version.files.length} files</Badge>
-                          </div>
-                          <div className="mt-1 font-mono text-xs text-primary">
-                            {version.versionDocumentId}
-                          </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            Created {formatDateTime(version.createdDate)}
-                          </div>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(version.id)}>
-                          <FolderOpen className="h-4 w-4" />
-                          Show Files
-                        </Button>
-                      </div>
-	                      {availableColumns.includes('releasedDate') ||
-	                      availableColumns.includes('approvedBy') ||
-	                      availableColumns.includes('revisionDescription') ? (
-	                        <div className="mt-3 grid grid-cols-1 gap-2 text-[13px] md:grid-cols-3">
-	                          {availableColumns.includes('releasedDate') ? (
-	                            <InfoCard
-	                              label="Released"
-	                              value={version.releasedDate ? formatDateTime(version.releasedDate) : '—'}
-	                            />
-	                          ) : null}
-	                          {availableColumns.includes('approvedBy') ? (
-	                            <InfoCard label="Approved By" value={version.approvedBy || '—'} />
-	                          ) : null}
-	                          {availableColumns.includes('revisionDescription') ? (
-	                            <InfoCard
-	                              label="Revision Description"
-	                              value={version.revisionDescription || 'No revision description.'}
-	                            />
-	                          ) : null}
-	                        </div>
-	                      ) : null}
-                      {version.unmanagedPaths.length > 0 ? (
-                        <div className="mt-3 rounded-lg border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                          Unmanaged paths: {version.unmanagedPaths.join(', ')}
-                        </div>
-                      ) : null}
+                <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-background p-3.5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="text-[13px] font-semibold">Versions</div>
+                    <Badge variant="outline">
+                      {selectedDocumentDetail!.versions.length} total
+                    </Badge>
+                  </div>
+                  {selectedDocumentDetail!.versions.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                      This document shell has no versions yet. Create the first
+                      version to start tracking files.
                     </div>
-                  ))}
+                  ) : (
+                    <div className="space-y-2.5">
+                      {selectedDocumentDetail!.versions.map((version) => (
+                        <div
+                          key={version.id}
+                          className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm font-semibold">
+                                  Version {version.versionLabel}
+                                </div>
+                                <StatusBadge status={version.status} />
+                                <Badge variant="outline">
+                                  {version.files.length} files
+                                </Badge>
+                              </div>
+                              <div className="mt-1 font-mono text-xs text-primary">
+                                {version.versionDocumentId}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Created {formatDateTime(version.createdDate)}
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onShowVersionFiles(version.id)}
+                            >
+                              <FolderOpen className="h-4 w-4" />
+                              Show Files
+                            </Button>
+                          </div>
+                          {availableColumns.includes("releasedDate") ||
+                          availableColumns.includes("approvedBy") ||
+                          availableColumns.includes("revisionDescription") ? (
+                            <div className="mt-3 grid grid-cols-1 gap-2 text-[13px] md:grid-cols-3">
+                              {availableColumns.includes("releasedDate") ? (
+                                <InfoCard
+                                  label="Released"
+                                  value={
+                                    version.releasedDate
+                                      ? formatDateTime(version.releasedDate)
+                                      : "—"
+                                  }
+                                />
+                              ) : null}
+                              {availableColumns.includes("approvedBy") ? (
+                                <InfoCard
+                                  label="Approved By"
+                                  value={version.approvedBy || "—"}
+                                />
+                              ) : null}
+                              {availableColumns.includes(
+                                "revisionDescription",
+                              ) ? (
+                                <InfoCard
+                                  label="Revision Description"
+                                  value={
+                                    version.revisionDescription ||
+                                    "No revision description."
+                                  }
+                                />
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {version.unmanagedPaths.length > 0 ? (
+                            <div className="mt-3 rounded-lg border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                              Unmanaged paths:{" "}
+                              {version.unmanagedPaths.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        </div>
         ) : null}
         {isSidebarOpen ? (
           <>
-          <div
-            className={cn(
-              'fixed inset-0 z-[70] bg-slate-950/12 backdrop-blur-[1px] transition-opacity duration-300 ease-out',
-              isSidebarEntered ? 'opacity-100' : 'opacity-0'
-            )}
-            onClick={onCloseDocumentDetail}
-          />
-          <div
-            className={cn(
-              'fixed inset-y-0 right-0 z-[80] flex border-l border-border bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-out',
-              isSidebarEntered ? 'translate-x-0 opacity-100' : 'translate-x-8 opacity-0'
-            )}
-            style={{
-              width: `clamp(${DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT}vw, ${Math.round(sidebarWidth)}px, ${DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT}vw)`
-            }}
-            data-detail-sidebar="true"
-          >
             <div
-              className="flex w-5 cursor-col-resize items-center justify-center border-r border-border/60 bg-background/80"
-              onPointerDown={handleSidebarResizeStart}
-              title="Resize detail sidebar"
+              className={cn(
+                "fixed inset-0 z-[70] bg-slate-950/12 backdrop-blur-[1px] transition-opacity duration-300 ease-out",
+                isSidebarEntered ? "opacity-100" : "opacity-0",
+              )}
+              onClick={onCloseDocumentDetail}
+            />
+            <div
+              className={cn(
+                "fixed inset-y-0 right-0 z-[80] flex border-l border-border bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-out",
+                isSidebarEntered
+                  ? "translate-x-0 opacity-100"
+                  : "translate-x-8 opacity-0",
+              )}
+              style={{
+                width: `clamp(${DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT}vw, ${Math.round(sidebarWidth)}px, ${DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT}vw)`,
+              }}
+              data-detail-sidebar="true"
             >
-              <GripVertical className="h-4 w-4 text-muted-foreground" />
+              <div
+                className="flex w-5 cursor-col-resize items-center justify-center border-r border-border/60 bg-background/80"
+                onPointerDown={handleSidebarResizeStart}
+                title="Resize detail sidebar"
+              >
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                {renderDetailContent("sidebar")}
+              </div>
             </div>
-            <div className="min-w-0 flex-1 overflow-hidden">{renderDetailContent('sidebar')}</div>
-          </div>
           </>
         ) : null}
       </div>
       <Dialog
-        open={detailViewMode === 'modal' && hasSelectedDocument}
+        open={detailViewMode === "modal" && hasSelectedDocument}
         onOpenChange={(open) => !open && onCloseDocumentDetail()}
       >
         <DialogContent
           className="h-[min(92vh,920px)] w-[min(96vw,1240px)] max-w-none overflow-hidden p-0"
           showCloseButton={false}
         >
-          {renderDetailContent('modal')}
+          {renderDetailContent("modal")}
         </DialogContent>
       </Dialog>
       <DocumentExportDialog
@@ -3940,9 +4525,9 @@ function DocumentDetailSurface({
   onRequestNewVersion,
   onShowDocumentFolder,
   onShowVersionFiles,
-  isMacOs
+  isMacOs,
 }: {
-  layout: 'sidebar' | 'modal' | 'page';
+  layout: "sidebar" | "modal" | "page";
   documentDetail: DocumentDetail | null;
   availableColumns: DocumentTableColumn[];
   isLoading: boolean;
@@ -3957,38 +4542,54 @@ function DocumentDetailSurface({
   const latestVersion = documentDetail?.versions[0] ?? null;
   const detailMetaCards = documentDetail
     ? [
-        { label: 'Document Type', value: documentDetail.typeName, show: true },
-        { label: 'Author', value: documentDetail.author || '—', show: availableColumns.includes('author') },
-        { label: 'Language', value: documentDetail.languageCode ?? '—', show: availableColumns.includes('language') },
+        { label: "Document Type", value: documentDetail.typeName, show: true },
         {
-          label: 'Confidentiality',
-          value: documentDetail.confidentialityClassName ?? '—',
-          show: availableColumns.includes('confidentialityClass')
-        },
-        { label: 'Project', value: documentDetail.projectName ?? '—', show: availableColumns.includes('project') },
-        { label: 'Company', value: documentDetail.company || '—', show: availableColumns.includes('company') },
-        {
-          label: 'Department',
-          value: documentDetail.department || '—',
-          show: availableColumns.includes('department')
+          label: "Author",
+          value: documentDetail.author || "—",
+          show: availableColumns.includes("author"),
         },
         {
-          label: 'Revision Interval',
+          label: "Language",
+          value: documentDetail.languageCode ?? "—",
+          show: availableColumns.includes("language"),
+        },
+        {
+          label: "Confidentiality",
+          value: documentDetail.confidentialityClassName ?? "—",
+          show: availableColumns.includes("confidentialityClass"),
+        },
+        {
+          label: "Project",
+          value: documentDetail.projectName ?? "—",
+          show: availableColumns.includes("project"),
+        },
+        {
+          label: "Company",
+          value: documentDetail.company || "—",
+          show: availableColumns.includes("company"),
+        },
+        {
+          label: "Department",
+          value: documentDetail.department || "—",
+          show: availableColumns.includes("department"),
+        },
+        {
+          label: "Revision Interval",
           value: documentDetail.revisionIntervalMonths
             ? `${documentDetail.revisionIntervalMonths} months`
-            : '—',
-          show: availableColumns.includes('revisionIntervalMonths')
+            : "—",
+          show: availableColumns.includes("revisionIntervalMonths"),
         },
         {
-          label: 'Created',
+          label: "Created",
           value: formatDateTime(documentDetail.createdDate),
-          show: availableColumns.includes('createdDate')
+          show: availableColumns.includes("createdDate"),
         },
         {
-          label: 'Modified',
+          label: "Modified",
           value: formatDateTime(documentDetail.modifiedDate),
-          show: availableColumns.includes('modifiedDate')
-        }
+          show: availableColumns.includes("modifiedDate"),
+        },
       ].filter((item) => item.show)
     : [];
 
@@ -3999,30 +4600,40 @@ function DocumentDetailSurface({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="font-mono text-[11px]">
-                {documentDetail?.documentId ?? 'Document detail'}
+                {documentDetail?.documentId ?? "Document detail"}
               </Badge>
-              {latestVersion ? <StatusBadge status={latestVersion.status} /> : null}
+              {latestVersion ? (
+                <StatusBadge status={latestVersion.status} />
+              ) : null}
               {documentDetail ? (
-                <Badge variant="outline">{documentDetail.versions.length} version{documentDetail.versions.length === 1 ? '' : 's'}</Badge>
+                <Badge variant="outline">
+                  {documentDetail.versions.length} version
+                  {documentDetail.versions.length === 1 ? "" : "s"}
+                </Badge>
               ) : null}
             </div>
             <div className="mt-3 text-xl font-semibold tracking-tight">
-              {documentDetail?.title ?? 'Document detail'}
+              {documentDetail?.title ?? "Document detail"}
             </div>
             <div className="mt-1 text-[13px] text-muted-foreground">
               {documentDetail
-                ? `${documentDetail.typeName} • ${documentDetail.author || 'Unassigned author'}`
-                : 'Select a document to inspect metadata, versions, and managed files.'}
+                ? `${documentDetail.typeName} • ${documentDetail.author || "Unassigned author"}`
+                : "Select a document to inspect metadata, versions, and managed files."}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {layout !== 'page' ? (
+            {layout !== "page" ? (
               <div className="hidden rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground sm:block">
                 Esc closes this panel
-                {isMacOs ? ' on macOS' : ''}
+                {isMacOs ? " on macOS" : ""}
               </div>
             ) : null}
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close detail view">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="Close detail view"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -4030,11 +4641,18 @@ function DocumentDetailSurface({
 
         {documentDetail ? (
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => onRequestEditDocument(documentDetail.id)}>
+            <Button
+              variant="outline"
+              onClick={() => onRequestEditDocument(documentDetail.id)}
+            >
               <PencilLine className="h-4 w-4" />
               Edit Document
             </Button>
-            <Button variant="outline" disabled={!latestVersion} onClick={() => onRequestLatestVersionEdit(documentDetail.id)}>
+            <Button
+              variant="outline"
+              disabled={!latestVersion}
+              onClick={() => onRequestLatestVersionEdit(documentDetail.id)}
+            >
               <CircleDot className="h-4 w-4" />
               Edit Latest Version
             </Button>
@@ -4044,7 +4662,9 @@ function DocumentDetailSurface({
             </Button>
             <Button onClick={onRequestNewVersion}>
               <FilePlus2 className="h-4 w-4" />
-              {documentDetail.versions.length === 0 ? 'Create First Version' : 'New Version'}
+              {documentDetail.versions.length === 0
+                ? "Create First Version"
+                : "New Version"}
             </Button>
           </div>
         ) : null}
@@ -4055,7 +4675,8 @@ function DocumentDetailSurface({
           <div className="max-w-sm rounded-2xl border border-dashed border-border bg-background px-5 py-8 text-center">
             <div className="text-sm font-semibold">No document selected</div>
             <div className="mt-2 text-[13px] text-muted-foreground">
-              Choose a row from the documents table to open metadata, version history, and file actions.
+              Choose a row from the documents table to open metadata, version
+              history, and file actions.
             </div>
           </div>
         </div>
@@ -4080,11 +4701,17 @@ function DocumentDetailSurface({
                       Core metadata for this document shell.
                     </div>
                   </div>
-                  {latestVersion ? <DocumentProgressBadge status={latestVersion.status} /> : null}
+                  {latestVersion ? (
+                    <DocumentProgressBadge status={latestVersion.status} />
+                  ) : null}
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {detailMetaCards.map((item) => (
-                    <InfoCard key={item.label} label={item.label} value={item.value} />
+                    <InfoCard
+                      key={item.label}
+                      label={item.label}
+                      value={item.value}
+                    />
                   ))}
                 </div>
               </section>
@@ -4094,20 +4721,27 @@ function DocumentDetailSurface({
                   <div>
                     <div className="text-sm font-semibold">Version History</div>
                     <div className="mt-1 text-[13px] text-muted-foreground">
-                      Track release state, approvals, and managed files across every version.
+                      Track release state, approvals, and managed files across
+                      every version.
                     </div>
                   </div>
-                  <Badge variant="outline">{documentDetail.versions.length} total</Badge>
+                  <Badge variant="outline">
+                    {documentDetail.versions.length} total
+                  </Badge>
                 </div>
 
                 {documentDetail.versions.length === 0 ? (
                   <div className="mt-4 rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
-                    This document does not have any versions yet. Create the first version to begin managing files.
+                    This document does not have any versions yet. Create the
+                    first version to begin managing files.
                   </div>
                 ) : (
                   <div className="mt-4 space-y-3">
                     {documentDetail.versions.map((version, index) => (
-                      <div key={version.id} className="rounded-xl border border-border bg-card p-4">
+                      <div
+                        key={version.id}
+                        className="rounded-xl border border-border bg-card p-4"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -4115,7 +4749,9 @@ function DocumentDetailSurface({
                                 Version {version.versionLabel}
                               </div>
                               <StatusBadge status={version.status} />
-                              <Badge variant="outline">{version.files.length} files</Badge>
+                              <Badge variant="outline">
+                                {version.files.length} files
+                              </Badge>
                               {index === 0 ? <Badge>Latest</Badge> : null}
                             </div>
                             <div className="mt-1 font-mono text-xs text-primary">
@@ -4125,33 +4761,47 @@ function DocumentDetailSurface({
                               Created {formatDateTime(version.createdDate)}
                             </div>
                           </div>
-                          <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(version.id)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onShowVersionFiles(version.id)}
+                          >
                             <FolderOpen className="h-4 w-4" />
                             Show Files
                           </Button>
                         </div>
 
                         <div className="mt-3 grid gap-2 md:grid-cols-3">
-                          {availableColumns.includes('releasedDate') ? (
+                          {availableColumns.includes("releasedDate") ? (
                             <InfoCard
                               label="Released"
-                              value={version.releasedDate ? formatDateTime(version.releasedDate) : '—'}
+                              value={
+                                version.releasedDate
+                                  ? formatDateTime(version.releasedDate)
+                                  : "—"
+                              }
                             />
                           ) : null}
-                          {availableColumns.includes('approvedBy') ? (
-                            <InfoCard label="Approved By" value={version.approvedBy || '—'} />
+                          {availableColumns.includes("approvedBy") ? (
+                            <InfoCard
+                              label="Approved By"
+                              value={version.approvedBy || "—"}
+                            />
                           ) : null}
-                          {availableColumns.includes('revisionDescription') ? (
+                          {availableColumns.includes("revisionDescription") ? (
                             <InfoCard
                               label="Revision Description"
-                              value={version.revisionDescription || 'No revision description.'}
+                              value={
+                                version.revisionDescription ||
+                                "No revision description."
+                              }
                             />
                           ) : null}
                         </div>
 
                         {version.unmanagedPaths.length > 0 ? (
                           <div className="mt-3 rounded-xl border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-                            Unmanaged paths: {version.unmanagedPaths.join(', ')}
+                            Unmanaged paths: {version.unmanagedPaths.join(", ")}
                           </div>
                         ) : null}
                       </div>
@@ -4163,16 +4813,21 @@ function DocumentDetailSurface({
 
             <div className="space-y-4">
               <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
-                <div className="text-sm font-semibold">Latest Version Spotlight</div>
+                <div className="text-sm font-semibold">
+                  Latest Version Spotlight
+                </div>
                 <div className="mt-1 text-[13px] text-muted-foreground">
-                  The current release view for approvals, publication state, and document routing.
+                  The current release view for approvals, publication state, and
+                  document routing.
                 </div>
                 {latestVersion ? (
                   <div className="mt-4 space-y-3">
                     <div className="rounded-xl bg-card p-4">
                       <div className="flex items-center gap-2">
                         <StatusBadge status={latestVersion.status} />
-                        <div className="font-semibold">Version {latestVersion.versionLabel}</div>
+                        <div className="font-semibold">
+                          Version {latestVersion.versionLabel}
+                        </div>
                       </div>
                       <div className="mt-2 font-mono text-xs text-primary">
                         {latestVersion.versionDocumentId}
@@ -4181,12 +4836,22 @@ function DocumentDetailSurface({
                     <div className="grid gap-2">
                       <InfoCard
                         label="Released"
-                        value={latestVersion.releasedDate ? formatDateTime(latestVersion.releasedDate) : '—'}
+                        value={
+                          latestVersion.releasedDate
+                            ? formatDateTime(latestVersion.releasedDate)
+                            : "—"
+                        }
                       />
-                      <InfoCard label="Approved By" value={latestVersion.approvedBy || '—'} />
+                      <InfoCard
+                        label="Approved By"
+                        value={latestVersion.approvedBy || "—"}
+                      />
                       <InfoCard
                         label="Revision Description"
-                        value={latestVersion.revisionDescription || 'No revision description.'}
+                        value={
+                          latestVersion.revisionDescription ||
+                          "No revision description."
+                        }
                       />
                     </div>
                   </div>
@@ -4200,7 +4865,8 @@ function DocumentDetailSurface({
               <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
                 <div className="text-sm font-semibold">Managed Location</div>
                 <div className="mt-1 text-[13px] text-muted-foreground">
-                  Files for this document are managed inside the workspace folder structure.
+                  Files for this document are managed inside the workspace
+                  folder structure.
                 </div>
                 <div className="mt-4 rounded-xl border border-border bg-card px-3 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -4211,12 +4877,20 @@ function DocumentDetailSurface({
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={onShowDocumentFolder}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onShowDocumentFolder}
+                  >
                     <FolderOpen className="h-4 w-4" />
                     Open Document Folder
                   </Button>
                   {latestVersion ? (
-                    <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(latestVersion.id)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onShowVersionFiles(latestVersion.id)}
+                    >
                       <CircleDot className="h-4 w-4" />
                       Open Latest Files
                     </Button>
@@ -4235,9 +4909,9 @@ function DocumentTypesView({
   workspace,
   onCreateType,
   onEditType,
-  onDeleteType
+  onDeleteType,
 }: {
-  workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onCreateType: () => void;
   onEditType: (type: DocumentType) => void;
   onDeleteType: (type: DocumentType) => void;
@@ -4265,17 +4939,29 @@ function DocumentTypesView({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-mono text-xs text-primary">{type.numberPrefix}</div>
-                <div className="mt-1.5 text-base font-semibold">{type.name}</div>
+                <div className="font-mono text-xs text-primary">
+                  {type.numberPrefix}
+                </div>
+                <div className="mt-1.5 text-base font-semibold">
+                  {type.name}
+                </div>
               </div>
               <Badge variant="outline">2-digit prefix</Badge>
             </div>
             <div className="mt-3 flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => onEditType(type)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEditType(type)}
+              >
                 <PencilLine className="h-4 w-4" />
                 Edit
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => onDeleteType(type)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDeleteType(type)}
+              >
                 Delete
               </Button>
             </div>
@@ -4291,9 +4977,9 @@ function ProjectsView({
   onCreateProject,
   onEditProject,
   onDeleteProject,
-  onAssignProject
+  onAssignProject,
 }: {
-  workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onCreateProject: () => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
@@ -4318,29 +5004,45 @@ function ProjectsView({
         <div className="mt-4 grid gap-2.5">
           {workspace.projects.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-              No projects yet. Create a project, then assign existing documents from the panel on the right.
+              No projects yet. Create a project, then assign existing documents
+              from the panel on the right.
             </div>
           ) : (
             workspace.projects.map((project) => {
-              const documentCount = workspace.documents.filter((document) => document.projectId === project.id).length;
+              const documentCount = workspace.documents.filter(
+                (document) => document.projectId === project.id,
+              ).length;
 
               return (
-                <div key={project.id} className="rounded-xl border border-border bg-background p-4 shadow-sm">
+                <div
+                  key={project.id}
+                  className="rounded-xl border border-border bg-background p-4 shadow-sm"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-base font-semibold">{project.name}</div>
+                      <div className="text-base font-semibold">
+                        {project.name}
+                      </div>
                       <div className="mt-1 text-[13px] text-muted-foreground">
-                        {documentCount} document{documentCount === 1 ? '' : 's'}
+                        {documentCount} document{documentCount === 1 ? "" : "s"}
                       </div>
                     </div>
                     <Badge variant="outline">Workspace project</Badge>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => onEditProject(project)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onEditProject(project)}
+                    >
                       <PencilLine className="h-4 w-4" />
                       Edit
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => onDeleteProject(project)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDeleteProject(project)}
+                    >
                       Delete
                     </Button>
                   </div>
@@ -4355,14 +5057,16 @@ function ProjectsView({
         <div className="border-b border-border/80 pb-3">
           <div className="text-lg font-semibold">Assign Documents</div>
           <div className="mt-1 text-[13px] text-muted-foreground">
-            Quickly move existing documents into a project or clear the assignment.
+            Quickly move existing documents into a project or clear the
+            assignment.
           </div>
         </div>
 
         <div className="mt-4 space-y-2.5">
           {workspace.documents.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-              No documents yet. Create a document first, then assign it to a project here.
+              No documents yet. Create a document first, then assign it to a
+              project here.
             </div>
           ) : (
             workspace.documents.map((document) => (
@@ -4371,16 +5075,22 @@ function ProjectsView({
                 className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-[minmax(0,1fr)_220px]"
               >
                 <div className="min-w-0">
-                  <div className="font-mono text-xs text-primary">{document.documentId}</div>
-                  <div className="mt-1 text-sm font-semibold">{document.title}</div>
+                  <div className="font-mono text-xs text-primary">
+                    {document.documentId}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold">
+                    {document.title}
+                  </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {document.typeName} • {document.projectName ?? 'No project'}
+                    {document.typeName} • {document.projectName ?? "No project"}
                   </div>
                 </div>
                 <Field label="Project">
                   <Select
-                    value={document.projectId ? String(document.projectId) : ''}
-                    onChange={(event) => void onAssignProject(document, event.target.value)}
+                    value={document.projectId ? String(document.projectId) : ""}
+                    onChange={(event) =>
+                      void onAssignProject(document, event.target.value)
+                    }
                   >
                     <option value="">No project</option>
                     {workspace.projects.map((project) => (
@@ -4403,9 +5113,9 @@ function ClassificationsView({
   workspace,
   onCreateConfidentialityClass,
   onEditConfidentialityClass,
-  onDeleteConfidentialityClass
+  onDeleteConfidentialityClass,
 }: {
-  workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onCreateConfidentialityClass: () => void;
   onEditConfidentialityClass: (item: ConfidentialityClass) => void;
   onDeleteConfidentialityClass: (item: ConfidentialityClass) => void;
@@ -4432,14 +5142,25 @@ function ClassificationsView({
           </div>
         ) : (
           workspace.confidentialityClasses.map((item) => (
-            <div key={item.id} className="rounded-xl border border-border bg-background p-4 shadow-sm">
+            <div
+              key={item.id}
+              className="rounded-xl border border-border bg-background p-4 shadow-sm"
+            >
               <div className="text-base font-semibold">{item.name}</div>
               <div className="mt-3 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => onEditConfidentialityClass(item)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEditConfidentialityClass(item)}
+                >
                   <PencilLine className="h-4 w-4" />
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => onDeleteConfidentialityClass(item)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDeleteConfidentialityClass(item)}
+                >
                   Delete
                 </Button>
               </div>
@@ -4455,9 +5176,9 @@ function LanguagesView({
   workspace,
   onCreateLanguage,
   onEditLanguage,
-  onDeleteLanguage
+  onDeleteLanguage,
 }: {
-  workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onCreateLanguage: () => void;
   onEditLanguage: (item: WorkspaceLanguage) => void;
   onDeleteLanguage: (item: WorkspaceLanguage) => void;
@@ -4468,7 +5189,8 @@ function LanguagesView({
         <div>
           <div className="text-lg font-semibold">Languages</div>
           <div className="mt-1 text-[13px] text-muted-foreground">
-            Short workspace language codes shown in the documents table and document metadata forms.
+            Short workspace language codes shown in the documents table and
+            document metadata forms.
           </div>
         </div>
         <Button onClick={onCreateLanguage}>
@@ -4484,14 +5206,27 @@ function LanguagesView({
           </div>
         ) : (
           workspace.languages.map((item) => (
-            <div key={item.id} className="rounded-xl border border-border bg-background p-4 shadow-sm">
-              <div className="font-mono text-base font-semibold">{item.code}</div>
+            <div
+              key={item.id}
+              className="rounded-xl border border-border bg-background p-4 shadow-sm"
+            >
+              <div className="font-mono text-base font-semibold">
+                {item.code}
+              </div>
               <div className="mt-3 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => onEditLanguage(item)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEditLanguage(item)}
+                >
                   <PencilLine className="h-4 w-4" />
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => onDeleteLanguage(item)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDeleteLanguage(item)}
+                >
                   Delete
                 </Button>
               </div>
@@ -4506,7 +5241,7 @@ function LanguagesView({
 function WorkspaceDialog({
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   state: WorkspaceDialogState;
   onStateChange: React.Dispatch<React.SetStateAction<WorkspaceDialogState>>;
@@ -4523,7 +5258,8 @@ function WorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Create New Workspace</DialogTitle>
           <DialogDescription>
-            DocTrack will create a workspace folder with `Database/workspace.sqlite` and `Documents`.
+            DocTrack will create a workspace folder with
+            `Database/workspace.sqlite` and `Documents`.
           </DialogDescription>
         </DialogHeader>
 
@@ -4534,7 +5270,10 @@ function WorkspaceDialog({
                 placeholder="Quality Operations"
                 value={state.name}
                 onChange={(event) =>
-                  onStateChange((current) => ({ ...current, name: event.target.value }))
+                  onStateChange((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
                 }
               />
             </Field>
@@ -4551,15 +5290,17 @@ function WorkspaceDialog({
                     folderName:
                       event.target.checked && !current.folderName
                         ? current.name
-                        : current.folderName
+                        : current.folderName,
                   }))
                 }
               />
               <span>
-                <span className="block font-medium">Use a different folder name</span>
+                <span className="block font-medium">
+                  Use a different folder name
+                </span>
                 <span className="text-muted-foreground">
-                  Keep the workspace name in DocTrack while choosing a different folder name on
-                  disk.
+                  Keep the workspace name in DocTrack while choosing a different
+                  folder name on disk.
                 </span>
               </span>
             </label>
@@ -4572,7 +5313,7 @@ function WorkspaceDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      folderName: event.target.value
+                      folderName: event.target.value,
                     }))
                   }
                 />
@@ -4585,22 +5326,30 @@ function WorkspaceDialog({
                   placeholder="/Users/you/Documents"
                   value={state.parentPath}
                   onChange={(event) =>
-                    onStateChange((current) => ({ ...current, parentPath: event.target.value }))
+                    onStateChange((current) => ({
+                      ...current,
+                      parentPath: event.target.value,
+                    }))
                   }
                 />
                 <Button
                   variant="outline"
                   onClick={() => {
                     const folderLabel =
-                      (state.useCustomFolderName ? state.folderName : state.name) ||
+                      (state.useCustomFolderName
+                        ? state.folderName
+                        : state.name) ||
                       state.name ||
-                      'DocTrack Workspace';
+                      "DocTrack Workspace";
 
                     void window.docTrack.dialogs
                       .pickWorkspaceCreatePath(folderLabel)
                       .then((parentPath) => {
                         if (parentPath) {
-                          onStateChange((current) => ({ ...current, parentPath }));
+                          onStateChange((current) => ({
+                            ...current,
+                            parentPath,
+                          }));
                         }
                       });
                   }}
@@ -4612,7 +5361,9 @@ function WorkspaceDialog({
 
             <WorkspaceStorageSettingsFields
               workspaceName={
-                state.useCustomFolderName ? state.folderName || state.name : state.name
+                state.useCustomFolderName
+                  ? state.folderName || state.name
+                  : state.name
               }
               settings={state.settings}
               showBrandingControls={false}
@@ -4621,7 +5372,7 @@ function WorkspaceDialog({
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
-                  settings
+                  settings,
                 }))
               }
               onLogoSelect={() => undefined}
@@ -4636,15 +5387,15 @@ function WorkspaceDialog({
                 onChange={(event) =>
                   onStateChange((current) => ({
                     ...current,
-                    includeExampleData: event.target.checked
+                    includeExampleData: event.target.checked,
                   }))
                 }
               />
               <span>
                 <span className="block font-medium">Seed starter data</span>
                 <span className="text-muted-foreground">
-                  Adds example document types and sample documents so the workspace opens with
-                  realistic data.
+                  Adds example document types and sample documents so the
+                  workspace opens with realistic data.
                 </span>
               </span>
             </label>
@@ -4652,11 +5403,18 @@ function WorkspaceDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onStateChange(defaultWorkspaceDialogState)}>
+          <Button
+            variant="outline"
+            onClick={() => onStateChange(defaultWorkspaceDialogState)}
+          >
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Create Workspace
           </Button>
         </DialogFooter>
@@ -4669,7 +5427,7 @@ function TableColumnsDialog({
   state,
   availableColumns,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   state: TableColumnsDialogState;
   availableColumns: DocumentTableColumn[];
@@ -4677,19 +5435,24 @@ function TableColumnsDialog({
   onSubmit: () => Promise<void>;
 }) {
   const columnOptions = DOCUMENT_TABLE_COLUMN_OPTIONS.filter((column) =>
-    availableColumns.includes(column.value)
+    availableColumns.includes(column.value),
   );
 
   return (
     <Dialog
       open={state.open}
-      onOpenChange={(open) => onStateChange(open ? { ...state, open } : defaultTableColumnsDialogState)}
+      onOpenChange={(open) =>
+        onStateChange(
+          open ? { ...state, open } : defaultTableColumnsDialogState,
+        )
+      }
     >
       <DialogContent className="w-[min(88vw,380px)] max-h-[72vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden p-4">
         <DialogHeader>
           <DialogTitle>Table View Settings</DialogTitle>
           <DialogDescription>
-            Choose which workspace columns this app should show in the documents table.
+            Choose which workspace columns this app should show in the documents
+            table.
           </DialogDescription>
         </DialogHeader>
 
@@ -4714,7 +5477,9 @@ function TableColumnsDialog({
                         ...current,
                         visibleColumns: event.target.checked
                           ? [...current.visibleColumns, column.value]
-                          : current.visibleColumns.filter((item) => item !== column.value)
+                          : current.visibleColumns.filter(
+                              (item) => item !== column.value,
+                            ),
                       }))
                     }
                   />
@@ -4726,14 +5491,25 @@ function TableColumnsDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onStateChange(defaultTableColumnsDialogState)}>
+          <Button
+            variant="outline"
+            onClick={() => onStateChange(defaultTableColumnsDialogState)}
+          >
             Cancel
           </Button>
           <Button
-            disabled={state.isSubmitting || columnOptions.length === 0 || state.visibleColumns.length === 0}
+            disabled={
+              state.isSubmitting ||
+              columnOptions.length === 0 ||
+              state.visibleColumns.length === 0
+            }
             onClick={() => void onSubmit()}
           >
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings2 className="h-4 w-4" />
+            )}
             Save View
           </Button>
         </DialogFooter>
@@ -4746,25 +5522,30 @@ function DocumentExportDialog({
   state,
   groupingOptions,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   state: DocumentExportDialogState;
   groupingOptions: ExportGroupingOption[];
-  onStateChange: React.Dispatch<React.SetStateAction<DocumentExportDialogState>>;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<DocumentExportDialogState>
+  >;
   onSubmit: () => Promise<void>;
 }) {
   return (
     <Dialog
       open={state.open}
       onOpenChange={(open) =>
-        onStateChange(open ? { ...state, open } : defaultDocumentExportDialogState)
+        onStateChange(
+          open ? { ...state, open } : defaultDocumentExportDialogState,
+        )
       }
     >
       <DialogContent className="w-[min(88vw,440px)]">
         <DialogHeader>
           <DialogTitle>Export Documents</DialogTitle>
           <DialogDescription>
-            Create a CSV data export or a structured PDF report from the documents table.
+            Create a CSV data export or a structured PDF report from the
+            documents table.
           </DialogDescription>
         </DialogHeader>
 
@@ -4775,7 +5556,7 @@ function DocumentExportDialog({
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  format: event.target.value as 'csv' | 'pdf'
+                  format: event.target.value as "csv" | "pdf",
                 }))
               }
             >
@@ -4790,7 +5571,7 @@ function DocumentExportDialog({
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  scope: event.target.value as DocumentExportScope
+                  scope: event.target.value as DocumentExportScope,
                 }))
               }
             >
@@ -4799,7 +5580,7 @@ function DocumentExportDialog({
             </Select>
           </Field>
 
-          {state.format === 'pdf' ? (
+          {state.format === "pdf" ? (
             <>
               <Field label="Group By">
                 <Select
@@ -4807,7 +5588,7 @@ function DocumentExportDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      groupBy: event.target.value as DocumentExportGrouping
+                      groupBy: event.target.value as DocumentExportGrouping,
                     }))
                   }
                 >
@@ -4825,7 +5606,8 @@ function DocumentExportDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      pdfColorMode: event.target.value as DocumentExportPdfColorMode
+                      pdfColorMode: event.target
+                        .value as DocumentExportPdfColorMode,
                     }))
                   }
                 >
@@ -4837,18 +5619,25 @@ function DocumentExportDialog({
           ) : null}
 
           <div className="rounded-xl border border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">
-            {state.format === 'csv'
+            {state.format === "csv"
               ? `${getDocumentExportScopeLabel(state.scope)} will be exported as a flat spreadsheet-friendly file.`
               : `${getDocumentExportScopeLabel(state.scope)} will be exported as a polished PDF report.`}
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onStateChange(defaultDocumentExportDialogState)}>
+          <Button
+            variant="outline"
+            onClick={() => onStateChange(defaultDocumentExportDialogState)}
+          >
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileStack className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileStack className="h-4 w-4" />
+            )}
             Export
           </Button>
         </DialogFooter>
@@ -4860,24 +5649,29 @@ function DocumentExportDialog({
 function WorkspaceSettingsDialog({
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   state: WorkspaceSettingsDialogState;
-  onStateChange: React.Dispatch<React.SetStateAction<WorkspaceSettingsDialogState>>;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<WorkspaceSettingsDialogState>
+  >;
   onSubmit: () => Promise<void>;
 }) {
   return (
     <Dialog
       open={state.open}
       onOpenChange={(open) =>
-        onStateChange(open ? { ...state, open } : defaultWorkspaceSettingsDialogState)
+        onStateChange(
+          open ? { ...state, open } : defaultWorkspaceSettingsDialogState,
+        )
       }
     >
       <DialogContent className="w-[min(94vw,960px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Workspace Settings</DialogTitle>
           <DialogDescription>
-            Update workspace-wide storage rules, metadata defaults, and which fields are enabled at all in this workspace.
+            Update workspace-wide storage rules, metadata defaults, and which
+            fields are enabled at all in this workspace.
           </DialogDescription>
         </DialogHeader>
 
@@ -4891,14 +5685,14 @@ function WorkspaceSettingsDialog({
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
-                  settings
+                  settings,
                 }))
               }
               onLogoSelect={(filePath) =>
                 onStateChange((current) => ({
                   ...current,
                   companyLogoSourceFilePath: filePath,
-                  clearCompanyLogo: false
+                  clearCompanyLogo: false,
                 }))
               }
               onLogoRemove={() =>
@@ -4908,8 +5702,8 @@ function WorkspaceSettingsDialog({
                   clearCompanyLogo: true,
                   settings: {
                     ...current.settings,
-                    companyLogoPath: ''
-                  }
+                    companyLogoPath: "",
+                  },
                 }))
               }
             />
@@ -4924,7 +5718,11 @@ function WorkspaceSettingsDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings2 className="h-4 w-4" />
+            )}
             Save Settings
           </Button>
         </DialogFooter>
@@ -4941,7 +5739,7 @@ function WorkspaceStorageSettingsFields({
   clearCompanyLogo,
   onSettingsChange,
   onLogoSelect,
-  onLogoRemove
+  onLogoRemove,
 }: {
   workspaceName: string;
   settings: WorkspaceSettings;
@@ -4952,51 +5750,61 @@ function WorkspaceStorageSettingsFields({
   onLogoSelect: (filePath: string) => void;
   onLogoRemove: () => void;
 }) {
-  const [showDocumentIdPlaceholders, setShowDocumentIdPlaceholders] = useState(false);
+  const [showDocumentIdPlaceholders, setShowDocumentIdPlaceholders] =
+    useState(false);
   const selectedStorageOption =
-    WORKSPACE_STORAGE_LAYOUT_OPTIONS.find((option) => option.value === settings.storageLayoutPreset) ??
-    WORKSPACE_STORAGE_LAYOUT_OPTIONS[0];
+    WORKSPACE_STORAGE_LAYOUT_OPTIONS.find(
+      (option) => option.value === settings.storageLayoutPreset,
+    ) ?? WORKSPACE_STORAGE_LAYOUT_OPTIONS[0];
   const selectedFileOrganizationOption =
     WORKSPACE_FILE_ORGANIZATION_OPTIONS.find(
-      (option) => option.value === settings.fileOrganizationMode
+      (option) => option.value === settings.fileOrganizationMode,
     ) ?? WORKSPACE_FILE_ORGANIZATION_OPTIONS[0];
   const selectedVersionManagementOption =
     WORKSPACE_VERSION_MANAGEMENT_OPTIONS.find(
-      (option) => option.value === settings.versionManagementMode
+      (option) => option.value === settings.versionManagementMode,
     ) ?? WORKSPACE_VERSION_MANAGEMENT_OPTIONS[0];
   const selectedDocumentIdOption =
-    DOCUMENT_ID_FORMAT_OPTIONS.find((option) => option.value === settings.documentIdFormatPreset) ??
-    DOCUMENT_ID_FORMAT_OPTIONS[0];
+    DOCUMENT_ID_FORMAT_OPTIONS.find(
+      (option) => option.value === settings.documentIdFormatPreset,
+    ) ?? DOCUMENT_ID_FORMAT_OPTIONS[0];
   const activeDocumentIdTemplate = resolveDocumentIdFormatTemplate(settings);
-  const previewWorkspaceName = workspaceName.trim() || 'Quality Operations';
+  const previewWorkspaceName = workspaceName.trim() || "Quality Operations";
   const previewDocumentIds = [
     buildDocumentIdPreview(settings, 1),
     buildDocumentIdPreview(settings, 2),
-    buildDocumentIdPreview(settings, 3)
+    buildDocumentIdPreview(settings, 3),
   ];
   const previewVersionFolderPath = buildDocumentVersionRelativePath(
-    buildDocumentFolderRelativePath(settings, 'Procedure', previewDocumentIds[0], 'Operating Procedure'),
-    '001'
+    buildDocumentFolderRelativePath(
+      settings,
+      "Procedure",
+      previewDocumentIds[0],
+      "Operating Procedure",
+    ),
+    "001",
   );
   const previewRelativePath = buildVersionFileRelativePath(
     settings,
     previewVersionFolderPath,
-    'working',
-    'procedure.docx'
+    "working",
+    "procedure.docx",
   );
   const previewVersionIds =
-    settings.versionManagementMode === 'version-specific-document-id'
+    settings.versionManagementMode === "version-specific-document-id"
       ? previewDocumentIds
       : [previewDocumentIds[0], previewDocumentIds[0], previewDocumentIds[0]];
-  const showDefaultCompany = settings.visibleDocumentColumns.includes('company');
-  const showDefaultDepartment = settings.visibleDocumentColumns.includes('department');
+  const showDefaultCompany =
+    settings.visibleDocumentColumns.includes("company");
+  const showDefaultDepartment =
+    settings.visibleDocumentColumns.includes("department");
   const logoPreviewLabel = clearCompanyLogo
-    ? 'Logo will be removed when you save these settings.'
+    ? "Logo will be removed when you save these settings."
     : companyLogoSourceFilePath
       ? `New logo selected: ${getPathFileName(companyLogoSourceFilePath)}`
       : settings.companyLogoPath
         ? `Saved logo: ${getPathFileName(settings.companyLogoPath)}`
-        : 'No company logo selected.';
+        : "No company logo selected.";
 
   return (
     <div className="grid gap-4">
@@ -5006,7 +5814,8 @@ function WorkspaceStorageSettingsFields({
           onChange={(event) =>
             onSettingsChange({
               ...settings,
-              storageLayoutPreset: event.target.value as WorkspaceSettings['storageLayoutPreset']
+              storageLayoutPreset: event.target
+                .value as WorkspaceSettings["storageLayoutPreset"],
             })
           }
         >
@@ -5024,7 +5833,8 @@ function WorkspaceStorageSettingsFields({
           onChange={(event) =>
             onSettingsChange({
               ...settings,
-              fileOrganizationMode: event.target.value as WorkspaceSettings['fileOrganizationMode']
+              fileOrganizationMode: event.target
+                .value as WorkspaceSettings["fileOrganizationMode"],
             })
           }
         >
@@ -5042,7 +5852,8 @@ function WorkspaceStorageSettingsFields({
           onChange={(event) =>
             onSettingsChange({
               ...settings,
-              versionManagementMode: event.target.value as WorkspaceSettings['versionManagementMode']
+              versionManagementMode: event.target
+                .value as WorkspaceSettings["versionManagementMode"],
             })
           }
         >
@@ -5058,14 +5869,17 @@ function WorkspaceStorageSettingsFields({
         <Select
           value={settings.documentIdFormatPreset}
           onChange={(event) => {
-            const nextPreset = event.target.value as WorkspaceSettings['documentIdFormatPreset'];
+            const nextPreset = event.target
+              .value as WorkspaceSettings["documentIdFormatPreset"];
             onSettingsChange({
               ...settings,
               documentIdFormatPreset: nextPreset,
               documentIdFormatTemplate:
-                nextPreset === 'custom'
-                  ? normalizeDocumentIdFormatTemplate(settings.documentIdFormatTemplate)
-                  : getDocumentIdFormatTemplateForPreset(nextPreset)
+                nextPreset === "custom"
+                  ? normalizeDocumentIdFormatTemplate(
+                      settings.documentIdFormatTemplate,
+                    )
+                  : getDocumentIdFormatTemplateForPreset(nextPreset),
             });
           }}
         >
@@ -5075,7 +5889,9 @@ function WorkspaceStorageSettingsFields({
             </option>
           ))}
         </Select>
-        <div className="text-xs text-muted-foreground">{selectedDocumentIdOption.description}</div>
+        <div className="text-xs text-muted-foreground">
+          {selectedDocumentIdOption.description}
+        </div>
       </Field>
 
       <Field label="Document ID Template">
@@ -5083,20 +5899,21 @@ function WorkspaceStorageSettingsFields({
           rows={2}
           placeholder="<docTypePrefix><year><sequence:5>"
           value={settings.documentIdFormatTemplate}
-          disabled={settings.documentIdFormatPreset !== 'custom'}
+          disabled={settings.documentIdFormatPreset !== "custom"}
           onChange={(event) =>
             onSettingsChange({
               ...settings,
-              documentIdFormatPreset: 'custom',
-              documentIdFormatTemplate: event.target.value
+              documentIdFormatPreset: "custom",
+              documentIdFormatTemplate: event.target.value,
             })
           }
         />
         <div className="text-xs text-muted-foreground">
-          Use one <code>{'<sequence>'}</code> placeholder. Placeholder names are case-insensitive,
-          so <code>{'<Language>'}</code> works the same as <code>{'<language>'}</code>.
+          Use one <code>{"<sequence>"}</code> placeholder. Placeholder names are
+          case-insensitive, so <code>{"<Language>"}</code> works the same as{" "}
+          <code>{"<language>"}</code>.
         </div>
-        {settings.documentIdFormatPreset === 'custom' ? (
+        {settings.documentIdFormatPreset === "custom" ? (
           <div className="rounded-lg bg-card px-2.5 py-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Live Preview
@@ -5108,7 +5925,7 @@ function WorkspaceStorageSettingsFields({
         ) : null}
       </Field>
 
-      {settings.documentIdFormatPreset === 'custom' ? (
+      {settings.documentIdFormatPreset === "custom" ? (
         <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
           <button
             type="button"
@@ -5117,17 +5934,26 @@ function WorkspaceStorageSettingsFields({
           >
             <span className="font-medium">Document ID placeholders</span>
             <span className="text-xs text-muted-foreground">
-              {showDocumentIdPlaceholders ? 'Hide' : 'Show'}
+              {showDocumentIdPlaceholders ? "Hide" : "Show"}
             </span>
           </button>
 
           {showDocumentIdPlaceholders ? (
             <div className="mt-2 grid gap-2 md:grid-cols-2">
               {DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS.map((option) => (
-                <div key={option.placeholder} className="rounded-lg bg-card px-2.5 py-2">
-                  <div className="font-mono text-xs text-primary">{option.placeholder}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{option.label}</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">Example: {option.example}</div>
+                <div
+                  key={option.placeholder}
+                  className="rounded-lg bg-card px-2.5 py-2"
+                >
+                  <div className="font-mono text-xs text-primary">
+                    {option.placeholder}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {option.label}
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Example: {option.example}
+                  </div>
                 </div>
               ))}
             </div>
@@ -5137,13 +5963,25 @@ function WorkspaceStorageSettingsFields({
 
       <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
         <div className="font-medium">{selectedStorageOption.label}</div>
-        <div className="mt-1 text-muted-foreground">{selectedStorageOption.description}</div>
-        <div className="mt-2 font-medium">{selectedFileOrganizationOption.label}</div>
-        <div className="mt-1 text-muted-foreground">{selectedFileOrganizationOption.description}</div>
-        <div className="mt-2 font-medium">{selectedVersionManagementOption.label}</div>
-        <div className="mt-1 text-muted-foreground">{selectedVersionManagementOption.description}</div>
+        <div className="mt-1 text-muted-foreground">
+          {selectedStorageOption.description}
+        </div>
+        <div className="mt-2 font-medium">
+          {selectedFileOrganizationOption.label}
+        </div>
+        <div className="mt-1 text-muted-foreground">
+          {selectedFileOrganizationOption.description}
+        </div>
+        <div className="mt-2 font-medium">
+          {selectedVersionManagementOption.label}
+        </div>
+        <div className="mt-1 text-muted-foreground">
+          {selectedVersionManagementOption.description}
+        </div>
         <div className="mt-2 font-medium">{selectedDocumentIdOption.label}</div>
-        <div className="mt-1 text-muted-foreground">{selectedDocumentIdOption.description}</div>
+        <div className="mt-1 text-muted-foreground">
+          {selectedDocumentIdOption.description}
+        </div>
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Active Template
         </div>
@@ -5173,7 +6011,9 @@ function WorkspaceStorageSettingsFields({
           <div>003 -&gt; {previewVersionIds[2]}</div>
         </div>
         <div className="mt-3 text-xs text-muted-foreground">
-          Saving storage layout changes migrates managed document folders and version files. Version document ID changes apply to new versions going forward.
+          Saving storage layout changes migrates managed document folders and
+          version files. Version document ID changes apply to new versions going
+          forward.
         </div>
       </div>
 
@@ -5187,7 +6027,7 @@ function WorkspaceStorageSettingsFields({
                 onChange={(event) =>
                   onSettingsChange({
                     ...settings,
-                    defaultCompany: event.target.value
+                    defaultCompany: event.target.value,
                   })
                 }
               />
@@ -5202,7 +6042,7 @@ function WorkspaceStorageSettingsFields({
                 onChange={(event) =>
                   onSettingsChange({
                     ...settings,
-                    defaultDepartment: event.target.value
+                    defaultDepartment: event.target.value,
                   })
                 }
               />
@@ -5218,26 +6058,34 @@ function WorkspaceStorageSettingsFields({
               <Button
                 variant="outline"
                 onClick={() => {
-                  void window.docTrack.dialogs.pickWorkspaceLogoFile().then((filePath) => {
-                    if (filePath) {
-                      onLogoSelect(filePath);
-                    }
-                  });
+                  void window.docTrack.dialogs
+                    .pickWorkspaceLogoFile()
+                    .then((filePath) => {
+                      if (filePath) {
+                        onLogoSelect(filePath);
+                      }
+                    });
                 }}
               >
                 <Upload className="h-4 w-4" />
-                {settings.companyLogoPath || companyLogoSourceFilePath ? 'Replace Logo' : 'Upload Logo'}
+                {settings.companyLogoPath || companyLogoSourceFilePath
+                  ? "Replace Logo"
+                  : "Upload Logo"}
               </Button>
-              {(settings.companyLogoPath || companyLogoSourceFilePath) && !clearCompanyLogo ? (
+              {(settings.companyLogoPath || companyLogoSourceFilePath) &&
+              !clearCompanyLogo ? (
                 <Button variant="ghost" onClick={onLogoRemove}>
                   <X className="h-4 w-4" />
                   Remove Logo
                 </Button>
               ) : null}
             </div>
-            <div className="mt-2 text-[13px] text-muted-foreground">{logoPreviewLabel}</div>
+            <div className="mt-2 text-[13px] text-muted-foreground">
+              {logoPreviewLabel}
+            </div>
             <div className="mt-2 text-xs text-muted-foreground">
-              The selected logo is copied into the workspace and appears in the upper-left corner of every PDF export page.
+              The selected logo is copied into the workspace and appears in the
+              upper-left corner of every PDF export page.
             </div>
           </div>
         </Field>
@@ -5250,7 +6098,7 @@ function WorkspaceStorageSettingsFields({
         onChange={(checked) =>
           onSettingsChange({
             ...settings,
-            autoMarkPreviousVersionObsolete: checked
+            autoMarkPreviousVersionObsolete: checked,
           })
         }
       />
@@ -5271,7 +6119,9 @@ function WorkspaceStorageSettingsFields({
                     ...settings,
                     visibleDocumentColumns: event.target.checked
                       ? [...settings.visibleDocumentColumns, column.value]
-                      : settings.visibleDocumentColumns.filter((item) => item !== column.value)
+                      : settings.visibleDocumentColumns.filter(
+                          (item) => item !== column.value,
+                        ),
                   })
                 }
               />
@@ -5280,7 +6130,8 @@ function WorkspaceStorageSettingsFields({
           ))}
         </div>
         <div className="text-xs text-muted-foreground">
-          Disabled fields disappear from document forms, workspace pages, and personal table-view settings.
+          Disabled fields disappear from document forms, workspace pages, and
+          personal table-view settings.
         </div>
       </Field>
     </div>
@@ -5297,7 +6148,7 @@ function DocumentDialog({
   projects,
   confidentialityClasses,
   languages,
-  availableColumns
+  availableColumns,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5310,33 +6161,49 @@ function DocumentDialog({
   languages: WorkspaceLanguage[];
   availableColumns: DocumentTableColumn[];
 }) {
-  const showAuthor = availableColumns.includes('author');
-  const showLanguage = availableColumns.includes('language');
-  const showConfidentialityClass = availableColumns.includes('confidentialityClass');
-  const showProject = availableColumns.includes('project');
-  const showCompany = availableColumns.includes('company');
-  const showDepartment = availableColumns.includes('department');
-  const showRevisionInterval = availableColumns.includes('revisionIntervalMonths');
+  const showAuthor = availableColumns.includes("author");
+  const showLanguage = availableColumns.includes("language");
+  const showConfidentialityClass = availableColumns.includes(
+    "confidentialityClass",
+  );
+  const showProject = availableColumns.includes("project");
+  const showCompany = availableColumns.includes("company");
+  const showDepartment = availableColumns.includes("department");
+  const showRevisionInterval = availableColumns.includes(
+    "revisionIntervalMonths",
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{state.mode === 'create' ? 'Create Document' : 'Edit Document'}</DialogTitle>
+          <DialogTitle>
+            {state.mode === "create" ? "Create Document" : "Edit Document"}
+          </DialogTitle>
           <DialogDescription>
-            {state.mode === 'create'
-              ? 'Create the document shell first. DocTrack will generate the document ID and physical folder immediately, and you can add versions and files afterward.'
-              : 'Update the document metadata used in the table, detail view, and project assignments.'}
+            {state.mode === "create"
+              ? "Create the document shell first. DocTrack will generate the document ID and physical folder immediately, and you can add versions and files afterward."
+              : "Update the document metadata used in the table, detail view, and project assignments."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
-          <div className={cn('grid gap-4', showAuthor ? 'md:grid-cols-2' : 'md:grid-cols-1')}>
+          <div
+            className={cn(
+              "grid gap-4",
+              showAuthor ? "md:grid-cols-2" : "md:grid-cols-1",
+            )}
+          >
             <Field label="Title">
               <Input
                 placeholder="Internal Audit Procedure"
                 value={state.title}
-                onChange={(event) => onStateChange((current) => ({ ...current, title: event.target.value }))}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
+                }
               />
             </Field>
             {showAuthor ? (
@@ -5344,13 +6211,18 @@ function DocumentDialog({
                 <Input
                   placeholder="Jordan Singh"
                   value={state.author}
-                  onChange={(event) => onStateChange((current) => ({ ...current, author: event.target.value }))}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      author: event.target.value,
+                    }))
+                  }
                 />
               </Field>
             ) : null}
           </div>
 
-          {state.mode === 'create' ? (
+          {state.mode === "create" ? (
             <>
               <Field label="Document Type">
                 <Select
@@ -5358,7 +6230,7 @@ function DocumentDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      documentTypeId: event.target.value
+                      documentTypeId: event.target.value,
                     }))
                   }
                 >
@@ -5377,18 +6249,22 @@ function DocumentDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      versionScheme: event.target.value as DocumentVersionScheme
+                      versionScheme: event.target
+                        .value as DocumentVersionScheme,
                     }))
                   }
                 >
-                  {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
+                  {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
                 </Select>
                 <div className="text-xs text-muted-foreground">
-                  This controls how version folders are labeled for this document.
+                  This controls how version folders are labeled for this
+                  document.
                 </div>
               </Field>
             </>
@@ -5403,7 +6279,7 @@ function DocumentDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
-                        languageId: event.target.value
+                        languageId: event.target.value,
                       }))
                     }
                   >
@@ -5424,7 +6300,7 @@ function DocumentDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
-                        confidentialityClassId: event.target.value
+                        confidentialityClassId: event.target.value,
                       }))
                     }
                   >
@@ -5445,7 +6321,7 @@ function DocumentDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
-                        projectId: event.target.value
+                        projectId: event.target.value,
                       }))
                     }
                   >
@@ -5469,7 +6345,10 @@ function DocumentDialog({
                     placeholder="Acme Manufacturing"
                     value={state.company}
                     onChange={(event) =>
-                      onStateChange((current) => ({ ...current, company: event.target.value }))
+                      onStateChange((current) => ({
+                        ...current,
+                        company: event.target.value,
+                      }))
                     }
                   />
                 </Field>
@@ -5481,7 +6360,10 @@ function DocumentDialog({
                     placeholder="Quality Assurance"
                     value={state.department}
                     onChange={(event) =>
-                      onStateChange((current) => ({ ...current, department: event.target.value }))
+                      onStateChange((current) => ({
+                        ...current,
+                        department: event.target.value,
+                      }))
                     }
                   />
                 </Field>
@@ -5496,7 +6378,10 @@ function DocumentDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
-                        revisionIntervalMonths: event.target.value.replace(/[^\d]/g, '')
+                        revisionIntervalMonths: event.target.value.replace(
+                          /[^\d]/g,
+                          "",
+                        ),
                       }))
                     }
                   />
@@ -5511,8 +6396,12 @@ function DocumentDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
-            {state.mode === 'create' ? 'Create Document' : 'Save Document'}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FilePlus2 className="h-4 w-4" />
+            )}
+            {state.mode === "create" ? "Create Document" : "Save Document"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -5526,7 +6415,7 @@ function VersionDialog({
   state,
   onStateChange,
   onSubmit,
-  documentDetail
+  documentDetail,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5541,16 +6430,22 @@ function VersionDialog({
         <DialogHeader>
           <DialogTitle>Create New Version</DialogTitle>
           <DialogDescription>
-            Create the next version folder first, then manage the actual files from Show Files.
+            Create the next version folder first, then manage the actual files
+            from Show Files.
           </DialogDescription>
         </DialogHeader>
 
         {documentDetail ? (
           <div className="rounded-xl border border-border bg-background p-3 text-[13px]">
-            <div className="font-mono text-xs text-primary">{documentDetail.documentId}</div>
-            <div className="mt-1.5 text-base font-semibold">{documentDetail.title}</div>
+            <div className="font-mono text-xs text-primary">
+              {documentDetail.documentId}
+            </div>
+            <div className="mt-1.5 text-base font-semibold">
+              {documentDetail.title}
+            </div>
             <div className="mt-1 text-muted-foreground">
-              Next version: {getNextVersionLabelPreview(documentDetail, state.bumpType)}
+              Next version:{" "}
+              {getNextVersionLabelPreview(documentDetail, state.bumpType)}
             </div>
           </div>
         ) : null}
@@ -5560,19 +6455,23 @@ function VersionDialog({
             placeholder="What changed in this version?"
             value={state.revisionDescription}
             onChange={(event) =>
-              onStateChange((current) => ({ ...current, revisionDescription: event.target.value }))
+              onStateChange((current) => ({
+                ...current,
+                revisionDescription: event.target.value,
+              }))
             }
           />
         </Field>
 
-        {documentDetail?.versionScheme === 'major-minor' && documentDetail.versions.length > 0 ? (
+        {documentDetail?.versionScheme === "major-minor" &&
+        documentDetail.versions.length > 0 ? (
           <Field label="Version Bump">
             <Select
               value={state.bumpType}
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  bumpType: event.target.value as VersionBumpType
+                  bumpType: event.target.value as VersionBumpType,
                 }))
               }
             >
@@ -5587,7 +6486,11 @@ function VersionDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PencilLine className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <PencilLine className="h-4 w-4" />
+            )}
             Save Version
           </Button>
         </DialogFooter>
@@ -5603,7 +6506,7 @@ function LatestVersionDialog({
   onStateChange,
   onSubmit,
   documentDetail,
-  availableColumns
+  availableColumns,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5613,9 +6516,11 @@ function LatestVersionDialog({
   documentDetail: DocumentDetail | null;
   availableColumns: DocumentTableColumn[];
 }) {
-  const showReleasedDate = availableColumns.includes('releasedDate');
-  const showApprovedBy = availableColumns.includes('approvedBy');
-  const showRevisionDescription = availableColumns.includes('revisionDescription');
+  const showReleasedDate = availableColumns.includes("releasedDate");
+  const showApprovedBy = availableColumns.includes("approvedBy");
+  const showRevisionDescription = availableColumns.includes(
+    "revisionDescription",
+  );
   const detailFieldCount = Number(showReleasedDate) + Number(showApprovedBy);
 
   return (
@@ -5624,14 +6529,19 @@ function LatestVersionDialog({
         <DialogHeader>
           <DialogTitle>Edit Latest Version</DialogTitle>
           <DialogDescription>
-            Update the current latest version without creating a new version entry.
+            Update the current latest version without creating a new version
+            entry.
           </DialogDescription>
         </DialogHeader>
 
         {documentDetail ? (
           <div className="rounded-xl border border-border bg-background p-3">
-            <div className="font-mono text-xs text-primary">{documentDetail.documentId}</div>
-            <div className="mt-1.5 text-base font-semibold">{documentDetail.title}</div>
+            <div className="font-mono text-xs text-primary">
+              {documentDetail.documentId}
+            </div>
+            <div className="mt-1.5 text-base font-semibold">
+              {documentDetail.title}
+            </div>
           </div>
         ) : null}
 
@@ -5641,20 +6551,27 @@ function LatestVersionDialog({
             onChange={(event) =>
               onStateChange((current) => ({
                 ...current,
-                status: event.target.value as DocumentStatus
+                status: event.target.value as DocumentStatus,
               }))
             }
           >
-            {['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'].map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
+            {["Draft", "In Review", "Released", "Archived", "Obsolete"].map(
+              (status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ),
+            )}
           </Select>
         </Field>
 
         {detailFieldCount > 0 ? (
-          <div className={cn('grid gap-4', detailFieldCount > 1 ? 'md:grid-cols-2' : 'md:grid-cols-1')}>
+          <div
+            className={cn(
+              "grid gap-4",
+              detailFieldCount > 1 ? "md:grid-cols-2" : "md:grid-cols-1",
+            )}
+          >
             {showReleasedDate ? (
               <Field label="Released Date">
                 <Input
@@ -5663,7 +6580,7 @@ function LatestVersionDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      releasedDate: event.target.value
+                      releasedDate: event.target.value,
                     }))
                   }
                 />
@@ -5678,7 +6595,7 @@ function LatestVersionDialog({
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
-                      approvedBy: event.target.value
+                      approvedBy: event.target.value,
                     }))
                   }
                 />
@@ -5695,7 +6612,7 @@ function LatestVersionDialog({
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  revisionDescription: event.target.value
+                  revisionDescription: event.target.value,
                 }))
               }
             />
@@ -5707,7 +6624,11 @@ function LatestVersionDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CircleDot className="h-4 w-4" />
+            )}
             Save Latest Version
           </Button>
         </DialogFooter>
@@ -5721,7 +6642,7 @@ function DocumentTypeDialog({
   onOpenChange,
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5733,9 +6654,12 @@ function DocumentTypeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>{state.id ? 'Edit Document Type' : 'Create Document Type'}</DialogTitle>
+          <DialogTitle>
+            {state.id ? "Edit Document Type" : "Create Document Type"}
+          </DialogTitle>
           <DialogDescription>
-            Each type needs a unique 2-digit prefix for automatic document ID generation.
+            Each type needs a unique 2-digit prefix for automatic document ID
+            generation.
           </DialogDescription>
         </DialogHeader>
 
@@ -5744,7 +6668,12 @@ function DocumentTypeDialog({
             <Input
               placeholder="Specification"
               value={state.name}
-              onChange={(event) => onStateChange((current) => ({ ...current, name: event.target.value }))}
+              onChange={(event) =>
+                onStateChange((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
             />
           </Field>
           <Field label="Number Prefix">
@@ -5755,7 +6684,9 @@ function DocumentTypeDialog({
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  numberPrefix: event.target.value.replace(/\D/g, '').slice(0, 2)
+                  numberPrefix: event.target.value
+                    .replace(/\D/g, "")
+                    .slice(0, 2),
                 }))
               }
             />
@@ -5767,7 +6698,11 @@ function DocumentTypeDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Save Type
           </Button>
         </DialogFooter>
@@ -5781,7 +6716,7 @@ function ProjectDialog({
   onOpenChange,
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5793,15 +6728,24 @@ function ProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>{state.id ? 'Edit Project' : 'Create Project'}</DialogTitle>
-          <DialogDescription>Projects let multiple documents be grouped inside the workspace.</DialogDescription>
+          <DialogTitle>
+            {state.id ? "Edit Project" : "Create Project"}
+          </DialogTitle>
+          <DialogDescription>
+            Projects let multiple documents be grouped inside the workspace.
+          </DialogDescription>
         </DialogHeader>
 
         <Field label="Project Name">
           <Input
             placeholder="QMS Rollout"
             value={state.name}
-            onChange={(event) => onStateChange((current) => ({ ...current, name: event.target.value }))}
+            onChange={(event) =>
+              onStateChange((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
           />
         </Field>
 
@@ -5810,7 +6754,11 @@ function ProjectDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Save Project
           </Button>
         </DialogFooter>
@@ -5824,27 +6772,40 @@ function ConfidentialityClassDialog({
   onOpenChange,
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: ClassificationDialogState;
-  onStateChange: React.Dispatch<React.SetStateAction<ClassificationDialogState>>;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<ClassificationDialogState>
+  >;
   onSubmit: () => Promise<void>;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>{state.id ? 'Edit Confidentiality Class' : 'Create Confidentiality Class'}</DialogTitle>
-          <DialogDescription>Confidentiality classes are selectable values managed per workspace.</DialogDescription>
+          <DialogTitle>
+            {state.id
+              ? "Edit Confidentiality Class"
+              : "Create Confidentiality Class"}
+          </DialogTitle>
+          <DialogDescription>
+            Confidentiality classes are selectable values managed per workspace.
+          </DialogDescription>
         </DialogHeader>
 
         <Field label="Class Name">
           <Input
             placeholder="Internal"
             value={state.name}
-            onChange={(event) => onStateChange((current) => ({ ...current, name: event.target.value }))}
+            onChange={(event) =>
+              onStateChange((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
           />
         </Field>
 
@@ -5853,7 +6814,11 @@ function ConfidentialityClassDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Save Class
           </Button>
         </DialogFooter>
@@ -5867,7 +6832,7 @@ function LanguageDialog({
   onOpenChange,
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5879,8 +6844,12 @@ function LanguageDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>{state.id ? 'Edit Language' : 'Create Language'}</DialogTitle>
-          <DialogDescription>Use short codes such as `NL`, `EN`, or `DE` for workspace languages.</DialogDescription>
+          <DialogTitle>
+            {state.id ? "Edit Language" : "Create Language"}
+          </DialogTitle>
+          <DialogDescription>
+            Use short codes such as `NL`, `EN`, or `DE` for workspace languages.
+          </DialogDescription>
         </DialogHeader>
 
         <Field label="Language Code">
@@ -5889,7 +6858,10 @@ function LanguageDialog({
             placeholder="EN"
             value={state.code}
             onChange={(event) =>
-              onStateChange((current) => ({ ...current, code: event.target.value.toUpperCase() }))
+              onStateChange((current) => ({
+                ...current,
+                code: event.target.value.toUpperCase(),
+              }))
             }
           />
         </Field>
@@ -5899,7 +6871,11 @@ function LanguageDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Save Language
           </Button>
         </DialogFooter>
@@ -5921,7 +6897,7 @@ function VersionFilesDialog({
   onOpenFolder,
   onRenameFile,
   onDeleteFile,
-  onChangeRole
+  onChangeRole,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -5935,7 +6911,10 @@ function VersionFilesDialog({
   onOpenFolder: (documentVersionId: number) => void;
   onRenameFile: (file: DocumentVersionFile) => Promise<void>;
   onDeleteFile: (file: DocumentVersionFile) => Promise<void>;
-  onChangeRole: (file: DocumentVersionFile, role: DocumentVersionFileRole) => Promise<void>;
+  onChangeRole: (
+    file: DocumentVersionFile,
+    role: DocumentVersionFileRole,
+  ) => Promise<void>;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -5943,7 +6922,8 @@ function VersionFilesDialog({
         <DialogHeader>
           <DialogTitle>Show Files</DialogTitle>
           <DialogDescription>
-            Browse the physical files for one version, open them directly, or open the version folder.
+            Browse the physical files for one version, open them directly, or
+            open the version folder.
           </DialogDescription>
         </DialogHeader>
 
@@ -5952,18 +6932,28 @@ function VersionFilesDialog({
             <div className="rounded-xl border border-border bg-background p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold">Version {version.versionLabel}</div>
+                  <div className="text-base font-semibold">
+                    Version {version.versionLabel}
+                  </div>
                   <div className="mt-1 text-[13px] text-muted-foreground">
                     {version.files.length} files tracked in this version
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <DocumentProgressBadge status={version.status} />
-                  <Button variant="outline" size="sm" onClick={() => void onRefresh(version.id)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void onRefresh(version.id)}
+                  >
                     <RefreshCcw className="h-4 w-4" />
                     Refresh
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => onOpenFolder(version.id)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onOpenFolder(version.id)}
+                  >
                     <FolderOpen className="h-4 w-4" />
                     Open Folder
                   </Button>
@@ -5979,7 +6969,7 @@ function VersionFilesDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
-                        addRole: event.target.value as DocumentVersionFileRole
+                        addRole: event.target.value as DocumentVersionFileRole,
                       }))
                     }
                   >
@@ -6004,14 +6994,15 @@ function VersionFilesDialog({
               </div>
               {!canEdit ? (
                 <div className="mt-3 text-xs text-muted-foreground">
-                  Older versions are read-only. Use the latest version to add, rename, delete, or reclassify files.
+                  Older versions are read-only. Use the latest version to add,
+                  rename, delete, or reclassify files.
                 </div>
               ) : null}
             </div>
 
             {version.unmanagedPaths.length > 0 ? (
               <div className="rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                Unmanaged paths: {version.unmanagedPaths.join(', ')}
+                Unmanaged paths: {version.unmanagedPaths.join(", ")}
               </div>
             ) : null}
 
@@ -6022,12 +7013,18 @@ function VersionFilesDialog({
                 </div>
               ) : (
                 version.files.map((file) => (
-                  <div key={file.id} className="rounded-xl border border-border bg-card p-3">
+                  <div
+                    key={file.id}
+                    className="rounded-xl border border-border bg-card p-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">{file.fileName}</div>
+                        <div className="truncate text-sm font-semibold">
+                          {file.fileName}
+                        </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {formatFileSize(file.fileSize)} • Modified {formatDateTime(file.modifiedDate)}
+                          {formatFileSize(file.fileSize)} • Modified{" "}
+                          {formatDateTime(file.modifiedDate)}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -6035,7 +7032,10 @@ function VersionFilesDialog({
                           <Select
                             value={file.role}
                             onChange={(event) =>
-                              void onChangeRole(file, event.target.value as DocumentVersionFileRole)
+                              void onChangeRole(
+                                file,
+                                event.target.value as DocumentVersionFileRole,
+                              )
                             }
                           >
                             {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
@@ -6045,19 +7045,33 @@ function VersionFilesDialog({
                             ))}
                           </Select>
                         ) : (
-                          <Badge variant="outline">{DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}</Badge>
+                          <Badge variant="outline">
+                            {DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}
+                          </Badge>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => onOpenFile(file.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onOpenFile(file.id)}
+                        >
                           Open
                         </Button>
                         {canEdit ? (
-                          <Button variant="ghost" size="sm" onClick={() => void onRenameFile(file)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void onRenameFile(file)}
+                          >
                             <Pencil className="h-4 w-4" />
                             Rename
                           </Button>
                         ) : null}
                         {canEdit ? (
-                          <Button variant="ghost" size="sm" onClick={() => void onDeleteFile(file)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void onDeleteFile(file)}
+                          >
                             Delete
                           </Button>
                         ) : null}
@@ -6083,14 +7097,16 @@ function VersionFilesDialog({
 
 function Field({
   label,
-  children
+  children,
 }: {
   label: string;
   children: React.ReactNode;
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[13px] font-medium text-foreground/90">{label}</span>
+      <span className="text-[13px] font-medium text-foreground/90">
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -6099,11 +7115,14 @@ function Field({
 function DocumentStatusSelect({
   document,
   statuses,
-  onRequestStatusChange
+  onRequestStatusChange,
 }: {
   document: DocumentListItem;
   statuses: DocumentStatus[];
-  onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
+  onRequestStatusChange: (
+    document: DocumentListItem,
+    nextStatus: DocumentStatus,
+  ) => void;
 }) {
   if (!document.status || !document.latestVersionLabel) {
     return <DocumentProgressBadge status={document.status} />;
@@ -6119,15 +7138,15 @@ function DocumentStatusSelect({
         aria-label={`Status for ${document.documentId}`}
         data-status-select={String(document.id)}
         className={cn(
-          'h-8 rounded-full border-transparent pr-8 text-[12px] font-medium shadow-none',
-          STATUS_VARIANTS[document.status] === 'success' &&
-            'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-200',
-          STATUS_VARIANTS[document.status] === 'warning' &&
-            'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200',
-          STATUS_VARIANTS[document.status] === 'default' &&
-            'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200',
-          STATUS_VARIANTS[document.status] === 'muted' &&
-            'bg-muted text-foreground hover:bg-accent'
+          "h-8 rounded-full border-transparent pr-8 text-[12px] font-medium shadow-none",
+          STATUS_VARIANTS[document.status] === "success" &&
+            "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-200",
+          STATUS_VARIANTS[document.status] === "warning" &&
+            "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200",
+          STATUS_VARIANTS[document.status] === "default" &&
+            "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200",
+          STATUS_VARIANTS[document.status] === "muted" &&
+            "bg-muted text-foreground hover:bg-accent",
         )}
         value={document.status}
         onChange={(event) => {
@@ -6148,7 +7167,7 @@ function DocumentStatusSelect({
 function StatusChangeDialog({
   state,
   onOpenChange,
-  onSubmit
+  onSubmit,
 }: {
   state: StatusChangeDialogState;
   onOpenChange: (open: boolean) => void;
@@ -6162,14 +7181,19 @@ function StatusChangeDialog({
         <DialogHeader>
           <DialogTitle>Confirm Status Change</DialogTitle>
           <DialogDescription>
-            Review the new status before DocTrack updates the latest version for this document.
+            Review the new status before DocTrack updates the latest version for
+            this document.
           </DialogDescription>
         </DialogHeader>
 
         {document ? (
           <div className="rounded-xl border border-border bg-background p-3">
-            <div className="font-mono text-xs text-primary">{document.documentId}</div>
-            <div className="mt-1.5 text-base font-semibold">{document.title}</div>
+            <div className="font-mono text-xs text-primary">
+              {document.documentId}
+            </div>
+            <div className="mt-1.5 text-base font-semibold">
+              {document.title}
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
               <span>Current</span>
               <StatusBadge status={document.status!} />
@@ -6184,7 +7208,11 @@ function StatusChangeDialog({
             Cancel
           </Button>
           <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CircleDot className="h-4 w-4" />
+            )}
             Apply Status
           </Button>
         </DialogFooter>
@@ -6196,7 +7224,7 @@ function StatusChangeDialog({
 function ColumnFilter({
   label,
   value,
-  onChange
+  onChange,
 }: {
   label: string;
   value: string;
@@ -6237,30 +7265,30 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 
 function getNextVersionLabelPreview(
   documentDetail: DocumentDetail,
-  bumpType: VersionBumpType
+  bumpType: VersionBumpType,
 ): string {
   const latestVersion = documentDetail.versions[0];
 
-  if (documentDetail.versionScheme === 'numeric-3') {
-    return String((latestVersion?.sequenceNumber ?? 0) + 1).padStart(3, '0');
+  if (documentDetail.versionScheme === "numeric-3") {
+    return String((latestVersion?.sequenceNumber ?? 0) + 1).padStart(3, "0");
   }
 
-  if (documentDetail.versionScheme === 'v-prefix') {
+  if (documentDetail.versionScheme === "v-prefix") {
     return `v${(latestVersion?.sequenceNumber ?? 0) + 1}`;
   }
 
   if (!latestVersion) {
-    return '1.0';
+    return "1.0";
   }
 
   const match = latestVersion.versionLabel.match(/^(\d+)\.(\d+)$/);
   if (!match) {
-    return '1.0';
+    return "1.0";
   }
 
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  return bumpType === 'major' ? `${major + 1}.0` : `${major}.${minor + 1}`;
+  return bumpType === "major" ? `${major + 1}.0` : `${major}.${minor + 1}`;
 }
 
 function formatFileSize(fileSize: number): string {
@@ -6276,11 +7304,18 @@ function formatFileSize(fileSize: number): string {
 }
 
 function columnHeader(label: string) {
-  return ({ column }: { column: { getIsSorted: () => false | 'asc' | 'desc'; toggleSorting: (desc?: boolean) => void } }) => (
+  return ({
+    column,
+  }: {
+    column: {
+      getIsSorted: () => false | "asc" | "desc";
+      toggleSorting: (desc?: boolean) => void;
+    };
+  }) => (
     <button
       type="button"
       className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:text-foreground"
-      onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
     >
       {label}
       <ArrowUpDown className="h-3.5 w-3.5" />
