@@ -173,6 +173,7 @@ const buildDocTrackMock = (
           lastOpenedDate: '2026-03-28T12:00:00.000Z'
         }
       ]),
+      dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(workspaceResult),
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
     },
@@ -387,13 +388,13 @@ describe('App', () => {
 
     expect(document.documentElement.classList.contains('dark')).toBe(false);
 
-    await click(getButton('Application Settings'));
+    await click(getButton('Settings'));
     await click(getButton('Dark'));
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     await click(getButton('Cancel'));
     expect(document.documentElement.classList.contains('dark')).toBe(false);
 
-    await click(getButton('Application Settings'));
+    await click(getButton('Settings'));
     const settingsDialog = getDialog();
     expect(getButton('Light', settingsDialog).closest('label')).toBeNull();
     await click(getButton('Dark', settingsDialog));
@@ -1047,7 +1048,7 @@ describe('App', () => {
     }
 
     await click(firstRow);
-    await click(getButton('Latest Version'));
+    await click(getButton('Edit Latest Version'));
 
     const dialog = getDialog();
     expect(normalizeText(dialog.textContent)).toContain('Released Date');

@@ -36,6 +36,7 @@ export const IPC_CHANNELS = {
   workspaceClose: 'workspace:close',
   workspaceListOpen: 'workspace:listOpen',
   workspaceListRecent: 'workspace:listRecent',
+  workspaceDismissRecent: 'workspace:dismissRecent',
   workspaceGetSummary: 'workspace:getSummary',
   workspaceUpdateSettings: 'workspace:updateSettings',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
@@ -84,6 +85,7 @@ export interface DocTrackApi {
     close: (rootPath: string) => Promise<WorkspaceInfo[]>;
     listOpen: () => Promise<WorkspaceInfo[]>;
     listRecent: () => Promise<RecentWorkspace[]>;
+    dismissRecent: (rootPath: string) => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
   };

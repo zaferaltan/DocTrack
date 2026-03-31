@@ -28,6 +28,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
   ipcMain.handle(IPC_CHANNELS.workspaceListOpen, () => services.workspaceService.listOpen());
   ipcMain.handle(IPC_CHANNELS.workspaceListRecent, () => services.workspaceService.listRecent());
+  ipcMain.handle(IPC_CHANNELS.workspaceDismissRecent, (_event, rootPath: string) =>
+    services.workspaceService.dismissRecent(rootPath)
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (_event, rootPath: string) =>
     services.workspaceService.getSummary(rootPath)
   );

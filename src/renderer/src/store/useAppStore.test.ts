@@ -45,6 +45,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       close: vi.fn(),
       listOpen: vi.fn().mockResolvedValue([workspaceInfo]),
       listRecent: vi.fn().mockResolvedValue([]),
+      dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
       updateSettings: vi.fn()
     },

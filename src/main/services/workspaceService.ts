@@ -82,6 +82,10 @@ export class WorkspaceService {
     return this.catalogService.listRecentWorkspaces();
   }
 
+  dismissRecent(rootPath: string) {
+    return this.catalogService.dismissRecentWorkspace(rootPath);
+  }
+
   getSummary(rootPath: string, warnings: string[] = []): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
     const typeRows = context.db

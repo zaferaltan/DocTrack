@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  DEFAULT_KEYBOARD_SHORTCUTS,
   DEFAULT_APPLICATION_SETTINGS,
   type ApplicationSettings
 } from '@shared/applicationSettings';
@@ -37,7 +38,15 @@ describe('app catalog service', () => {
       themeMode: 'dark',
       launchBehavior: 'reopen-last-workspace',
       defaultWorkspaceView: 'documentTypes',
+      documentDetailViewMode: 'modal',
+      documentDetailSidebarWidth: 820,
       documentTableDensity: 'compact',
+      workspaceTabDensity: 'compact',
+      keyboardShortcuts: {
+        ...DEFAULT_KEYBOARD_SHORTCUTS,
+        openWorkspaceFolder: 'Mod+Shift+O',
+        newDocument: null
+      },
       defaultIncludeExampleData: false,
       defaultDocumentAuthor: 'Taylor Reed',
       defaultDocumentVersionScheme: 'major-minor',
@@ -96,5 +105,46 @@ describe('app catalog service', () => {
         lastOpenedDate: '2026-03-28T12:00:00.000Z'
       }
     ]);
+  });
+
+  it('normalizes new UI settings and invalid shortcut data safely', () => {
+    const service = createService();
+    const catalogPath = path.join(tempRoot, 'catalog.json');
+
+    writeFileSync(
+      catalogPath,
+      JSON.stringify(
+        {
+          applicationSettings: {
+            documentDetailViewMode: 'invalid',
+            documentDetailSidebarWidth: 2400,
+            workspaceTabDensity: 'dense',
+            keyboardShortcuts: {
+              openSettings: 'ctrl + ,',
+              newWorkspace: 'meta + shift + n',
+              openWorkspaceFolder: 'bad+value+pair',
+              newDocument: '',
+              focusSearch: 'mod + f'
+            }
+          }
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    expect(service.getApplicationSettings()).toEqual({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      documentDetailSidebarWidth: 2000,
+      keyboardShortcuts: {
+        ...DEFAULT_KEYBOARD_SHORTCUTS,
+        openSettings: 'Mod+,',
+        newWorkspace: 'Mod+Shift+N',
+        openWorkspaceFolder: null,
+        newDocument: null,
+        focusSearch: 'Mod+F'
+      }
+    });
   });
 });

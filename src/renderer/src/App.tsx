@@ -4,15 +4,20 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState
 } from 'react';
 import {
   ArrowUpDown,
+  ChevronDown,
+  ChevronLeft,
   CircleDot,
   FilePlus2,
   FileStack,
   FolderOpen,
+  GripVertical,
   History,
+  Keyboard,
   LayoutPanelLeft,
   Loader2,
   Moon,
@@ -21,6 +26,7 @@ import {
   Plus,
   RefreshCcw,
   Search,
+  Settings,
   Settings2,
   Sparkles,
   Sun,
@@ -55,13 +61,24 @@ import { cn, formatDateShort, formatDateTime, formatUserFacingError } from '@ren
 import { useAppStore } from '@renderer/store/useAppStore';
 import {
   APPLICATION_LAUNCH_BEHAVIOR_OPTIONS,
+  DEFAULT_KEYBOARD_SHORTCUTS,
   DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS,
   DEFAULT_APPLICATION_SETTINGS,
+  DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+  DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+  DOCUMENT_DETAIL_VIEW_MODE_OPTIONS,
   DOCUMENT_TABLE_DENSITY_OPTIONS,
+  KEYBOARD_SHORTCUT_ACTIONS,
+  KEYBOARD_SHORTCUT_ACTION_DETAILS,
   THEME_MODE_OPTIONS,
+  WORKSPACE_TAB_DENSITY_OPTIONS,
   WORKSPACE_VIEW_OPTIONS,
   type ApplicationSettings,
+  type DocumentDetailViewMode,
   type DocumentTableDensity,
+  type KeyboardShortcutAction,
+  type KeyboardShortcutMap,
+  type KeyboardShortcutValue,
   type ThemeMode
 } from '@shared/applicationSettings';
 import {
@@ -185,7 +202,10 @@ const buildApplicationSettingsDialogState = (
   applicationSettings: ApplicationSettings
 ): ApplicationSettingsDialogState => ({
   open: true,
-  settings: { ...applicationSettings },
+  settings: {
+    ...applicationSettings,
+    keyboardShortcuts: { ...applicationSettings.keyboardShortcuts }
+  },
   isSubmitting: false
 });
 
@@ -336,7 +356,10 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
 
 const defaultApplicationSettingsDialogState: ApplicationSettingsDialogState = {
   open: false,
-  settings: { ...DEFAULT_APPLICATION_SETTINGS },
+  settings: {
+    ...DEFAULT_APPLICATION_SETTINGS,
+    keyboardShortcuts: { ...DEFAULT_APPLICATION_SETTINGS.keyboardShortcuts }
+  },
   isSubmitting: false
 };
 
@@ -579,6 +602,119 @@ const getDocumentExportScopeLabel = (scope: DocumentExportScope): string =>
 
 const getPathFileName = (value: string): string => value.split(/[/\\]/).pop() ?? value;
 
+const cloneApplicationSettings = (settings: ApplicationSettings): ApplicationSettings => ({
+  ...settings,
+  keyboardShortcuts: { ...settings.keyboardShortcuts }
+});
+
+const normalizeShortcutKey = (value: string): string | null => {
+  const key = value.trim();
+  if (!key) {
+    return null;
+  }
+
+  const aliases: Record<string, string> = {
+    ',': ',',
+    '.': '.',
+    '/': '/',
+    '\\': '\\',
+    ';': ';',
+    "'": "'",
+    '-': '-',
+    '=': '=',
+    '[': '[',
+    ']': ']',
+    '`': '`',
+    escape: 'Escape',
+    esc: 'Escape',
+    enter: 'Enter',
+    return: 'Enter',
+    tab: 'Tab',
+    space: 'Space'
+  };
+  const lower = key.toLowerCase();
+
+  if (aliases[lower]) {
+    return aliases[lower];
+  }
+
+  if (key.length === 1) {
+    return key.toUpperCase();
+  }
+
+  if (/^f\d{1,2}$/i.test(key)) {
+    return key.toUpperCase();
+  }
+
+  return /^[A-Za-z0-9]+$/.test(key)
+    ? key.charAt(0).toUpperCase() + key.slice(1).toLowerCase()
+    : null;
+};
+
+const getShortcutFromKeyboardEvent = (event: KeyboardEvent): KeyboardShortcutValue => {
+  const key = normalizeShortcutKey(event.key);
+  if (!key) {
+    return null;
+  }
+
+  const parts = [
+    ...(event.metaKey || event.ctrlKey ? ['Mod'] : []),
+    ...(event.altKey ? ['Alt'] : []),
+    ...(event.shiftKey ? ['Shift'] : []),
+    key
+  ];
+
+  return parts.join('+');
+};
+
+const doesEventMatchShortcut = (event: KeyboardEvent, shortcut: KeyboardShortcutValue): boolean =>
+  shortcut !== null && getShortcutFromKeyboardEvent(event) === shortcut;
+
+const formatShortcutForDisplay = (
+  shortcut: KeyboardShortcutValue,
+  options: { isMacOs: boolean }
+): string => {
+  if (!shortcut) {
+    return 'Disabled';
+  }
+
+  return shortcut
+    .split('+')
+    .map((token) => {
+      if (token === 'Mod') {
+        return options.isMacOs ? 'Cmd' : 'Ctrl';
+      }
+
+      if (token === 'Alt') {
+        return options.isMacOs ? 'Option' : 'Alt';
+      }
+
+      if (token === 'Space') {
+        return 'Space';
+      }
+
+      return token;
+    })
+    .join(' + ');
+};
+
+const getShortcutConflictActions = (shortcuts: KeyboardShortcutMap): KeyboardShortcutAction[] => {
+  const owners = new Map<string, KeyboardShortcutAction[]>();
+
+  for (const action of KEYBOARD_SHORTCUT_ACTIONS) {
+    const shortcut = shortcuts[action];
+    if (!shortcut) {
+      continue;
+    }
+
+    owners.set(shortcut, [...(owners.get(shortcut) ?? []), action]);
+  }
+
+  return [...owners.values()]
+    .filter((actions) => actions.length > 1)
+    .flat();
+};
+
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
 const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
   formatUserFacingError(error, fallbackMessage);
@@ -596,6 +732,7 @@ function App() {
     openWorkspace,
     refreshWorkspace,
     closeWorkspace,
+    dismissRecentWorkspace,
     updateWorkspaceSettings,
     setActiveWorkspace,
     setWorkspaceView,
@@ -615,6 +752,7 @@ function App() {
   const [documentDialog, setDocumentDialog] = useState(defaultDocumentDialogState);
   const [versionDialog, setVersionDialog] = useState(defaultVersionDialogState);
   const [filesDialog, setFilesDialog] = useState(defaultFilesDialogState);
+  const [filesDialogVersion, setFilesDialogVersion] = useState<DocumentVersion | null>(null);
   const [latestVersionDialog, setLatestVersionDialog] = useState(defaultLatestVersionDialogState);
   const [statusChangeDialog, setStatusChangeDialog] = useState(defaultStatusChangeDialogState);
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
@@ -624,6 +762,8 @@ function App() {
   const [selectedDocumentDetail, setSelectedDocumentDetail] = useState<DocumentDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
 
   const workspaceTabs = Object.values(openWorkspaces);
   const activeWorkspace = activeWorkspacePath ? openWorkspaces[activeWorkspacePath] : undefined;
@@ -634,10 +774,12 @@ function App() {
     activeWorkspaceAvailableColumns.includes('confidentialityClass');
   const workspaceSupportsLanguages = activeWorkspaceAvailableColumns.includes('language');
   const activeFilesVersion =
-    selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ?? null;
+    selectedDocumentDetail?.versions.find((version) => version.id === filesDialog.versionId) ??
+    filesDialogVersion;
   const previewThemeMode = applicationSettingsDialog.open
     ? applicationSettingsDialog.settings.themeMode
     : applicationSettings.themeMode;
+  const detailViewMode = applicationSettings.documentDetailViewMode;
   const isMacOs = useMemo(
     () => /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac OS X/.test(navigator.userAgent),
     []
@@ -711,6 +853,47 @@ function App() {
   }, [applicationSettings.autoDismissSuccessNotifications, notification, setNotification]);
 
   useEffect(() => {
+    if (!isWorkspaceMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        workspaceMenuRef.current &&
+        event.target instanceof Node &&
+        !workspaceMenuRef.current.contains(event.target)
+      ) {
+        setIsWorkspaceMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isWorkspaceMenuOpen]);
+
+  useEffect(() => {
+    if (detailViewMode !== 'sidebar' || !activeWorkspace?.selectedDocumentRecordId) {
+      return undefined;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (!activeWorkspacePath) {
+          return;
+        }
+
+        setSelectedDocument(activeWorkspacePath, undefined);
+        setSelectedDocumentDetail(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, detailViewMode, setSelectedDocument]);
+
+  useEffect(() => {
     const loadSelectedDocumentDetail = async () => {
       if (!activeWorkspacePath || !activeWorkspace?.selectedDocumentRecordId) {
         setSelectedDocumentDetail(null);
@@ -734,8 +917,13 @@ function App() {
     void loadSelectedDocumentDetail();
   }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath]);
 
+  const fetchDocumentDetail = async (
+    rootPath: string,
+    documentRecordId: number
+  ): Promise<DocumentDetail> => window.docTrack.documents.detail(rootPath, documentRecordId);
+
   const loadDocumentDetail = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
-    const detail = await window.docTrack.documents.detail(rootPath, documentRecordId);
+    const detail = await fetchDocumentDetail(rootPath, documentRecordId);
     setSelectedDocument(rootPath, documentRecordId);
     setSelectedDocumentDetail(detail);
     return detail;
@@ -757,11 +945,26 @@ function App() {
       selectedDocumentDetail &&
       !selectedDocumentDetail.versions.some((version) => version.id === filesDialog.versionId)
     ) {
+      setFilesDialogVersion(null);
       setFilesDialog(defaultFilesDialogState);
     }
   }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, filesDialog.versionId, selectedDocumentDetail]);
 
+  useEffect(() => {
+    if (!filesDialog.versionId || !selectedDocumentDetail) {
+      return;
+    }
+
+    const matchingVersion = selectedDocumentDetail.versions.find(
+      (version) => version.id === filesDialog.versionId
+    );
+    if (matchingVersion) {
+      setFilesDialogVersion(matchingVersion);
+    }
+  }, [filesDialog.versionId, selectedDocumentDetail]);
+
   const openWorkspacePicker = async () => {
+    setIsWorkspaceMenuOpen(false);
     const rootPath = await window.docTrack.dialogs.pickWorkspaceOpenPath();
     if (!rootPath) {
       return;
@@ -775,6 +978,7 @@ function App() {
   };
 
   const openCreateWorkspaceDialog = () => {
+    setIsWorkspaceMenuOpen(false);
     setWorkspaceDialog(buildWorkspaceDialogState(applicationSettings));
   };
 
@@ -793,7 +997,7 @@ function App() {
 
     const detail =
       documentRecordId && selectedDocumentDetail?.id !== documentRecordId
-        ? await loadDocumentDetail(activeWorkspacePath, documentRecordId)
+        ? await fetchDocumentDetail(activeWorkspacePath, documentRecordId)
         : selectedDocumentDetail;
 
     if (!detail) {
@@ -806,6 +1010,29 @@ function App() {
   const openApplicationSettingsDialog = () => {
     setApplicationSettingsDialog(buildApplicationSettingsDialogState(applicationSettings));
   };
+
+  const saveApplicationSettingsPartial = async (
+    nextPartial: Partial<ApplicationSettings>
+  ): Promise<void> => {
+    await updateApplicationSettings(
+      cloneApplicationSettings({
+        ...applicationSettings,
+        ...nextPartial,
+        keyboardShortcuts: nextPartial.keyboardShortcuts
+          ? { ...nextPartial.keyboardShortcuts }
+          : { ...applicationSettings.keyboardShortcuts }
+      })
+    );
+  };
+
+  const clearSelectedDocument = useEffectEvent((): void => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    setSelectedDocument(activeWorkspacePath, undefined);
+    setSelectedDocumentDetail(null);
+  });
 
   const openWorkspaceSettingsDialog = () => {
     if (!activeWorkspace) {
@@ -825,36 +1052,34 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const isMeta = event.metaKey || event.ctrlKey;
-      if (!isMeta) {
-        return;
-      }
-
-      if (!event.shiftKey && event.key === ',') {
+      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.openSettings)) {
         event.preventDefault();
         openApplicationSettingsDialog();
         return;
       }
 
-      if (event.shiftKey && event.key.toLowerCase() === 'n') {
+      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.newWorkspace)) {
         event.preventDefault();
         openCreateWorkspaceDialog();
         return;
       }
 
-      if (event.key.toLowerCase() === 'o') {
+      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.openWorkspaceFolder)) {
         event.preventDefault();
         void openWorkspacePicker();
         return;
       }
 
-      if (event.key.toLowerCase() === 'n' && activeWorkspace) {
+      if (
+        activeWorkspace &&
+        doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.newDocument)
+      ) {
         event.preventDefault();
         openCreateDocumentDialog();
         return;
       }
 
-      if (event.key.toLowerCase() === 'f') {
+      if (doesEventMatchShortcut(event, applicationSettings.keyboardShortcuts.focusSearch)) {
         const searchInput = document.querySelector<HTMLInputElement>('[data-doc-search="true"]');
         if (searchInput) {
           event.preventDefault();
@@ -866,7 +1091,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeWorkspace, applicationSettings, openWorkspacePicker]);
+  }, [activeWorkspace, applicationSettings.keyboardShortcuts]);
 
   const handleCreateWorkspace = async () => {
     try {
@@ -911,7 +1136,7 @@ function App() {
   const handleSaveApplicationSettings = async () => {
     try {
       setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: true }));
-      await updateApplicationSettings(applicationSettingsDialog.settings);
+      await updateApplicationSettings(cloneApplicationSettings(applicationSettingsDialog.settings));
       setApplicationSettingsDialog(defaultApplicationSettingsDialogState);
       setNotification({
         tone: 'success',
@@ -942,8 +1167,7 @@ function App() {
         return;
       }
 
-      await updateApplicationSettings({
-        ...applicationSettings,
+      await saveApplicationSettingsPartial({
         documentTableVisibleColumns: nextVisibleColumns
       });
       setTableColumnsDialog(defaultTableColumnsDialogState);
@@ -1369,7 +1593,7 @@ function App() {
       const detail =
         selectedDocumentDetail?.id === documentRecordId
           ? selectedDocumentDetail
-          : await loadDocumentDetail(activeWorkspacePath, documentRecordId);
+          : await fetchDocumentDetail(activeWorkspacePath, documentRecordId);
       const latestVersion = detail?.versions[0];
 
       if (!latestVersion) {
@@ -1380,6 +1604,7 @@ function App() {
         return;
       }
 
+      setFilesDialogVersion(latestVersion);
       setFilesDialog({
         open: true,
         versionId: latestVersion.id,
@@ -1516,6 +1741,11 @@ function App() {
             notifyError(error, 'Unable to open workspace.');
           });
         }}
+        onDismissRecent={(rootPath) => {
+          void dismissRecentWorkspace(rootPath).catch((error: Error) => {
+            notifyError(error, 'Unable to remove the recent workspace.');
+          });
+        }}
       />
     );
   } else if (
@@ -1527,6 +1757,8 @@ function App() {
     activeWorkspaceContent = (
       <DocumentsView
         workspace={activeWorkspace}
+        applicationSettings={applicationSettings}
+        isMacOs={isMacOs}
         documentTableDensity={applicationSettings.documentTableDensity}
         visibleTableColumns={getEffectiveDocumentTableVisibleColumns(
           applicationSettings.documentTableVisibleColumns,
@@ -1537,6 +1769,7 @@ function App() {
         onSelectDocument={(documentRecordId) =>
           setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId)
         }
+        onCloseDocumentDetail={clearSelectedDocument}
         onShowFiles={handleShowFilesForDocument}
         onRequestStatusChange={handleRequestStatusChange}
         onRequestNewDocument={openCreateDocumentDialog}
@@ -1604,12 +1837,20 @@ function App() {
             });
         }}
         onShowVersionFiles={(documentVersionId) =>
-          setFilesDialog({
-            open: true,
-            versionId: documentVersionId,
-            addRole: 'working',
-            isSubmitting: false
-          })
+          {
+            const version =
+              selectedDocumentDetail?.versions.find((item) => item.id === documentVersionId) ?? null;
+            setFilesDialogVersion(version);
+            setFilesDialog({
+              open: true,
+              versionId: documentVersionId,
+              addRole: 'working',
+              isSubmitting: false
+            });
+          }
+        }
+        onUpdateSidebarWidth={(nextWidth) =>
+          saveApplicationSettingsPartial({ documentDetailSidebarWidth: nextWidth })
         }
       />
     );
@@ -1732,7 +1973,7 @@ function App() {
 
   return (
     <div className={cn('app-surface flex h-full flex-col', isMacOs && 'platform-macos')}>
-      <header className="app-header window-drag-region border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
+      <header className="app-header window-drag-region relative z-40 border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md">
         <div className="app-header-row flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-workspace text-workspace-contrast shadow-sm">
@@ -1746,26 +1987,90 @@ function App() {
             </div>
           </div>
 
-	          <div className="window-no-drag flex flex-wrap items-center gap-1.5">
-	            <Button variant="outline" onClick={openApplicationSettingsDialog}>
-	              <SunMoon className="h-4 w-4" />
-	              Application Settings
+          <div className="window-no-drag flex flex-wrap items-center gap-1.5">
+            <Button variant="outline" onClick={openApplicationSettingsDialog}>
+              <Settings className="h-4 w-4" />
+              Settings
             </Button>
             <Button variant="outline" onClick={openCreateWorkspaceDialog}>
               <Plus className="h-4 w-4" />
               New Workspace
             </Button>
-            <Button variant="secondary" onClick={() => void openWorkspacePicker()}>
-              <FolderOpen className="h-4 w-4" />
-              Open Workspace
-            </Button>
-	            <Button
-	              onClick={openCreateDocumentDialog}
-	              disabled={!activeWorkspace}
-            >
-              <FilePlus2 className="h-4 w-4" />
-              New Document
-            </Button>
+            <div className="relative" ref={workspaceMenuRef}>
+              <Button
+                variant="secondary"
+                aria-expanded={isWorkspaceMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setIsWorkspaceMenuOpen((open) => !open)}
+              >
+                <FolderOpen className="h-4 w-4" />
+                Open Workspace
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+              {isWorkspaceMenuOpen ? (
+                <div
+                  className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-[320px] rounded-2xl border border-border bg-card p-2 shadow-2xl"
+                  role="menu"
+                >
+                  <div className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Recent Workspaces
+                  </div>
+                  <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
+                    {recentWorkspaces.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border bg-background px-3 py-4 text-[13px] text-muted-foreground">
+                        No recent workspaces yet.
+                      </div>
+                    ) : (
+                      recentWorkspaces.map((workspace) => (
+                        <div
+                          key={workspace.rootPath}
+                          className="flex items-start gap-2 rounded-xl border border-transparent bg-background px-3 py-3 transition hover:border-border hover:bg-accent"
+                        >
+                          <button
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => {
+                              setIsWorkspaceMenuOpen(false);
+                              void openWorkspace(workspace.rootPath).catch((error: Error) => {
+                                notifyError(error, 'Unable to open workspace.');
+                              });
+                            }}
+                          >
+                            <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
+                            <div className="mt-1 truncate text-xs text-muted-foreground">
+                              {workspace.rootPath}
+                            </div>
+                            <div className="mt-2 text-xs text-muted-foreground">
+                              Last opened {formatDateTime(workspace.lastOpenedDate)}
+                            </div>
+                          </button>
+                          <button
+                            className="rounded-md p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                            aria-label={`Dismiss ${workspace.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void dismissRecentWorkspace(workspace.rootPath).catch((error: Error) => {
+                                notifyError(error, 'Unable to remove the recent workspace.');
+                              });
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-2 border-t border-border pt-2">
+                    <button
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition hover:bg-accent"
+                      onClick={() => void openWorkspacePicker()}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      Choose Workspace Folder...
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -1781,7 +2086,10 @@ function App() {
                 role="button"
                 tabIndex={0}
                 className={cn(
-                  'group flex min-w-[190px] items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition',
+                  'group flex items-center gap-2 rounded-xl border px-3 text-left transition',
+                  applicationSettings.workspaceTabDensity === 'compact'
+                    ? 'min-w-[160px] py-1.5'
+                    : 'min-w-[190px] py-2.5',
                   activeWorkspacePath === workspaceTab.workspace.rootPath
                     ? 'border-border bg-secondary text-foreground'
                     : 'border-border bg-background text-muted-foreground hover:bg-accent'
@@ -1802,9 +2110,11 @@ function App() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold">{workspaceTab.workspace.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {workspaceTab.documents.length} docs
-                  </div>
+                  {applicationSettings.workspaceTabDensity === 'comfortable' ? (
+                    <div className="truncate text-xs text-muted-foreground">
+                      {workspaceTab.documents.length} docs
+                    </div>
+                  ) : null}
                 </div>
                 <button
                   className="rounded-md p-1 text-muted-foreground transition hover:bg-card hover:text-foreground"
@@ -1878,31 +2188,23 @@ function App() {
 	            ) : null}
 	          </div>
 
-	          <div className="mt-3 rounded-xl border border-border bg-background p-2.5 shadow-sm">
-	            <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-	              Workspace Control
-	            </div>
-	            <SidebarButton
-	              icon={Settings2}
-	              label="Workspace Settings"
-	              active={workspaceSettingsDialog.open}
-	              disabled={!activeWorkspace}
-	              onClick={openWorkspaceSettingsDialog}
-	            />
-	          </div>
-
-          <div className="mt-3 rounded-xl border border-border bg-workspace px-3.5 py-4 text-workspace-contrast shadow-sm">
-            <div className="flex items-center gap-2 text-[13px] font-semibold">
-              <Sparkles className="h-4 w-4 text-workspace-accent" />
-              Keyboard Shortcuts
+          <div className="mt-3 rounded-xl border border-border bg-background p-2.5 shadow-sm">
+            <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Workspace Controls
             </div>
-            <div className="mt-3 space-y-2.5 text-[13px] text-slate-200/80">
-              <Shortcut hint="Ctrl/Cmd + ," label="Application settings" />
-              <Shortcut hint="Ctrl/Cmd + Shift + N" label="New workspace" />
-              <Shortcut hint="Ctrl/Cmd + O" label="Open workspace" />
-              <Shortcut hint="Ctrl/Cmd + N" label="New document" />
-              <Shortcut hint="Ctrl/Cmd + F" label="Focus search" />
-            </div>
+            <SidebarButton
+              icon={FilePlus2}
+              label="New Document"
+              disabled={!activeWorkspace}
+              onClick={openCreateDocumentDialog}
+            />
+            <SidebarButton
+              icon={Settings2}
+              label="Workspace Settings"
+              active={workspaceSettingsDialog.open}
+              disabled={!activeWorkspace}
+              onClick={openWorkspaceSettingsDialog}
+            />
           </div>
         </aside>
 
@@ -1927,6 +2229,7 @@ function App() {
         state={applicationSettingsDialog}
         onStateChange={setApplicationSettingsDialog}
         onSubmit={handleSaveApplicationSettings}
+        isMacOs={isMacOs}
       />
 
       <TableColumnsDialog
@@ -2022,7 +2325,15 @@ function App() {
 
       <VersionFilesDialog
         open={filesDialog.open}
-        onOpenChange={(open) => setFilesDialog(open ? { ...filesDialog, open } : defaultFilesDialogState)}
+        onOpenChange={(open) => {
+          if (open) {
+            setFilesDialog({ ...filesDialog, open });
+            return;
+          }
+
+          setFilesDialogVersion(null);
+          setFilesDialog(defaultFilesDialogState);
+        }}
         state={filesDialog}
         onStateChange={setFilesDialog}
         version={activeFilesVersion}
@@ -2112,12 +2423,26 @@ function ThemeToggle({
 function ApplicationSettingsDialog({
   state,
   onStateChange,
-  onSubmit
+  onSubmit,
+  isMacOs
 }: {
   state: ApplicationSettingsDialogState;
   onStateChange: React.Dispatch<React.SetStateAction<ApplicationSettingsDialogState>>;
   onSubmit: () => Promise<void>;
+  isMacOs: boolean;
 }) {
+  const updateSettings = (partial: Partial<ApplicationSettings>) => {
+    onStateChange((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        ...partial,
+        keyboardShortcuts: partial.keyboardShortcuts
+          ? { ...partial.keyboardShortcuts }
+          : { ...current.settings.keyboardShortcuts }
+      }
+    }));
+  };
   const selectedLaunchBehavior =
     APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.find(
       (option) => option.value === state.settings.launchBehavior
@@ -2125,10 +2450,20 @@ function ApplicationSettingsDialog({
   const selectedWorkspaceView =
     WORKSPACE_VIEW_OPTIONS.find((option) => option.value === state.settings.defaultWorkspaceView) ??
     WORKSPACE_VIEW_OPTIONS[0];
+  const selectedDetailView =
+    DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.find(
+      (option) => option.value === state.settings.documentDetailViewMode
+    ) ?? DOCUMENT_DETAIL_VIEW_MODE_OPTIONS[0];
   const selectedDensity =
     DOCUMENT_TABLE_DENSITY_OPTIONS.find(
       (option) => option.value === state.settings.documentTableDensity
     ) ?? DOCUMENT_TABLE_DENSITY_OPTIONS[0];
+  const selectedTabDensity =
+    WORKSPACE_TAB_DENSITY_OPTIONS.find(
+      (option) => option.value === state.settings.workspaceTabDensity
+    ) ?? WORKSPACE_TAB_DENSITY_OPTIONS[0];
+  const shortcutConflicts = getShortcutConflictActions(state.settings.keyboardShortcuts);
+  const hasShortcutConflicts = shortcutConflicts.length > 0;
 
   return (
     <Dialog
@@ -2139,7 +2474,7 @@ function ApplicationSettingsDialog({
     >
       <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Application Settings</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
             Customize how DocTrack looks, launches, and behaves across every workspace.
           </DialogDescription>
@@ -2155,15 +2490,7 @@ function ApplicationSettingsDialog({
               <div className="text-[13px] font-medium text-foreground/90">Theme</div>
               <ThemeToggle
                 themeMode={state.settings.themeMode}
-                onChange={(themeMode) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      themeMode
-                    }
-                  }))
-                }
+                onChange={(themeMode) => updateSettings({ themeMode })}
               />
               <div className="text-xs text-muted-foreground">
                 Theme changes preview immediately while this modal is open. Save to keep them.
@@ -2179,13 +2506,9 @@ function ApplicationSettingsDialog({
               <Select
                 value={state.settings.launchBehavior}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      launchBehavior: event.target.value as ApplicationSettings['launchBehavior']
-                    }
-                  }))
+                  updateSettings({
+                    launchBehavior: event.target.value as ApplicationSettings['launchBehavior']
+                  })
                 }
               >
                 {APPLICATION_LAUNCH_BEHAVIOR_OPTIONS.map((option) => (
@@ -2201,13 +2524,10 @@ function ApplicationSettingsDialog({
               <Select
                 value={state.settings.defaultWorkspaceView}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      defaultWorkspaceView: event.target.value as ApplicationSettings['defaultWorkspaceView']
-                    }
-                  }))
+                  updateSettings({
+                    defaultWorkspaceView:
+                      event.target.value as ApplicationSettings['defaultWorkspaceView']
+                  })
                 }
               >
                 {WORKSPACE_VIEW_OPTIONS.map((option) => (
@@ -2228,30 +2548,14 @@ function ApplicationSettingsDialog({
               title="Seed starter data in new workspaces"
               description="New workspace dialogs start with example document types and sample documents enabled."
               checked={state.settings.defaultIncludeExampleData}
-              onChange={(checked) =>
-                onStateChange((current) => ({
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    defaultIncludeExampleData: checked
-                  }
-                }))
-              }
+              onChange={(checked) => updateSettings({ defaultIncludeExampleData: checked })}
             />
 
             <Field label="Default Document Author">
               <Input
                 placeholder="Jordan Singh"
                 value={state.settings.defaultDocumentAuthor}
-                onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      defaultDocumentAuthor: event.target.value
-                    }
-                  }))
-                }
+                onChange={(event) => updateSettings({ defaultDocumentAuthor: event.target.value })}
               />
               <div className="text-xs text-muted-foreground">
                 New document dialogs start with this author name pre-filled.
@@ -2262,14 +2566,10 @@ function ApplicationSettingsDialog({
               <Select
                 value={state.settings.defaultDocumentVersionScheme}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      defaultDocumentVersionScheme:
-                        event.target.value as ApplicationSettings['defaultDocumentVersionScheme']
-                    }
-                  }))
+                  updateSettings({
+                    defaultDocumentVersionScheme:
+                      event.target.value as ApplicationSettings['defaultDocumentVersionScheme']
+                  })
                 }
               >
                 {Object.entries(DOCUMENT_VERSION_SCHEME_LABELS).map(([value, label]) => (
@@ -2281,22 +2581,93 @@ function ApplicationSettingsDialog({
             </Field>
           </SettingsSection>
 
-          <SettingsSection
-            title="Table & Display"
-            description="Tune how dense the main document workspace feels."
-          >
+          <SettingsSection title="Workspace Interface" description="Tune document detail presentation and workspace tab density.">
+            <Field label="Document Detail View">
+              <Select
+                value={state.settings.documentDetailViewMode}
+                onChange={(event) =>
+                  updateSettings({
+                    documentDetailViewMode: event.target.value as DocumentDetailViewMode
+                  })
+                }
+              >
+                {DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-muted-foreground">{selectedDetailView.description}</div>
+            </Field>
+
+            <Field label="Workspace Tab Density">
+              <Select
+                value={state.settings.workspaceTabDensity}
+                onChange={(event) =>
+                  updateSettings({
+                    workspaceTabDensity: event.target.value as ApplicationSettings['workspaceTabDensity']
+                  })
+                }
+              >
+                {WORKSPACE_TAB_DENSITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-muted-foreground">{selectedTabDensity.description}</div>
+            </Field>
+
+            {state.settings.documentDetailViewMode === 'sidebar' ? (
+              <Field label="Sidebar Width">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
+                  <input
+                    type="range"
+                    min={DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH}
+                    max={DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH}
+                    step={10}
+                    value={state.settings.documentDetailSidebarWidth}
+                    onChange={(event) =>
+                      updateSettings({
+                        documentDetailSidebarWidth: Number(event.target.value)
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH}
+                    max={DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH}
+                    step={10}
+                    value={String(state.settings.documentDetailSidebarWidth)}
+                    onChange={(event) =>
+                      updateSettings({
+                        documentDetailSidebarWidth: Math.max(
+                          DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+                          Math.min(
+                            DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+                            Number(event.target.value) || DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH
+                          )
+                        )
+                      })
+                    }
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Controls the default width of the overlay sidebar for document details.
+                </div>
+              </Field>
+            ) : null}
+          </SettingsSection>
+
+          <SettingsSection title="Table & Display" description="Tune how dense the main document workspace feels.">
             <Field label="Document Table Density">
               <Select
                 value={state.settings.documentTableDensity}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      documentTableDensity:
-                        event.target.value as ApplicationSettings['documentTableDensity']
-                    }
-                  }))
+                  updateSettings({
+                    documentTableDensity:
+                      event.target.value as ApplicationSettings['documentTableDensity']
+                  })
                 }
               >
                 {DOCUMENT_TABLE_DENSITY_OPTIONS.map((option) => (
@@ -2310,6 +2681,37 @@ function ApplicationSettingsDialog({
           </SettingsSection>
 
           <SettingsSection
+            title="Keyboard Shortcuts"
+            description="Record custom shortcuts for common app actions or clear one to disable it."
+          >
+            {hasShortcutConflicts ? (
+              <div className="rounded-xl border border-[#F0D5D3] bg-[#FFF7F6] px-3 py-2 text-[13px] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]">
+                Duplicate shortcuts found. Each action needs a unique shortcut before you can save.
+              </div>
+            ) : null}
+
+            <div className="grid gap-3">
+              {KEYBOARD_SHORTCUT_ACTIONS.map((action) => (
+                <ShortcutSettingRow
+                  key={action}
+                  action={action}
+                  shortcut={state.settings.keyboardShortcuts[action]}
+                  isConflicting={shortcutConflicts.includes(action)}
+                  isMacOs={isMacOs}
+                  onChange={(shortcut) =>
+                    updateSettings({
+                      keyboardShortcuts: {
+                        ...state.settings.keyboardShortcuts,
+                        [action]: shortcut
+                      }
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
             title="Feedback & Safety"
             description="Control confirmation prompts and how long success messages stay visible."
           >
@@ -2317,30 +2719,14 @@ function ApplicationSettingsDialog({
               title="Confirm destructive actions"
               description="Ask before deleting document types or version files."
               checked={state.settings.confirmDestructiveActions}
-              onChange={(checked) =>
-                onStateChange((current) => ({
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    confirmDestructiveActions: checked
-                  }
-                }))
-              }
+              onChange={(checked) => updateSettings({ confirmDestructiveActions: checked })}
             />
 
             <ToggleSetting
               title="Auto-dismiss success notifications"
               description="Success messages fade away automatically while error messages stay visible."
               checked={state.settings.autoDismissSuccessNotifications}
-              onChange={(checked) =>
-                onStateChange((current) => ({
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    autoDismissSuccessNotifications: checked
-                  }
-                }))
-              }
+              onChange={(checked) => updateSettings({ autoDismissSuccessNotifications: checked })}
             />
           </SettingsSection>
           </div>
@@ -2353,13 +2739,105 @@ function ApplicationSettingsDialog({
           >
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
-            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <SunMoon className="h-4 w-4" />}
+          <Button disabled={state.isSubmitting || hasShortcutConflicts} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
             Save Settings
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ShortcutSettingRow({
+  action,
+  shortcut,
+  isConflicting,
+  isMacOs,
+  onChange
+}: {
+  action: KeyboardShortcutAction;
+  shortcut: KeyboardShortcutValue;
+  isConflicting: boolean;
+  isMacOs: boolean;
+  onChange: (shortcut: KeyboardShortcutValue) => void;
+}) {
+  const detail = KEYBOARD_SHORTCUT_ACTION_DETAILS[action];
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[13px] font-semibold">
+            <Keyboard className="h-4 w-4 text-muted-foreground" />
+            {detail.label}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">{detail.description}</div>
+          {isConflicting ? (
+            <div className="mt-2 text-xs font-medium text-[#C4554D] dark:text-[#FFB7B2]">
+              This shortcut is duplicated by another action.
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ShortcutRecorderInput shortcut={shortcut} isMacOs={isMacOs} onChange={onChange} />
+          <Button variant="ghost" size="sm" onClick={() => onChange(null)}>
+            Clear
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(DEFAULT_KEYBOARD_SHORTCUTS[action])}
+          >
+            Reset
+          </Button>
+        </div>
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        Current: {formatShortcutForDisplay(shortcut, { isMacOs })}
+      </div>
+    </div>
+  );
+}
+
+function ShortcutRecorderInput({
+  shortcut,
+  isMacOs,
+  onChange
+}: {
+  shortcut: KeyboardShortcutValue;
+  isMacOs: boolean;
+  onChange: (shortcut: KeyboardShortcutValue) => void;
+}) {
+  const [isRecording, setIsRecording] = useState(false);
+
+  return (
+    <Input
+      readOnly
+      aria-label="Shortcut"
+      value={isRecording ? 'Press keys...' : formatShortcutForDisplay(shortcut, { isMacOs })}
+      className={cn(
+        'w-[180px] cursor-text',
+        isRecording && 'border-ring ring-2 ring-ring'
+      )}
+      onFocus={() => setIsRecording(true)}
+      onBlur={() => setIsRecording(false)}
+      onKeyDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (event.key === 'Escape') {
+          setIsRecording(false);
+          return;
+        }
+
+        const shortcutValue = getShortcutFromKeyboardEvent(event.nativeEvent);
+        if (shortcutValue) {
+          onChange(shortcutValue);
+          setIsRecording(false);
+        }
+      }}
+    />
   );
 }
 
@@ -2422,7 +2900,7 @@ function NotificationBar({
   return (
     <div
       className={cn(
-        'mx-3 mt-3 flex items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-sm',
+        'fixed left-1/2 top-4 z-[80] flex w-[min(92vw,560px)] -translate-x-1/2 items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-lg',
         tone === 'success'
           ? 'border-[#CFE3D5] bg-[#F6FBF7] text-[#2F6B48] dark:border-[#35503F] dark:bg-[#1F2E25] dark:text-[#8FD9A8]'
           : 'border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21] dark:text-[#FFB7B2]'
@@ -2445,7 +2923,7 @@ function SidebarButton({
 }: {
   icon: typeof Table2;
   label: string;
-  active: boolean;
+  active?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -2480,12 +2958,14 @@ function WelcomeView({
   recentWorkspaces,
   onCreateWorkspace,
   onOpenWorkspace,
-  onOpenRecent
+  onOpenRecent,
+  onDismissRecent
 }: {
   recentWorkspaces: Array<{ rootPath: string; name: string; lastOpenedDate: string }>;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
   onOpenRecent: (rootPath: string) => void;
+  onDismissRecent: (rootPath: string) => void;
 }) {
   return (
     <div className="grid h-full gap-3 xl:grid-cols-[1.2fr_0.8fr]">
@@ -2530,17 +3010,28 @@ function WelcomeView({
             </div>
           ) : (
             recentWorkspaces.map((workspace) => (
-              <button
+              <div
                 key={workspace.rootPath}
-                className="w-full rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
-                onClick={() => onOpenRecent(workspace.rootPath)}
+                className="flex items-start gap-2 rounded-xl border border-border bg-background p-3 transition hover:bg-accent"
               >
-                <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.rootPath}</div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Last opened {formatDateTime(workspace.lastOpenedDate)}
-                </div>
-              </button>
+                <button className="min-w-0 flex-1 text-left" onClick={() => onOpenRecent(workspace.rootPath)}>
+                  <div className="truncate text-[13px] font-semibold">{workspace.name}</div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">{workspace.rootPath}</div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Last opened {formatDateTime(workspace.lastOpenedDate)}
+                  </div>
+                </button>
+                <button
+                  className="rounded-md p-1 text-muted-foreground transition hover:bg-card hover:text-foreground"
+                  aria-label={`Dismiss ${workspace.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDismissRecent(workspace.rootPath);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -2551,11 +3042,14 @@ function WelcomeView({
 
 function DocumentsView({
   workspace,
+  applicationSettings,
+  isMacOs,
   documentTableDensity,
   visibleTableColumns,
   selectedDocumentDetail,
   isDetailLoading,
   onSelectDocument,
+  onCloseDocumentDetail,
   onShowFiles,
   onRequestStatusChange,
   onRequestNewDocument,
@@ -2565,14 +3059,18 @@ function DocumentsView({
   onRequestNewVersion,
   onRequestLatestVersionEdit,
   onShowDocumentFolder,
-  onShowVersionFiles
+  onShowVersionFiles,
+  onUpdateSidebarWidth
 }: {
   workspace: ReturnType<typeof useAppStore.getState>['openWorkspaces'][string];
+  applicationSettings: ApplicationSettings;
+  isMacOs: boolean;
   documentTableDensity: DocumentTableDensity;
   visibleTableColumns: DocumentTableColumn[];
   selectedDocumentDetail: DocumentDetail | null;
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
+  onCloseDocumentDetail: () => void;
   onShowFiles: (documentRecordId: number) => void;
   onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
   onRequestNewDocument: () => void;
@@ -2583,6 +3081,7 @@ function DocumentsView({
   onRequestLatestVersionEdit: (documentRecordId?: number) => void;
   onShowDocumentFolder: () => void;
   onShowVersionFiles: (documentVersionId: number) => void;
+  onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
 }) {
   const fallbackSortingColumn = visibleTableColumns.includes('modifiedDate')
     ? 'modifiedDate'
@@ -2597,9 +3096,12 @@ function DocumentsView({
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All');
   const [projectFilter, setProjectFilter] = useState<string>('All');
   const [exportDialog, setExportDialog] = useState(defaultDocumentExportDialogState);
+  const [sidebarWidth, setSidebarWidth] = useState(applicationSettings.documentDetailSidebarWidth);
   const availableColumns = workspace.settings.visibleDocumentColumns;
   const projectFeatureEnabled = availableColumns.includes('project');
   const deferredSearch = useDeferredValue(search);
+  const detailViewMode = applicationSettings.documentDetailViewMode;
+  const hasSelectedDocument = Boolean(workspace.selectedDocumentRecordId);
   const headerCellClassName =
     documentTableDensity === 'compact'
       ? 'whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground'
@@ -2645,6 +3147,10 @@ function DocumentsView({
       };
     });
   }, [exportGroupingOptions]);
+
+  useEffect(() => {
+    setSidebarWidth(applicationSettings.documentDetailSidebarWidth);
+  }, [applicationSettings.documentDetailSidebarWidth]);
 
   const filteredDocuments = useMemo(
     () =>
@@ -2851,18 +3357,6 @@ function DocumentsView({
                 disabled={!row.original.latestVersionLabel}
                 onClick={(event) => {
                   stopRowAction(event);
-                  onRequestLatestVersionEdit(row.original.id);
-                }}
-              >
-                <CircleDot className="h-4 w-4" />
-                Latest Version
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!row.original.latestVersionLabel}
-                onClick={(event) => {
-                  stopRowAction(event);
                   void onShowFiles(row.original.id);
                 }}
               >
@@ -2997,10 +3491,75 @@ function DocumentsView({
     }
   };
 
+  const renderDetailContent = (layout: 'sidebar' | 'modal' | 'page') => (
+    <DocumentDetailSurface
+      layout={layout}
+      documentDetail={selectedDocumentDetail}
+      availableColumns={availableColumns}
+      isLoading={isDetailLoading}
+      onClose={onCloseDocumentDetail}
+      onRequestEditDocument={onRequestEditDocument}
+      onRequestLatestVersionEdit={onRequestLatestVersionEdit}
+      onRequestNewVersion={onRequestNewVersion}
+      onShowDocumentFolder={onShowDocumentFolder}
+      onShowVersionFiles={onShowVersionFiles}
+      isMacOs={isMacOs}
+    />
+  );
+
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    let nextWidth = startWidth;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      nextWidth = Math.max(
+        DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+        Math.min(
+          DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+          startWidth + (startX - moveEvent.clientX)
+        )
+      );
+      setSidebarWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      void onUpdateSidebarWidth(nextWidth);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  if (detailViewMode === 'page' && hasSelectedDocument) {
+    return (
+      <>
+        <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border/80 px-4 py-3">
+            <Button variant="ghost" onClick={onCloseDocumentDetail}>
+              <ChevronLeft className="h-4 w-4" />
+              Back to Documents
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden p-3">{renderDetailContent('page')}</div>
+        </div>
+        <DocumentExportDialog
+          state={exportDialog}
+          groupingOptions={exportGroupingOptions}
+          onStateChange={setExportDialog}
+          onSubmit={handleSubmitExport}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="grid h-full gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="relative h-full">
+      <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
           <div>
             <div className="text-lg font-semibold">{workspace.workspace.name}</div>
@@ -3135,6 +3694,7 @@ function DocumentsView({
         </div>
       </div>
 
+      {false ? (
       <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
         <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <div>
@@ -3164,17 +3724,17 @@ function DocumentsView({
             <div className="rounded-xl border border-border bg-background p-3.5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="font-mono text-xs text-primary">{selectedDocumentDetail.documentId}</div>
-                  <div className="mt-1.5 text-lg font-semibold">{selectedDocumentDetail.title}</div>
+                  <div className="font-mono text-xs text-primary">{selectedDocumentDetail!.documentId}</div>
+                  <div className="mt-1.5 text-lg font-semibold">{selectedDocumentDetail!.title}</div>
                   <div className="mt-1 text-[13px] text-muted-foreground">
-                    {selectedDocumentDetail.typeName} • {selectedDocumentDetail.author}
+                    {selectedDocumentDetail!.typeName} • {selectedDocumentDetail!.author}
                   </div>
                 </div>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => onRequestEditDocument(selectedDocumentDetail.id)}
+                    onClick={() => onRequestEditDocument(selectedDocumentDetail!.id)}
                   >
                     <PencilLine className="h-4 w-4" />
                     Edit Document
@@ -3183,7 +3743,7 @@ function DocumentsView({
                     variant="outline"
                     size="sm"
                     disabled={!latestVersion}
-                    onClick={() => onRequestLatestVersionEdit(selectedDocumentDetail.id)}
+                    onClick={() => onRequestLatestVersionEdit(selectedDocumentDetail!.id)}
                   >
                     <CircleDot className="h-4 w-4" />
                     Edit Latest Version
@@ -3194,53 +3754,53 @@ function DocumentsView({
                   </Button>
                   <Button size="sm" onClick={onRequestNewVersion}>
                     <PencilLine className="h-4 w-4" />
-                    {selectedDocumentDetail.versions.length === 0 ? 'Create First Version' : 'New Version'}
+                    {selectedDocumentDetail!.versions.length === 0 ? 'Create First Version' : 'New Version'}
                   </Button>
                 </div>
               </div>
 	              <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-	                <InfoCard label="Document Type" value={selectedDocumentDetail.typeName} />
+	                <InfoCard label="Document Type" value={selectedDocumentDetail!.typeName} />
 	                {availableColumns.includes('author') ? (
-	                  <InfoCard label="Author" value={selectedDocumentDetail.author} />
+	                  <InfoCard label="Author" value={selectedDocumentDetail!.author} />
 	                ) : null}
 	                {availableColumns.includes('language') ? (
-	                  <InfoCard label="Language" value={selectedDocumentDetail.languageCode ?? '—'} />
+	                  <InfoCard label="Language" value={selectedDocumentDetail!.languageCode ?? '—'} />
 	                ) : null}
 	                {availableColumns.includes('confidentialityClass') ? (
 	                  <InfoCard
 	                    label="Confidentiality"
-	                    value={selectedDocumentDetail.confidentialityClassName ?? '—'}
+	                    value={selectedDocumentDetail!.confidentialityClassName ?? '—'}
 	                  />
 	                ) : null}
 	                {projectFeatureEnabled ? (
-	                  <InfoCard label="Project" value={selectedDocumentDetail.projectName ?? '—'} />
+	                  <InfoCard label="Project" value={selectedDocumentDetail!.projectName ?? '—'} />
 	                ) : null}
 	                {availableColumns.includes('company') ? (
-	                  <InfoCard label="Company" value={selectedDocumentDetail.company || '—'} />
+	                  <InfoCard label="Company" value={selectedDocumentDetail!.company || '—'} />
 	                ) : null}
 	                {availableColumns.includes('department') ? (
-	                  <InfoCard label="Department" value={selectedDocumentDetail.department || '—'} />
+	                  <InfoCard label="Department" value={selectedDocumentDetail!.department || '—'} />
 	                ) : null}
 	                {availableColumns.includes('revisionIntervalMonths') ? (
 	                  <InfoCard
 	                    label="Revision Interval"
 	                    value={
-	                      selectedDocumentDetail.revisionIntervalMonths
-	                        ? `${selectedDocumentDetail.revisionIntervalMonths} months`
+	                      selectedDocumentDetail!.revisionIntervalMonths
+	                        ? `${selectedDocumentDetail!.revisionIntervalMonths} months`
 	                        : '—'
 	                    }
 	                  />
 	                ) : null}
 	                {availableColumns.includes('createdDate') ? (
-	                  <InfoCard label="Created" value={formatDateTime(selectedDocumentDetail.createdDate)} />
+	                  <InfoCard label="Created" value={formatDateTime(selectedDocumentDetail!.createdDate)} />
 	                ) : null}
 	                {availableColumns.includes('modifiedDate') ? (
-	                  <InfoCard label="Modified" value={formatDateTime(selectedDocumentDetail.modifiedDate)} />
+	                  <InfoCard label="Modified" value={formatDateTime(selectedDocumentDetail!.modifiedDate)} />
 	                ) : null}
 	                {availableColumns.includes('releasedDate') ? (
 	                  <InfoCard
 	                    label="Released"
-	                    value={latestVersion?.releasedDate ? formatDateTime(latestVersion.releasedDate) : '—'}
+	                    value={latestVersion?.releasedDate ? formatDateTime(latestVersion?.releasedDate ?? '') : '—'}
 	                  />
 	                ) : null}
 	                {availableColumns.includes('approvedBy') ? (
@@ -3252,15 +3812,15 @@ function DocumentsView({
             <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-background p-3.5">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-[13px] font-semibold">Versions</div>
-                <Badge variant="outline">{selectedDocumentDetail.versions.length} total</Badge>
+                <Badge variant="outline">{selectedDocumentDetail!.versions.length} total</Badge>
               </div>
-              {selectedDocumentDetail.versions.length === 0 ? (
+              {selectedDocumentDetail!.versions.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
                   This document shell has no versions yet. Create the first version to start tracking files.
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {selectedDocumentDetail.versions.map((version) => (
+                  {selectedDocumentDetail!.versions.map((version) => (
                     <div
                       key={version.id}
                       className="rounded-xl border border-border bg-card p-3 transition hover:bg-accent/40"
@@ -3318,7 +3878,41 @@ function DocumentsView({
           </div>
         ) : null}
       </div>
+      ) : null}
       </div>
+      {detailViewMode === 'sidebar' && hasSelectedDocument ? (
+        <>
+          <div
+            className="absolute inset-0 z-[45] rounded-2xl bg-slate-950/10 backdrop-blur-[1px]"
+            onClick={onCloseDocumentDetail}
+          />
+          <div
+            className="absolute bottom-0 right-0 top-0 z-[55] flex border-l border-border bg-card shadow-2xl"
+            style={{ width: `${sidebarWidth}px` }}
+            data-detail-sidebar="true"
+          >
+            <div
+              className="flex w-5 cursor-col-resize items-center justify-center border-r border-border/60 bg-background/80"
+              onPointerDown={handleSidebarResizeStart}
+              title="Resize detail sidebar"
+            >
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1 overflow-hidden">{renderDetailContent('sidebar')}</div>
+          </div>
+        </>
+      ) : null}
+      <Dialog
+        open={detailViewMode === 'modal' && hasSelectedDocument}
+        onOpenChange={(open) => !open && onCloseDocumentDetail()}
+      >
+        <DialogContent
+          className="h-[min(92vh,920px)] w-[min(96vw,1240px)] max-w-none overflow-hidden p-0"
+          showCloseButton={false}
+        >
+          {renderDetailContent('modal')}
+        </DialogContent>
+      </Dialog>
       <DocumentExportDialog
         state={exportDialog}
         groupingOptions={exportGroupingOptions}
@@ -3326,6 +3920,308 @@ function DocumentsView({
         onSubmit={handleSubmitExport}
       />
     </>
+  );
+}
+
+function DocumentDetailSurface({
+  layout,
+  documentDetail,
+  availableColumns,
+  isLoading,
+  onClose,
+  onRequestEditDocument,
+  onRequestLatestVersionEdit,
+  onRequestNewVersion,
+  onShowDocumentFolder,
+  onShowVersionFiles,
+  isMacOs
+}: {
+  layout: 'sidebar' | 'modal' | 'page';
+  documentDetail: DocumentDetail | null;
+  availableColumns: DocumentTableColumn[];
+  isLoading: boolean;
+  onClose: () => void;
+  onRequestEditDocument: (documentRecordId?: number) => void;
+  onRequestLatestVersionEdit: (documentRecordId?: number) => void;
+  onRequestNewVersion: () => void;
+  onShowDocumentFolder: () => void;
+  onShowVersionFiles: (documentVersionId: number) => void;
+  isMacOs: boolean;
+}) {
+  const latestVersion = documentDetail?.versions[0] ?? null;
+  const detailMetaCards = documentDetail
+    ? [
+        { label: 'Document Type', value: documentDetail.typeName, show: true },
+        { label: 'Author', value: documentDetail.author || '—', show: availableColumns.includes('author') },
+        { label: 'Language', value: documentDetail.languageCode ?? '—', show: availableColumns.includes('language') },
+        {
+          label: 'Confidentiality',
+          value: documentDetail.confidentialityClassName ?? '—',
+          show: availableColumns.includes('confidentialityClass')
+        },
+        { label: 'Project', value: documentDetail.projectName ?? '—', show: availableColumns.includes('project') },
+        { label: 'Company', value: documentDetail.company || '—', show: availableColumns.includes('company') },
+        {
+          label: 'Department',
+          value: documentDetail.department || '—',
+          show: availableColumns.includes('department')
+        },
+        {
+          label: 'Revision Interval',
+          value: documentDetail.revisionIntervalMonths
+            ? `${documentDetail.revisionIntervalMonths} months`
+            : '—',
+          show: availableColumns.includes('revisionIntervalMonths')
+        },
+        {
+          label: 'Created',
+          value: formatDateTime(documentDetail.createdDate),
+          show: availableColumns.includes('createdDate')
+        },
+        {
+          label: 'Modified',
+          value: formatDateTime(documentDetail.modifiedDate),
+          show: availableColumns.includes('modifiedDate')
+        }
+      ].filter((item) => item.show)
+    : [];
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <div className="border-b border-border/80 px-5 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="font-mono text-[11px]">
+                {documentDetail?.documentId ?? 'Document detail'}
+              </Badge>
+              {latestVersion ? <StatusBadge status={latestVersion.status} /> : null}
+              {documentDetail ? (
+                <Badge variant="outline">{documentDetail.versions.length} version{documentDetail.versions.length === 1 ? '' : 's'}</Badge>
+              ) : null}
+            </div>
+            <div className="mt-3 text-xl font-semibold tracking-tight">
+              {documentDetail?.title ?? 'Document detail'}
+            </div>
+            <div className="mt-1 text-[13px] text-muted-foreground">
+              {documentDetail
+                ? `${documentDetail.typeName} • ${documentDetail.author || 'Unassigned author'}`
+                : 'Select a document to inspect metadata, versions, and managed files.'}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {layout !== 'page' ? (
+              <div className="hidden rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground sm:block">
+                Esc closes this panel
+                {isMacOs ? ' on macOS' : ''}
+              </div>
+            ) : null}
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close detail view">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {documentDetail ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => onRequestEditDocument(documentDetail.id)}>
+              <PencilLine className="h-4 w-4" />
+              Edit Document
+            </Button>
+            <Button variant="outline" disabled={!latestVersion} onClick={() => onRequestLatestVersionEdit(documentDetail.id)}>
+              <CircleDot className="h-4 w-4" />
+              Edit Latest Version
+            </Button>
+            <Button variant="outline" onClick={onShowDocumentFolder}>
+              <FolderOpen className="h-4 w-4" />
+              Show Folder
+            </Button>
+            <Button onClick={onRequestNewVersion}>
+              <FilePlus2 className="h-4 w-4" />
+              {documentDetail.versions.length === 0 ? 'Create First Version' : 'New Version'}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {!documentDetail && !isLoading ? (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="max-w-sm rounded-2xl border border-dashed border-border bg-background px-5 py-8 text-center">
+            <div className="text-sm font-semibold">No document selected</div>
+            <div className="mt-2 text-[13px] text-muted-foreground">
+              Choose a row from the documents table to open metadata, version history, and file actions.
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Loading document detail
+        </div>
+      ) : null}
+
+      {documentDetail ? (
+        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Overview</div>
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      Core metadata for this document shell.
+                    </div>
+                  </div>
+                  {latestVersion ? <DocumentProgressBadge status={latestVersion.status} /> : null}
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {detailMetaCards.map((item) => (
+                    <InfoCard key={item.label} label={item.label} value={item.value} />
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Version History</div>
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      Track release state, approvals, and managed files across every version.
+                    </div>
+                  </div>
+                  <Badge variant="outline">{documentDetail.versions.length} total</Badge>
+                </div>
+
+                {documentDetail.versions.length === 0 ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    This document does not have any versions yet. Create the first version to begin managing files.
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {documentDetail.versions.map((version, index) => (
+                      <div key={version.id} className="rounded-xl border border-border bg-card p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold">
+                                Version {version.versionLabel}
+                              </div>
+                              <StatusBadge status={version.status} />
+                              <Badge variant="outline">{version.files.length} files</Badge>
+                              {index === 0 ? <Badge>Latest</Badge> : null}
+                            </div>
+                            <div className="mt-1 font-mono text-xs text-primary">
+                              {version.versionDocumentId}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Created {formatDateTime(version.createdDate)}
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(version.id)}>
+                            <FolderOpen className="h-4 w-4" />
+                            Show Files
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 md:grid-cols-3">
+                          {availableColumns.includes('releasedDate') ? (
+                            <InfoCard
+                              label="Released"
+                              value={version.releasedDate ? formatDateTime(version.releasedDate) : '—'}
+                            />
+                          ) : null}
+                          {availableColumns.includes('approvedBy') ? (
+                            <InfoCard label="Approved By" value={version.approvedBy || '—'} />
+                          ) : null}
+                          {availableColumns.includes('revisionDescription') ? (
+                            <InfoCard
+                              label="Revision Description"
+                              value={version.revisionDescription || 'No revision description.'}
+                            />
+                          ) : null}
+                        </div>
+
+                        {version.unmanagedPaths.length > 0 ? (
+                          <div className="mt-3 rounded-xl border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                            Unmanaged paths: {version.unmanagedPaths.join(', ')}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="text-sm font-semibold">Latest Version Spotlight</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  The current release view for approvals, publication state, and document routing.
+                </div>
+                {latestVersion ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-xl bg-card p-4">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={latestVersion.status} />
+                        <div className="font-semibold">Version {latestVersion.versionLabel}</div>
+                      </div>
+                      <div className="mt-2 font-mono text-xs text-primary">
+                        {latestVersion.versionDocumentId}
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <InfoCard
+                        label="Released"
+                        value={latestVersion.releasedDate ? formatDateTime(latestVersion.releasedDate) : '—'}
+                      />
+                      <InfoCard label="Approved By" value={latestVersion.approvedBy || '—'} />
+                      <InfoCard
+                        label="Revision Description"
+                        value={latestVersion.revisionDescription || 'No revision description.'}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    This document shell does not have a latest version yet.
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="text-sm font-semibold">Managed Location</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Files for this document are managed inside the workspace folder structure.
+                </div>
+                <div className="mt-4 rounded-xl border border-border bg-card px-3 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Document Folder
+                  </div>
+                  <div className="mt-2 break-all font-mono text-xs text-primary">
+                    {documentDetail.documentFolderPath}
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={onShowDocumentFolder}>
+                    <FolderOpen className="h-4 w-4" />
+                    Open Document Folder
+                  </Button>
+                  {latestVersion ? (
+                    <Button variant="ghost" size="sm" onClick={() => onShowVersionFiles(latestVersion.id)}>
+                      <CircleDot className="h-4 w-4" />
+                      Open Latest Files
+                    </Button>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -5209,7 +6105,7 @@ function DocumentStatusSelect({
 
   return (
     <div
-      className="max-w-[168px]"
+      className="w-[168px] min-w-[168px]"
       onClick={stopRowAction}
       onMouseDown={(event) => event.stopPropagation()}
     >

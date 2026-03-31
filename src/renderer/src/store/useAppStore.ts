@@ -38,6 +38,7 @@ interface AppStoreState {
   openWorkspace: (rootPath: string) => Promise<void>;
   refreshWorkspace: (rootPath: string) => Promise<void>;
   closeWorkspace: (rootPath: string) => Promise<void>;
+  dismissRecentWorkspace: (rootPath: string) => Promise<void>;
   updateWorkspaceSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<void>;
   setActiveWorkspace: (rootPath: string) => void;
   setWorkspaceView: (rootPath: string, view: WorkspaceView) => void;
@@ -182,6 +183,10 @@ export const createAppStore = () =>
               : state.activeWorkspacePath
         };
       });
+    },
+    dismissRecentWorkspace: async (rootPath) => {
+      const recentWorkspaces = await window.docTrack.workspace.dismissRecent(rootPath);
+      set({ recentWorkspaces });
     },
     updateWorkspaceSettings: async (rootPath, input) => {
       const result = await window.docTrack.workspace.updateSettings(rootPath, input);

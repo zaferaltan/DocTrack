@@ -8,6 +8,7 @@ const api: DocTrackApi = {
     close: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceClose, rootPath),
     listOpen: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListOpen),
     listRecent: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListRecent),
+    dismissRecent: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceDismissRecent, rootPath),
     getSummary: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, rootPath),
     updateSettings: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input)

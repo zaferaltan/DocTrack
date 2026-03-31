@@ -2,10 +2,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   DEFAULT_APPLICATION_SETTINGS,
+  DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+  DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
   isApplicationLaunchBehavior,
+  isDocumentDetailViewMode,
   isDocumentTableDensity,
   isThemeMode,
+  isWorkspaceTabDensity,
   isWorkspaceView,
+  normalizeKeyboardShortcuts,
   normalizeDocumentTableVisibleColumns,
   type ApplicationSettings
 } from '@shared/applicationSettings';
@@ -36,6 +41,13 @@ export class AppCatalogService {
       ...state.recentWorkspaces.filter((item) => item.rootPath !== workspace.rootPath)
     ].slice(0, 12);
 
+    this.writeState(state);
+    return state.recentWorkspaces;
+  }
+
+  dismissRecentWorkspace(rootPath: string): RecentWorkspace[] {
+    const state = this.readState();
+    state.recentWorkspaces = state.recentWorkspaces.filter((item) => item.rootPath !== rootPath);
     this.writeState(state);
     return state.recentWorkspaces;
   }
@@ -123,14 +135,36 @@ export class AppCatalogService {
         isWorkspaceView(nextSettings.defaultWorkspaceView)
           ? nextSettings.defaultWorkspaceView
           : DEFAULT_APPLICATION_SETTINGS.defaultWorkspaceView,
+      documentDetailViewMode:
+        typeof nextSettings.documentDetailViewMode === 'string' &&
+        isDocumentDetailViewMode(nextSettings.documentDetailViewMode)
+          ? nextSettings.documentDetailViewMode
+          : DEFAULT_APPLICATION_SETTINGS.documentDetailViewMode,
+      documentDetailSidebarWidth:
+        typeof nextSettings.documentDetailSidebarWidth === 'number' &&
+        Number.isFinite(nextSettings.documentDetailSidebarWidth)
+          ? Math.max(
+              DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+              Math.min(
+                DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+                Math.round(nextSettings.documentDetailSidebarWidth)
+              )
+            )
+          : DEFAULT_APPLICATION_SETTINGS.documentDetailSidebarWidth,
       documentTableDensity:
         typeof nextSettings.documentTableDensity === 'string' &&
         isDocumentTableDensity(nextSettings.documentTableDensity)
           ? nextSettings.documentTableDensity
           : DEFAULT_APPLICATION_SETTINGS.documentTableDensity,
+      workspaceTabDensity:
+        typeof nextSettings.workspaceTabDensity === 'string' &&
+        isWorkspaceTabDensity(nextSettings.workspaceTabDensity)
+          ? nextSettings.workspaceTabDensity
+          : DEFAULT_APPLICATION_SETTINGS.workspaceTabDensity,
       documentTableVisibleColumns: normalizeDocumentTableVisibleColumns(
         nextSettings.documentTableVisibleColumns
       ),
+      keyboardShortcuts: normalizeKeyboardShortcuts(nextSettings.keyboardShortcuts),
       defaultIncludeExampleData:
         typeof nextSettings.defaultIncludeExampleData === 'boolean'
           ? nextSettings.defaultIncludeExampleData

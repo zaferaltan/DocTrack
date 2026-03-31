@@ -206,12 +206,17 @@ describe('document workflow integration', () => {
       versionScheme: 'numeric-3',
       languageId: language.id
     });
+    const firstVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'First identifier'
+    });
     const nextVersion = documentService.createVersion(workspaceRootPath, {
       documentRecordId: created.id,
       revisionDescription: 'Second identifier'
     });
 
     expect(created.documentId).toBe('PROCEDURE-FR-26-001');
+    expect(firstVersion.versions[0]?.versionDocumentId).toBe('PROCEDURE-FR-26-001');
     expect(nextVersion.documentId).toBe('PROCEDURE-FR-26-002');
     expect(nextVersion.versions[1]?.versionDocumentId).toBe('PROCEDURE-FR-26-001');
   });
