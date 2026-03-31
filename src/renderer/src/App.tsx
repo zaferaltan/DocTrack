@@ -2,6 +2,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useMemo,
   useState
 } from 'react';
@@ -50,7 +51,7 @@ import {
 import { Input } from '@renderer/components/ui/input';
 import { Select } from '@renderer/components/ui/select';
 import { Textarea } from '@renderer/components/ui/textarea';
-import { cn, formatDateShort, formatDateTime } from '@renderer/lib/utils';
+import { cn, formatDateShort, formatDateTime, formatUserFacingError } from '@renderer/lib/utils';
 import { useAppStore } from '@renderer/store/useAppStore';
 import {
   APPLICATION_LAUNCH_BEHAVIOR_OPTIONS,
@@ -504,6 +505,8 @@ const getEffectiveDocumentTableVisibleColumns = (
 };
 
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
+const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
+  formatUserFacingError(error, fallbackMessage);
 
 function App() {
   const {
@@ -564,6 +567,12 @@ function App() {
     () => /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac OS X/.test(navigator.userAgent),
     []
   );
+  const notifyError = useEffectEvent((error: unknown, fallbackMessage: string): void => {
+    setNotification({
+      tone: 'error',
+      message: getErrorMessage(error, fallbackMessage)
+    });
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -577,13 +586,9 @@ function App() {
           return;
         }
 
-        const message =
-          error instanceof Error ? error.message : 'DocTrack failed to initialize the desktop shell.';
+        const message = getErrorMessage(error, 'DocTrack failed to initialize the desktop shell.');
         setBootError(message);
-        setNotification({
-          tone: 'error',
-          message
-        });
+        notifyError(error, 'DocTrack failed to initialize the desktop shell.');
       }
     };
 
@@ -592,7 +597,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [bootstrap, setNotification]);
+  }, [bootstrap]);
 
   useEffect(() => {
     applyTheme(previewThemeMode);
@@ -645,17 +650,14 @@ function App() {
         );
         setSelectedDocumentDetail(detail);
       } catch (error) {
-        setNotification({
-          tone: 'error',
-          message: error instanceof Error ? error.message : 'Unable to load the selected document.'
-        });
+        notifyError(error, 'Unable to load the selected document.');
       } finally {
         setIsDetailLoading(false);
       }
     };
 
     void loadSelectedDocumentDetail();
-  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath, setNotification]);
+  }, [activeWorkspace?.selectedDocumentRecordId, activeWorkspacePath]);
 
   const loadDocumentDetail = async (rootPath: string, documentRecordId: number): Promise<DocumentDetail> => {
     const detail = await window.docTrack.documents.detail(rootPath, documentRecordId);
@@ -693,10 +695,7 @@ function App() {
     try {
       await openWorkspace(rootPath);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to open workspace.'
-      });
+      notifyError(error, 'Unable to open workspace.');
     }
   };
 
@@ -808,10 +807,7 @@ function App() {
       });
       setWorkspaceDialog(defaultWorkspaceDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to create workspace.'
-      });
+      notifyError(error, 'Unable to create workspace.');
       setWorkspaceDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -826,10 +822,7 @@ function App() {
       await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, workspaceSettingsDialog.settings);
       setWorkspaceSettingsDialog(defaultWorkspaceSettingsDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save workspace settings.'
-      });
+      notifyError(error, 'Unable to save workspace settings.');
       setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -844,10 +837,7 @@ function App() {
         message: 'Application settings saved.'
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save application settings.'
-      });
+      notifyError(error, 'Unable to save application settings.');
       setApplicationSettingsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -881,10 +871,7 @@ function App() {
         message: 'Table view settings saved.'
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save table view settings.'
-      });
+      notifyError(error, 'Unable to save table view settings.');
       setTableColumnsDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -940,15 +927,10 @@ function App() {
             : `Updated ${detail.documentId}.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : documentDialog.mode === 'create'
-              ? 'Unable to create document.'
-              : 'Unable to update document.'
-      });
+      notifyError(
+        error,
+        documentDialog.mode === 'create' ? 'Unable to create document.' : 'Unable to update document.'
+      );
       setDocumentDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -974,10 +956,7 @@ function App() {
         message: `Version ${detail.versions[0]?.versionLabel ?? ''} created for ${detail.documentId}.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to create document version.'
-      });
+      notifyError(error, 'Unable to create document version.');
       setVersionDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1005,10 +984,7 @@ function App() {
         message: `Updated latest version for ${detail.documentId}.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to update the latest version.'
-      });
+      notifyError(error, 'Unable to update the latest version.');
       setLatestVersionDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1054,10 +1030,7 @@ function App() {
         message: `Status changed to ${statusChangeDialog.nextStatus} for ${detail.documentId}.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to update the document status.'
-      });
+      notifyError(error, 'Unable to update the document status.');
       setStatusChangeDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1085,10 +1058,7 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       setTypeDialog(defaultTypeDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save document type.'
-      });
+      notifyError(error, 'Unable to save document type.');
       setTypeDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1113,10 +1083,7 @@ function App() {
         message: `"${type.name}" removed from this workspace.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to delete document type.'
-      });
+      notifyError(error, 'Unable to delete document type.');
     }
   };
 
@@ -1141,10 +1108,7 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       setProjectDialog(defaultProjectDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save project.'
-      });
+      notifyError(error, 'Unable to save project.');
       setProjectDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1169,10 +1133,7 @@ function App() {
         message: `"${project.name}" removed from this workspace.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to delete project.'
-      });
+      notifyError(error, 'Unable to delete project.');
     }
   };
 
@@ -1201,10 +1162,7 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       setClassificationDialog(defaultClassificationDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save confidentiality class.'
-      });
+      notifyError(error, 'Unable to save confidentiality class.');
       setClassificationDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1229,10 +1187,7 @@ function App() {
         message: `"${item.name}" removed from this workspace.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to delete confidentiality class.'
-      });
+      notifyError(error, 'Unable to delete confidentiality class.');
     }
   };
 
@@ -1257,10 +1212,7 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       setLanguageDialog(defaultLanguageDialogState);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save language.'
-      });
+      notifyError(error, 'Unable to save language.');
       setLanguageDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1285,10 +1237,7 @@ function App() {
         message: `"${item.code}" removed from this workspace.`
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to delete language.'
-      });
+      notifyError(error, 'Unable to delete language.');
     }
   };
 
@@ -1307,10 +1256,7 @@ function App() {
         setSelectedDocumentDetail(detail);
       }
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to assign the document to a project.'
-      });
+      notifyError(error, 'Unable to assign the document to a project.');
     }
   };
 
@@ -1341,10 +1287,7 @@ function App() {
         isSubmitting: false
       });
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load version files.'
-      });
+      notifyError(error, 'Unable to load version files.');
     }
   };
 
@@ -1358,10 +1301,7 @@ function App() {
       await window.docTrack.documents.syncVersionFiles(activeWorkspacePath, documentVersionId);
       await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to refresh version files.'
-      });
+      notifyError(error, 'Unable to refresh version files.');
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1386,10 +1326,7 @@ function App() {
       });
       await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to add files to this version.'
-      });
+      notifyError(error, 'Unable to add files to this version.');
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1413,10 +1350,7 @@ function App() {
       });
       await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to rename the selected file.'
-      });
+      notifyError(error, 'Unable to rename the selected file.');
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1441,10 +1375,7 @@ function App() {
       });
       await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to delete the selected file.'
-      });
+      notifyError(error, 'Unable to delete the selected file.');
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1466,10 +1397,7 @@ function App() {
       });
       await refreshSelectedDocument(activeWorkspacePath, selectedDocumentDetail.id);
     } catch (error) {
-      setNotification({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to change the selected file role.'
-      });
+      notifyError(error, 'Unable to change the selected file role.');
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1485,10 +1413,7 @@ function App() {
         onOpenWorkspace={() => void openWorkspacePicker()}
         onOpenRecent={(rootPath) => {
           void openWorkspace(rootPath).catch((error: Error) => {
-            setNotification({
-              tone: 'error',
-              message: error.message
-            });
+            notifyError(error, 'Unable to open workspace.');
           });
         }}
       />
@@ -1527,10 +1452,7 @@ function App() {
         }
         onRequestEditDocument={(documentRecordId) => {
           void openEditDocumentDialog(documentRecordId).catch((error: Error) => {
-            setNotification({
-              tone: 'error',
-              message: error.message
-            });
+            notifyError(error, 'Unable to load the selected document.');
           });
         }}
         onRequestNewVersion={() => {
@@ -1566,10 +1488,7 @@ function App() {
               isSubmitting: false
             });
           })().catch((error: Error) => {
-            setNotification({
-              tone: 'error',
-              message: error.message
-            });
+            notifyError(error, 'Unable to load the latest version details.');
           });
         }}
         onShowDocumentFolder={() => {
@@ -1580,10 +1499,7 @@ function App() {
           void window.docTrack.documents
             .openDocumentFolder(activeWorkspacePath, selectedDocumentDetail.id)
             .catch((error: Error) => {
-              setNotification({
-                tone: 'error',
-                message: error.message
-              });
+              notifyError(error, 'Unable to open the document folder.');
             });
         }}
         onShowVersionFiles={(documentVersionId) =>
@@ -1688,15 +1604,12 @@ function App() {
                 onClick={() => {
                   setBootError(null);
                   void bootstrap().catch((error) => {
-                    const message =
-                      error instanceof Error
-                        ? error.message
-                        : 'DocTrack failed to initialize the desktop shell.';
+                    const message = getErrorMessage(
+                      error,
+                      'DocTrack failed to initialize the desktop shell.'
+                    );
                     setBootError(message);
-                    setNotification({
-                      tone: 'error',
-                      message
-                    });
+                    notifyError(error, 'DocTrack failed to initialize the desktop shell.');
                   });
                 }}
               >
@@ -2025,10 +1938,7 @@ function App() {
           }
 
           void window.docTrack.documents.openVersionFile(activeWorkspacePath, fileId).catch((error: Error) => {
-            setNotification({
-              tone: 'error',
-              message: error.message
-            });
+            notifyError(error, 'Unable to open the selected file.');
           });
         }}
         onOpenFolder={(documentVersionId) => {
@@ -2039,10 +1949,7 @@ function App() {
           void window.docTrack.documents
             .openVersionFolder(activeWorkspacePath, documentVersionId)
             .catch((error: Error) => {
-              setNotification({
-                tone: 'error',
-                message: error.message
-              });
+              notifyError(error, 'Unable to open the version folder.');
             });
         }}
         onRenameFile={handleRenameVersionFile}
