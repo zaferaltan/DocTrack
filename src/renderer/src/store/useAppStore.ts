@@ -7,6 +7,7 @@ import {
 import type {
   OpenWorkspaceResult,
   RecentWorkspace,
+  WorkspaceSettingsUpdateInput,
   WorkspaceSummary
 } from '@shared/types';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
@@ -37,7 +38,7 @@ interface AppStoreState {
   openWorkspace: (rootPath: string) => Promise<void>;
   refreshWorkspace: (rootPath: string) => Promise<void>;
   closeWorkspace: (rootPath: string) => Promise<void>;
-  updateWorkspaceSettings: (rootPath: string, settings: WorkspaceSettings) => Promise<void>;
+  updateWorkspaceSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<void>;
   setActiveWorkspace: (rootPath: string) => void;
   setWorkspaceView: (rootPath: string, view: WorkspaceView) => void;
   setSelectedDocument: (rootPath: string, documentRecordId?: number) => void;
@@ -182,8 +183,8 @@ export const createAppStore = () =>
         };
       });
     },
-    updateWorkspaceSettings: async (rootPath, settings) => {
-      const result = await window.docTrack.workspace.updateSettings(rootPath, settings);
+    updateWorkspaceSettings: async (rootPath, input) => {
+      const result = await window.docTrack.workspace.updateSettings(rootPath, input);
       const warningSuffix =
         result.warnings && result.warnings.length > 0
           ? ` ${result.warnings.length} unmanaged path warning${result.warnings.length === 1 ? '' : 's'} recorded.`

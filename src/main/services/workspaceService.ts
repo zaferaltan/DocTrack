@@ -1,3 +1,5 @@
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import type { WorkspaceContext, WorkspaceManager } from '@main/database/workspaceManager';
@@ -7,7 +9,12 @@ import { FileStorageService } from '@main/services/fileStorageService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { nowIso } from '@main/utils/date';
 import { DOCUMENT_STATUSES } from '@shared/types';
-import type { DocumentType, OpenWorkspaceResult, WorkspaceCreateInput } from '@shared/types';
+import type {
+  DocumentType,
+  OpenWorkspaceResult,
+  WorkspaceCreateInput,
+  WorkspaceSettingsUpdateInput
+} from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
   isDocumentIdFormatPreset,
@@ -97,9 +104,22 @@ export class WorkspaceService {
     };
   }
 
-  updateSettings(rootPath: string, settings: WorkspaceSettings): OpenWorkspaceResult {
+  updateSettings(
+    rootPath: string,
+    input: WorkspaceSettings | WorkspaceSettingsUpdateInput
+  ): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
-    const nextSettings = this.normalizeWorkspaceSettings(settings);
+    const normalizedInput =
+      'settings' in input
+        ? input
+        : ({
+            settings: input
+          } satisfies WorkspaceSettingsUpdateInput);
+    const nextSettings = this.applyWorkspaceBrandingUpdate(
+      context,
+      this.normalizeWorkspaceSettings(normalizedInput.settings),
+      normalizedInput
+    );
     this.assertDocumentIdTemplateIsValid(nextSettings);
     const requiresStorageMigration =
       context.settings.storageLayoutPreset !== nextSettings.storageLayoutPreset ||
@@ -149,6 +169,7 @@ export class WorkspaceService {
             VisibleDocumentColumns = ?,
             DefaultCompany = ?,
             DefaultDepartment = ?,
+            CompanyLogoPath = ?,
             AutoMarkPreviousVersionObsolete = ?
           WHERE Id = 1
         `
@@ -162,6 +183,7 @@ export class WorkspaceService {
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
+        settings.companyLogoPath,
         settings.autoMarkPreviousVersionObsolete ? 1 : 0
       );
   }
@@ -175,6 +197,7 @@ export class WorkspaceService {
       left.documentIdFormatTemplate === right.documentIdFormatTemplate &&
       left.defaultCompany === right.defaultCompany &&
       left.defaultDepartment === right.defaultDepartment &&
+      left.companyLogoPath === right.companyLogoPath &&
       left.autoMarkPreviousVersionObsolete === right.autoMarkPreviousVersionObsolete &&
       left.visibleDocumentColumns.length === right.visibleDocumentColumns.length &&
       left.visibleDocumentColumns.every((column, index) => column === right.visibleDocumentColumns[index])
@@ -651,11 +674,64 @@ export class WorkspaceService {
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:
         typeof settings.defaultDepartment === 'string' ? settings.defaultDepartment.trim() : '',
+      companyLogoPath: typeof settings.companyLogoPath === 'string' ? settings.companyLogoPath.trim() : '',
       autoMarkPreviousVersionObsolete:
         typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
           ? settings.autoMarkPreviousVersionObsolete
           : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
     };
+  }
+
+  private applyWorkspaceBrandingUpdate(
+    context: WorkspaceContext,
+    settings: WorkspaceSettings,
+    input: WorkspaceSettingsUpdateInput
+  ): WorkspaceSettings {
+    if (input.clearCompanyLogo) {
+      this.removeWorkspaceCompanyLogo(context, context.settings.companyLogoPath);
+      return {
+        ...settings,
+        companyLogoPath: ''
+      };
+    }
+
+    if (input.companyLogoSourceFilePath) {
+      return {
+        ...settings,
+        companyLogoPath: this.storeWorkspaceCompanyLogo(context, input.companyLogoSourceFilePath)
+      };
+    }
+
+    return settings;
+  }
+
+  private storeWorkspaceCompanyLogo(context: WorkspaceContext, sourceFilePath: string): string {
+    const extension = (path.extname(sourceFilePath).toLowerCase() || '.png').replace(/[^.\w-]/g, '');
+    const relativePath = `Database/branding/company-logo${extension}`;
+    const absolutePath = path.join(context.rootPath, ...relativePath.split('/'));
+
+    this.removeWorkspaceCompanyLogo(context, context.settings.companyLogoPath);
+    mkdirSync(path.dirname(absolutePath), { recursive: true });
+    copyFileSync(sourceFilePath, absolutePath);
+
+    return relativePath;
+  }
+
+  private removeWorkspaceCompanyLogo(context: WorkspaceContext, companyLogoPath: string): void {
+    const normalized = companyLogoPath.trim();
+    if (!normalized) {
+      return;
+    }
+
+    const absolutePath = path.join(context.rootPath, ...normalized.split('/'));
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { force: true });
+    }
+
+    const brandingDirectory = path.join(context.rootPath, 'Database', 'branding');
+    if (existsSync(brandingDirectory)) {
+      rmSync(brandingDirectory, { recursive: true, force: true });
+    }
   }
 
   private assertDocumentIdTemplateIsValid(settings: WorkspaceSettings): void {

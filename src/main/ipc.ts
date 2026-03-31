@@ -1,5 +1,6 @@
 import { dialog, ipcMain } from 'electron';
 import type { AppCatalogService } from '@main/catalog/appCatalogService';
+import type { DocumentExportService } from '@main/services/documentExportService';
 import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
 import type { WorkspaceService } from '@main/services/workspaceService';
@@ -9,6 +10,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 interface ServiceContainer {
   workspaceService: WorkspaceService;
   documentService: DocumentService;
+  documentExportService: DocumentExportService;
   documentTypeService: DocumentTypeService;
   workspaceCatalogService: WorkspaceCatalogService;
   catalogService: AppCatalogService;
@@ -29,8 +31,8 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (_event, rootPath: string) =>
     services.workspaceService.getSummary(rootPath)
   );
-  ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, settings) =>
-    services.workspaceService.updateSettings(rootPath, settings)
+  ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, input) =>
+    services.workspaceService.updateSettings(rootPath, input)
   );
 
   ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceCreatePath, async (_event, workspaceName?: string) => {
@@ -46,6 +48,21 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     const result = await dialog.showOpenDialog({
       title: 'Open Workspace Folder',
       properties: ['openDirectory']
+    });
+
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceLogoFile, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Select Company Logo',
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Image Files',
+          extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp']
+        }
+      ]
     });
 
     return result.canceled ? null : result.filePaths[0] ?? null;
@@ -101,6 +118,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
   ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFolder, (_event, rootPath: string, documentVersionId: number) =>
     services.documentService.openVersionFolder(rootPath, documentVersionId)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsExport, (_event, rootPath: string, request) =>
+    services.documentExportService.export(rootPath, request)
   );
 
   ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, rootPath: string) =>

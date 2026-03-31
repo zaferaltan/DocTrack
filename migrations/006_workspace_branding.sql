@@ -1,0 +1,1 @@
+ALTER TABLE Workspaces ADD COLUMN CompanyLogoPath TEXT NOT NULL DEFAULT '';

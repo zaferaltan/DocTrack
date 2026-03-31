@@ -80,9 +80,11 @@ import {
   DOCUMENT_ID_FORMAT_OPTIONS,
   DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS,
   DOCUMENT_TABLE_COLUMN_OPTIONS,
+  DOCUMENT_TABLE_COLUMNS,
   WORKSPACE_FILE_ORGANIZATION_OPTIONS,
   WORKSPACE_STORAGE_LAYOUT_OPTIONS,
   WORKSPACE_VERSION_MANAGEMENT_OPTIONS,
+  getDocumentTableColumnLabel,
   getDocumentIdFormatTemplateForPreset,
   normalizeDocumentIdFormatTemplate,
   resolveDocumentIdFormatTemplate,
@@ -94,6 +96,9 @@ import type {
   CreateDocumentInput,
   CreateVersionInput,
   DocumentDetail,
+  DocumentExportGrouping,
+  DocumentExportPdfColorMode,
+  DocumentExportRequest,
   DocumentListItem,
   DocumentStatus,
   DocumentVersion,
@@ -102,7 +107,8 @@ import type {
   Project,
   UpdateDocumentInput,
   UpdateLatestVersionInput,
-  WorkspaceLanguage
+  WorkspaceLanguage,
+  WorkspaceSettingsUpdateInput
 } from '@shared/types';
 
 type NotificationTone = 'success' | 'error';
@@ -199,6 +205,8 @@ interface WorkspaceSettingsDialogState {
   rootPath?: string;
   workspaceName: string;
   settings: WorkspaceSettings;
+  companyLogoSourceFilePath: string | null;
+  clearCompanyLogo: boolean;
   isSubmitting: boolean;
 }
 
@@ -290,6 +298,21 @@ interface LanguageDialogState {
   isSubmitting: boolean;
 }
 
+type DocumentExportScope = 'current-table' | 'whole-workspace';
+type ExportGroupingOption = {
+  value: DocumentExportGrouping;
+  label: string;
+};
+
+interface DocumentExportDialogState {
+  open: boolean;
+  format: 'csv' | 'pdf';
+  scope: DocumentExportScope;
+  groupBy: DocumentExportGrouping;
+  pdfColorMode: DocumentExportPdfColorMode;
+  isSubmitting: boolean;
+}
+
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
   name: '',
@@ -306,6 +329,8 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   rootPath: undefined,
   workspaceName: '',
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
+  companyLogoSourceFilePath: null,
+  clearCompanyLogo: false,
   isSubmitting: false
 };
 
@@ -393,6 +418,15 @@ const defaultLanguageDialogState: LanguageDialogState = {
   open: false,
   id: undefined,
   code: '',
+  isSubmitting: false
+};
+
+const defaultDocumentExportDialogState: DocumentExportDialogState = {
+  open: false,
+  format: 'csv',
+  scope: 'current-table',
+  groupBy: 'documentType',
+  pdfColorMode: 'color',
   isSubmitting: false
 };
 
@@ -503,6 +537,47 @@ const getEffectiveDocumentTableVisibleColumns = (
   );
   return defaultFiltered.length > 0 ? defaultFiltered : [...workspaceAvailableColumns];
 };
+
+const getDocumentExportGroupingOptions = (
+  availableColumns: DocumentTableColumn[]
+): ExportGroupingOption[] => {
+  const options: ExportGroupingOption[] = [
+    { value: 'none', label: 'No Grouping' },
+    { value: 'documentType', label: 'Document Type' },
+    { value: 'status', label: 'Status' }
+  ];
+
+  if (availableColumns.includes('project')) {
+    options.push({ value: 'project', label: 'Project' });
+  }
+
+  if (availableColumns.includes('language')) {
+    options.push({ value: 'language', label: 'Language' });
+  }
+
+  if (availableColumns.includes('confidentialityClass')) {
+    options.push({ value: 'confidentialityClass', label: 'Confidentiality Class' });
+  }
+
+  if (availableColumns.includes('company')) {
+    options.push({ value: 'company', label: 'Company' });
+  }
+
+  if (availableColumns.includes('department')) {
+    options.push({ value: 'department', label: 'Department' });
+  }
+
+  if (availableColumns.includes('author')) {
+    options.push({ value: 'author', label: 'Author' });
+  }
+
+  return options;
+};
+
+const getDocumentExportScopeLabel = (scope: DocumentExportScope): string =>
+  scope === 'current-table' ? 'Current Table' : 'Whole Workspace';
+
+const getPathFileName = (value: string): string => value.split(/[/\\]/).pop() ?? value;
 
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
 const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
@@ -742,6 +817,8 @@ function App() {
       rootPath: activeWorkspace.workspace.rootPath,
       workspaceName: activeWorkspace.workspace.name,
       settings: { ...activeWorkspace.settings },
+      companyLogoSourceFilePath: null,
+      clearCompanyLogo: false,
       isSubmitting: false
     });
   };
@@ -819,7 +896,11 @@ function App() {
 
     try {
       setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: true }));
-      await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, workspaceSettingsDialog.settings);
+      await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, {
+        settings: workspaceSettingsDialog.settings,
+        companyLogoSourceFilePath: workspaceSettingsDialog.companyLogoSourceFilePath,
+        clearCompanyLogo: workspaceSettingsDialog.clearCompanyLogo
+      } satisfies WorkspaceSettingsUpdateInput);
       setWorkspaceSettingsDialog(defaultWorkspaceSettingsDialogState);
     } catch (error) {
       notifyError(error, 'Unable to save workspace settings.');
@@ -873,6 +954,25 @@ function App() {
     } catch (error) {
       notifyError(error, 'Unable to save table view settings.');
       setTableColumnsDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleExportDocuments = async (request: DocumentExportRequest) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      const result = await window.docTrack.documents.export(activeWorkspacePath, request);
+      if (!result.canceled && result.filePath) {
+        setNotification({
+          tone: 'success',
+          message: `Export saved to ${result.filePath}`
+        });
+      }
+    } catch (error) {
+      notifyError(error, 'Unable to export the documents report.');
+      throw error;
     }
   };
 
@@ -1440,6 +1540,7 @@ function App() {
         onShowFiles={handleShowFilesForDocument}
         onRequestStatusChange={handleRequestStatusChange}
         onRequestNewDocument={openCreateDocumentDialog}
+        onExportDocuments={handleExportDocuments}
         onOpenTableSettings={() =>
           setTableColumnsDialog({
             open: true,
@@ -2458,6 +2559,7 @@ function DocumentsView({
   onShowFiles,
   onRequestStatusChange,
   onRequestNewDocument,
+  onExportDocuments,
   onOpenTableSettings,
   onRequestEditDocument,
   onRequestNewVersion,
@@ -2474,6 +2576,7 @@ function DocumentsView({
   onShowFiles: (documentRecordId: number) => void;
   onRequestStatusChange: (document: DocumentListItem, nextStatus: DocumentStatus) => void;
   onRequestNewDocument: () => void;
+  onExportDocuments: (request: DocumentExportRequest) => Promise<void>;
   onOpenTableSettings: () => void;
   onRequestEditDocument: (documentRecordId?: number) => void;
   onRequestNewVersion: () => void;
@@ -2493,6 +2596,7 @@ function DocumentsView({
   ]);
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All');
   const [projectFilter, setProjectFilter] = useState<string>('All');
+  const [exportDialog, setExportDialog] = useState(defaultDocumentExportDialogState);
   const availableColumns = workspace.settings.visibleDocumentColumns;
   const projectFeatureEnabled = availableColumns.includes('project');
   const deferredSearch = useDeferredValue(search);
@@ -2508,6 +2612,10 @@ function DocumentsView({
       : 'px-6 py-12 text-center text-muted-foreground';
 
   const statusOptions = useMemo(() => ['All', ...workspace.statuses] as const, [workspace.statuses]);
+  const exportGroupingOptions = useMemo(
+    () => getDocumentExportGroupingOptions(availableColumns),
+    [availableColumns]
+  );
   const latestVersion = selectedDocumentDetail?.versions[0] ?? null;
 
   useEffect(() => {
@@ -2525,6 +2633,19 @@ function DocumentsView({
     });
   }, [fallbackSortingColumn, visibleTableColumns]);
 
+  useEffect(() => {
+    setExportDialog((current) => {
+      if (exportGroupingOptions.some((option) => option.value === current.groupBy)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        groupBy: exportGroupingOptions[0]?.value ?? 'none'
+      };
+    });
+  }, [exportGroupingOptions]);
+
   const filteredDocuments = useMemo(
     () =>
       workspace.documents.filter((document) => {
@@ -2537,6 +2658,56 @@ function DocumentsView({
       }),
     [projectFeatureEnabled, projectFilter, statusFilter, workspace.documents]
   );
+
+  const getSortValue = (document: DocumentListItem, column: DocumentTableColumn): string | number => {
+    switch (column) {
+      case 'documentId':
+        return document.documentId;
+      case 'title':
+        return document.title;
+      case 'documentType':
+        return document.typeName;
+      case 'version':
+        return document.latestVersionLabel ?? '';
+      case 'status':
+        return document.status ?? '';
+      case 'author':
+        return document.author;
+      case 'language':
+        return document.languageCode ?? '';
+      case 'confidentialityClass':
+        return document.confidentialityClassName ?? '';
+      case 'project':
+        return document.projectName ?? '';
+      case 'company':
+        return document.company;
+      case 'department':
+        return document.department;
+      case 'createdDate':
+        return document.createdDate;
+      case 'modifiedDate':
+        return document.modifiedDate;
+      case 'releasedDate':
+        return document.releasedDate ?? '';
+      case 'approvedBy':
+        return document.approvedBy;
+      case 'revisionIntervalMonths':
+        return document.revisionIntervalMonths ?? -1;
+      case 'revisionDescription':
+        return document.revisionDescription;
+    }
+  };
+
+  const compareSortValues = (left: string | number, right: string | number): number => {
+    if (typeof left === 'number' || typeof right === 'number') {
+      return Number(left) - Number(right);
+    }
+
+    return String(left).localeCompare(String(right), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  };
 
   const columns = useMemo<Array<ColumnDef<DocumentListItem>>>(
     () => {
@@ -2748,8 +2919,87 @@ function DocumentsView({
     getSortedRowModel: getSortedRowModel()
   });
 
+  const currentTableRows = table.getRowModel().rows.map((row) => row.original);
+
+  const wholeWorkspaceRows = useMemo(() => {
+    const sortingToUse =
+      sorting.length > 0 &&
+      sorting.every(
+        (entry) =>
+          DOCUMENT_TABLE_COLUMNS.includes(entry.id as DocumentTableColumn) &&
+          availableColumns.includes(entry.id as DocumentTableColumn)
+      )
+        ? sorting
+        : [
+            {
+              id: 'modifiedDate',
+              desc: true
+            }
+          ];
+
+    return [...workspace.documents].sort((left, right) => {
+      for (const entry of sortingToUse) {
+        const column = entry.id as DocumentTableColumn;
+        const result = compareSortValues(getSortValue(left, column), getSortValue(right, column));
+        if (result !== 0) {
+          return entry.desc ? -result : result;
+        }
+      }
+
+      return 0;
+    });
+  }, [availableColumns, sorting, workspace.documents]);
+
+  const handleSubmitExport = async () => {
+    const columns =
+      exportDialog.scope === 'current-table'
+        ? visibleTableColumns
+        : DOCUMENT_TABLE_COLUMNS.filter((column) => availableColumns.includes(column));
+    const rows = exportDialog.scope === 'current-table' ? currentTableRows : wholeWorkspaceRows;
+    const selectedProject =
+      exportDialog.scope === 'current-table' && projectFeatureEnabled
+        ? workspace.projects.find((project) => String(project.id) === projectFilter)?.name ??
+          (projectFilter === '' ? 'No project' : 'All projects')
+        : '';
+
+    try {
+      setExportDialog((current) => ({ ...current, isSubmitting: true }));
+      await onExportDocuments({
+        format: exportDialog.format,
+        scope: exportDialog.scope,
+        groupBy: exportDialog.format === 'pdf' ? exportDialog.groupBy : 'none',
+        pdfColorMode: exportDialog.format === 'pdf' ? exportDialog.pdfColorMode : 'color',
+        workspaceName: workspace.workspace.name,
+        companyLogoPath: workspace.settings.companyLogoPath || null,
+        exportTimestamp: new Date().toISOString(),
+        columns: columns.map((column) => ({
+          key: column,
+          label: getDocumentTableColumnLabel(column)
+        })),
+        rows,
+        filters:
+          exportDialog.scope === 'current-table'
+            ? {
+                search: deferredSearch.trim(),
+                status: statusFilter,
+                project: selectedProject
+              }
+            : {
+                search: '',
+                status: 'All',
+                project: ''
+              }
+      });
+      setExportDialog(defaultDocumentExportDialogState);
+    } catch (error) {
+      setExportDialog((current) => ({ ...current, isSubmitting: false }));
+      throw error;
+    }
+  };
+
   return (
-    <div className="grid h-full gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <>
+      <div className="grid h-full gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
           <div>
@@ -2762,6 +3012,10 @@ function DocumentsView({
             <Button variant="outline" onClick={onRequestNewDocument}>
               <FilePlus2 className="h-4 w-4" />
               New Document
+            </Button>
+            <Button variant="outline" onClick={() => setExportDialog({ ...defaultDocumentExportDialogState, open: true })}>
+              <FileStack className="h-4 w-4" />
+              Export
             </Button>
             <Button
               aria-label="Table View Settings"
@@ -3064,7 +3318,14 @@ function DocumentsView({
           </div>
         ) : null}
       </div>
-    </div>
+      </div>
+      <DocumentExportDialog
+        state={exportDialog}
+        groupingOptions={exportGroupingOptions}
+        onStateChange={setExportDialog}
+        onSubmit={handleSubmitExport}
+      />
+    </>
   );
 }
 
@@ -3452,12 +3713,17 @@ function WorkspaceDialog({
                 state.useCustomFolderName ? state.folderName || state.name : state.name
               }
               settings={state.settings}
+              showBrandingControls={false}
+              companyLogoSourceFilePath={null}
+              clearCompanyLogo={false}
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
                   settings
                 }))
               }
+              onLogoSelect={() => undefined}
+              onLogoRemove={() => undefined}
             />
 
             <label className="flex items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5 text-[13px]">
@@ -3574,6 +3840,121 @@ function TableColumnsDialog({
   );
 }
 
+function DocumentExportDialog({
+  state,
+  groupingOptions,
+  onStateChange,
+  onSubmit
+}: {
+  state: DocumentExportDialogState;
+  groupingOptions: ExportGroupingOption[];
+  onStateChange: React.Dispatch<React.SetStateAction<DocumentExportDialogState>>;
+  onSubmit: () => Promise<void>;
+}) {
+  return (
+    <Dialog
+      open={state.open}
+      onOpenChange={(open) =>
+        onStateChange(open ? { ...state, open } : defaultDocumentExportDialogState)
+      }
+    >
+      <DialogContent className="w-[min(88vw,440px)]">
+        <DialogHeader>
+          <DialogTitle>Export Documents</DialogTitle>
+          <DialogDescription>
+            Create a CSV data export or a structured PDF report from the documents table.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <Field label="Format">
+            <Select
+              value={state.format}
+              onChange={(event) =>
+                onStateChange((current) => ({
+                  ...current,
+                  format: event.target.value as 'csv' | 'pdf'
+                }))
+              }
+            >
+              <option value="csv">CSV</option>
+              <option value="pdf">PDF</option>
+            </Select>
+          </Field>
+
+          <Field label="Scope">
+            <Select
+              value={state.scope}
+              onChange={(event) =>
+                onStateChange((current) => ({
+                  ...current,
+                  scope: event.target.value as DocumentExportScope
+                }))
+              }
+            >
+              <option value="current-table">Current Table</option>
+              <option value="whole-workspace">Whole Workspace</option>
+            </Select>
+          </Field>
+
+          {state.format === 'pdf' ? (
+            <>
+              <Field label="Group By">
+                <Select
+                  value={state.groupBy}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      groupBy: event.target.value as DocumentExportGrouping
+                    }))
+                  }
+                >
+                  {groupingOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Appearance">
+                <Select
+                  value={state.pdfColorMode}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      pdfColorMode: event.target.value as DocumentExportPdfColorMode
+                    }))
+                  }
+                >
+                  <option value="color">Color</option>
+                  <option value="black-and-white">Black and White</option>
+                </Select>
+              </Field>
+            </>
+          ) : null}
+
+          <div className="rounded-xl border border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">
+            {state.format === 'csv'
+              ? `${getDocumentExportScopeLabel(state.scope)} will be exported as a flat spreadsheet-friendly file.`
+              : `${getDocumentExportScopeLabel(state.scope)} will be exported as a polished PDF report.`}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onStateChange(defaultDocumentExportDialogState)}>
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileStack className="h-4 w-4" />}
+            Export
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function WorkspaceSettingsDialog({
   state,
   onStateChange,
@@ -3603,10 +3984,30 @@ function WorkspaceSettingsDialog({
             <WorkspaceStorageSettingsFields
               workspaceName={state.workspaceName}
               settings={state.settings}
+              companyLogoSourceFilePath={state.companyLogoSourceFilePath}
+              clearCompanyLogo={state.clearCompanyLogo}
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
                   settings
+                }))
+              }
+              onLogoSelect={(filePath) =>
+                onStateChange((current) => ({
+                  ...current,
+                  companyLogoSourceFilePath: filePath,
+                  clearCompanyLogo: false
+                }))
+              }
+              onLogoRemove={() =>
+                onStateChange((current) => ({
+                  ...current,
+                  companyLogoSourceFilePath: null,
+                  clearCompanyLogo: true,
+                  settings: {
+                    ...current.settings,
+                    companyLogoPath: ''
+                  }
                 }))
               }
             />
@@ -3633,11 +4034,21 @@ function WorkspaceSettingsDialog({
 function WorkspaceStorageSettingsFields({
   workspaceName,
   settings,
-  onSettingsChange
+  showBrandingControls = true,
+  companyLogoSourceFilePath,
+  clearCompanyLogo,
+  onSettingsChange,
+  onLogoSelect,
+  onLogoRemove
 }: {
   workspaceName: string;
   settings: WorkspaceSettings;
+  showBrandingControls?: boolean;
+  companyLogoSourceFilePath: string | null;
+  clearCompanyLogo: boolean;
   onSettingsChange: (settings: WorkspaceSettings) => void;
+  onLogoSelect: (filePath: string) => void;
+  onLogoRemove: () => void;
 }) {
   const [showDocumentIdPlaceholders, setShowDocumentIdPlaceholders] = useState(false);
   const selectedStorageOption =
@@ -3677,6 +4088,13 @@ function WorkspaceStorageSettingsFields({
       : [previewDocumentIds[0], previewDocumentIds[0], previewDocumentIds[0]];
   const showDefaultCompany = settings.visibleDocumentColumns.includes('company');
   const showDefaultDepartment = settings.visibleDocumentColumns.includes('department');
+  const logoPreviewLabel = clearCompanyLogo
+    ? 'Logo will be removed when you save these settings.'
+    : companyLogoSourceFilePath
+      ? `New logo selected: ${getPathFileName(companyLogoSourceFilePath)}`
+      : settings.companyLogoPath
+        ? `Saved logo: ${getPathFileName(settings.companyLogoPath)}`
+        : 'No company logo selected.';
 
   return (
     <div className="grid gap-4">
@@ -3889,6 +4307,38 @@ function WorkspaceStorageSettingsFields({
             </Field>
           ) : null}
         </div>
+      ) : null}
+
+      {showBrandingControls ? (
+        <Field label="Company Logo">
+          <div className="rounded-xl border border-border bg-background p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void window.docTrack.dialogs.pickWorkspaceLogoFile().then((filePath) => {
+                    if (filePath) {
+                      onLogoSelect(filePath);
+                    }
+                  });
+                }}
+              >
+                <Upload className="h-4 w-4" />
+                {settings.companyLogoPath || companyLogoSourceFilePath ? 'Replace Logo' : 'Upload Logo'}
+              </Button>
+              {(settings.companyLogoPath || companyLogoSourceFilePath) && !clearCompanyLogo ? (
+                <Button variant="ghost" onClick={onLogoRemove}>
+                  <X className="h-4 w-4" />
+                  Remove Logo
+                </Button>
+              ) : null}
+            </div>
+            <div className="mt-2 text-[13px] text-muted-foreground">{logoPreviewLabel}</div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              The selected logo is copied into the workspace and appears in the upper-left corner of every PDF export page.
+            </div>
+          </div>
+        </Field>
       ) : null}
 
       <ToggleSetting

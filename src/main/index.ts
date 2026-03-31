@@ -4,6 +4,7 @@ import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
 import { registerIpcHandlers } from '@main/ipc';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
+import { DocumentExportService } from '@main/services/documentExportService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
@@ -48,6 +49,7 @@ app.whenReady().then(async () => {
   const workspaceManager = new WorkspaceManager();
   const fileStorageService = new FileStorageService();
   const documentIdGenerator = new DocumentIdGeneratorService();
+  const documentExportService = new DocumentExportService();
   const documentService = new DocumentService(
     workspaceManager,
     documentIdGenerator,
@@ -67,6 +69,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers({
     workspaceService,
     documentService,
+    documentExportService,
     documentTypeService,
     workspaceCatalogService,
     catalogService

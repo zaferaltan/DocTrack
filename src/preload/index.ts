@@ -9,13 +9,14 @@ const api: DocTrackApi = {
     listOpen: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListOpen),
     listRecent: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListRecent),
     getSummary: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, rootPath),
-    updateSettings: (rootPath, settings) =>
-      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, settings)
+    updateSettings: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input)
   },
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName) =>
       ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceCreatePath, workspaceName),
     pickWorkspaceOpenPath: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceOpenPath),
+    pickWorkspaceLogoFile: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceLogoFile),
     pickDocumentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickDocumentFiles)
   },
   documents: {
@@ -43,7 +44,8 @@ const api: DocTrackApi = {
     openDocumentFolder: (filePath, documentRecordId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsOpenDocumentFolder, filePath, documentRecordId),
     openVersionFolder: (filePath, documentVersionId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFolder, filePath, documentVersionId)
+      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFolder, filePath, documentVersionId),
+    export: (filePath, request) => ipcRenderer.invoke(IPC_CHANNELS.documentsExport, filePath, request)
   },
   documentTypes: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesList, filePath),

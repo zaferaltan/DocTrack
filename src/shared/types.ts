@@ -4,7 +4,7 @@ import type {
   VersionBumpType
 } from '@shared/documentModel';
 import type { ApplicationSettings } from '@shared/applicationSettings';
-import type { WorkspaceSettings } from '@shared/workspaceLayout';
+import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'] as const;
 
@@ -63,6 +63,55 @@ export interface DocumentListItem {
   company: string;
   department: string;
   revisionIntervalMonths: number | null;
+}
+
+export const DOCUMENT_EXPORT_FORMATS = ['csv', 'pdf'] as const;
+export const DOCUMENT_EXPORT_SCOPES = ['current-table', 'whole-workspace'] as const;
+export const DOCUMENT_EXPORT_PDF_COLOR_MODES = ['color', 'black-and-white'] as const;
+export const DOCUMENT_EXPORT_GROUPINGS = [
+  'none',
+  'documentType',
+  'status',
+  'project',
+  'language',
+  'confidentialityClass',
+  'company',
+  'department',
+  'author'
+] as const;
+
+export type DocumentExportFormat = (typeof DOCUMENT_EXPORT_FORMATS)[number];
+export type DocumentExportScope = (typeof DOCUMENT_EXPORT_SCOPES)[number];
+export type DocumentExportPdfColorMode = (typeof DOCUMENT_EXPORT_PDF_COLOR_MODES)[number];
+export type DocumentExportGrouping = (typeof DOCUMENT_EXPORT_GROUPINGS)[number];
+
+export interface DocumentExportColumn {
+  key: DocumentTableColumn;
+  label: string;
+}
+
+export interface DocumentExportFilterSummary {
+  search: string;
+  status: string;
+  project: string;
+}
+
+export interface DocumentExportRequest {
+  format: DocumentExportFormat;
+  scope: DocumentExportScope;
+  groupBy: DocumentExportGrouping;
+  pdfColorMode: DocumentExportPdfColorMode;
+  workspaceName: string;
+  companyLogoPath: string | null;
+  exportTimestamp: string;
+  columns: DocumentExportColumn[];
+  rows: DocumentListItem[];
+  filters: DocumentExportFilterSummary;
+}
+
+export interface DocumentExportResult {
+  canceled: boolean;
+  filePath: string | null;
 }
 
 export interface DocumentVersionFile {
@@ -214,6 +263,12 @@ export interface WorkspaceCreateInput {
   parentPath: string;
   settings: WorkspaceSettings;
   includeExampleData?: boolean;
+}
+
+export interface WorkspaceSettingsUpdateInput {
+  settings: WorkspaceSettings;
+  companyLogoSourceFilePath?: string | null;
+  clearCompanyLogo?: boolean;
 }
 
 export interface WorkspaceOpenInput {

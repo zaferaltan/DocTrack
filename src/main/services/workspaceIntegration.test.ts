@@ -128,6 +128,50 @@ describe('workspace integration', () => {
     expect(row?.RootPath).toBe(workspaceRootPath);
   });
 
+  it('copies and removes the workspace company logo through workspace settings updates', () => {
+    const result = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    const workspaceRootPath = result.workspace.rootPath;
+    const sourceLogoPath = path.join(tempRoot, 'company-logo.png');
+    writeFileSync(sourceLogoPath, 'png-data', 'utf8');
+
+    const updated = workspaceService.updateSettings(workspaceRootPath, {
+      settings: {
+        ...result.summary.settings,
+        companyLogoPath: ''
+      },
+      companyLogoSourceFilePath: sourceLogoPath,
+      clearCompanyLogo: false
+    });
+
+    expect(updated.summary.settings.companyLogoPath).toBe('Database/branding/company-logo.png');
+    expect(
+      existsSync(path.join(workspaceRootPath, 'Database', 'branding', 'company-logo.png'))
+    ).toBe(true);
+
+    const cleared = workspaceService.updateSettings(workspaceRootPath, {
+      settings: {
+        ...updated.summary.settings,
+        companyLogoPath: ''
+      },
+      clearCompanyLogo: true
+    });
+
+    expect(cleared.summary.settings.companyLogoPath).toBe('');
+    expect(
+      existsSync(path.join(workspaceRootPath, 'Database', 'branding', 'company-logo.png'))
+    ).toBe(false);
+  });
+
   it('supports multiple open workspaces and closing individual tabs by root path', () => {
     const first = workspaceService.create({
       name: 'Quality',

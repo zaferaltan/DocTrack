@@ -179,6 +179,7 @@ const buildDocTrackMock = (
     dialogs: {
       pickWorkspaceCreatePath: vi.fn().mockResolvedValue(null),
       pickWorkspaceOpenPath: vi.fn().mockResolvedValue(null),
+      pickWorkspaceLogoFile: vi.fn().mockResolvedValue(null),
       pickDocumentFiles: vi.fn().mockResolvedValue([])
     },
     documents: {
@@ -195,7 +196,11 @@ const buildDocTrackMock = (
       syncVersionFiles: vi.fn(),
       openVersionFile: vi.fn().mockResolvedValue(undefined),
       openDocumentFolder: vi.fn().mockResolvedValue(undefined),
-      openVersionFolder: vi.fn().mockResolvedValue(undefined)
+      openVersionFolder: vi.fn().mockResolvedValue(undefined),
+      export: vi.fn().mockResolvedValue({
+        canceled: false,
+        filePath: '/Exports/quality-documents-2026-03-31.csv'
+      })
     },
     documentTypes: {
       list: vi.fn().mockResolvedValue(workspaceResult.summary.documentTypes),
@@ -472,7 +477,9 @@ describe('App', () => {
     expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
       workspaceInfo.rootPath,
       expect.objectContaining({
-        versionManagementMode: 'version-specific-document-id'
+        settings: expect.objectContaining({
+          versionManagementMode: 'version-specific-document-id'
+        })
       })
     );
 
@@ -679,6 +686,303 @@ describe('App', () => {
       })
     );
     expect(getHeaders()).toContain('Author');
+
+    await view.unmount();
+  });
+
+  it('opens the export dialog from the documents view header', async () => {
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Export'));
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Export Documents');
+    expect(
+      getLabeledControl(dialog, 'Format', 'select') as HTMLSelectElement
+    ).toBeInstanceOf(HTMLSelectElement);
+
+    await view.unmount();
+  });
+
+  it('exports the current table using filtered rows and visible columns', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.documents.push({
+      id: 102,
+      documentId: '02202600002',
+      title: 'Supplier Checklist',
+      typeId: 2,
+      typeName: 'Procedure',
+      versionScheme: 'numeric-3',
+      status: 'Released',
+      latestVersionLabel: '002',
+      releasedDate: '2026-03-29T10:00:00.000Z',
+      approvedBy: 'Avery Chen',
+      revisionDescription: 'Released to operations',
+      modifiedDate: '2026-03-29T10:00:00.000Z',
+      createdDate: '2026-03-28T11:00:00.000Z',
+      author: 'Avery Chen',
+      languageId: 1,
+      languageCode: 'EN',
+      confidentialityClassId: null,
+      confidentialityClassName: null,
+      projectId: null,
+      projectName: null,
+      company: 'Acme',
+      department: 'Operations',
+      revisionIntervalMonths: 6
+    });
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await changeInput(
+      document.querySelector('[data-doc-search="true"]') as HTMLInputElement,
+      'Operating'
+    );
+    await click(getButton('Export'));
+    await click(getButton('Export', getDialog()));
+
+    expect(docTrack.documents.export).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        format: 'csv',
+        scope: 'current-table',
+        pdfColorMode: 'color',
+        companyLogoPath: null,
+        columns: [
+          { key: 'documentId', label: 'Document ID' },
+          { key: 'title', label: 'Title' },
+          { key: 'documentType', label: 'Document Type' },
+          { key: 'version', label: 'Version' },
+          { key: 'status', label: 'Status' },
+          { key: 'project', label: 'Project' }
+        ],
+        rows: [
+          expect.objectContaining({
+            id: 101,
+            title: 'Operating Procedure'
+          })
+        ],
+        filters: {
+          search: 'Operating',
+          status: 'All',
+          project: 'All projects'
+        }
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('exports the whole workspace using all workspace-enabled columns and ignores current filters', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.documents.push({
+      id: 102,
+      documentId: '02202600002',
+      title: 'Supplier Checklist',
+      typeId: 2,
+      typeName: 'Procedure',
+      versionScheme: 'numeric-3',
+      status: 'Released',
+      latestVersionLabel: '002',
+      releasedDate: '2026-03-29T10:00:00.000Z',
+      approvedBy: 'Avery Chen',
+      revisionDescription: 'Released to operations',
+      modifiedDate: '2026-03-29T10:00:00.000Z',
+      createdDate: '2026-03-28T11:00:00.000Z',
+      author: 'Avery Chen',
+      languageId: 1,
+      languageCode: 'EN',
+      confidentialityClassId: null,
+      confidentialityClassName: null,
+      projectId: null,
+      projectName: null,
+      company: 'Acme',
+      department: 'Operations',
+      revisionIntervalMonths: 6
+    });
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await changeInput(
+      document.querySelector('[data-doc-search="true"]') as HTMLInputElement,
+      'No Matching Value'
+    );
+    await click(getButton('Export'));
+
+    const dialog = getDialog();
+    await changeSelect(
+      getLabeledControl(dialog, 'Scope', 'select') as HTMLSelectElement,
+      'whole-workspace'
+    );
+    await click(getButton('Export', dialog));
+
+    expect(docTrack.documents.export).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        scope: 'whole-workspace',
+        pdfColorMode: 'color',
+        companyLogoPath: null,
+        rows: expect.arrayContaining([
+          expect.objectContaining({ id: 101 }),
+          expect.objectContaining({ id: 102 })
+        ]),
+        columns: workspaceResult.summary.settings.visibleDocumentColumns.map((column) => ({
+          key: column,
+          label: expect.any(String)
+        })),
+        filters: {
+          search: '',
+          status: 'All',
+          project: ''
+        }
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('shows PDF grouping choices only for supported workspace fields', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      visibleDocumentColumns: ['documentId', 'title', 'documentType', 'version', 'status']
+    };
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await click(getButton('Export'));
+    let dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).not.toContain('Group By');
+
+    await changeSelect(
+      getLabeledControl(dialog, 'Format', 'select') as HTMLSelectElement,
+      'pdf'
+    );
+
+    dialog = getDialog();
+    const groupingSelect = getLabeledControl(dialog, 'Group By', 'select') as HTMLSelectElement;
+    const optionLabels = [...groupingSelect.options].map((option) => option.textContent?.trim());
+
+    expect(optionLabels).toEqual(['No Grouping', 'Document Type', 'Status']);
+
+    await view.unmount();
+  });
+
+  it('includes the PDF appearance mode and workspace logo in export requests', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      companyLogoPath: 'Database/branding/company-logo.png'
+    };
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await click(getButton('Export'));
+    const dialog = getDialog();
+    await changeSelect(
+      getLabeledControl(dialog, 'Format', 'select') as HTMLSelectElement,
+      'pdf'
+    );
+    await changeSelect(
+      getLabeledControl(dialog, 'Appearance', 'select') as HTMLSelectElement,
+      'black-and-white'
+    );
+    await click(getButton('Export', dialog));
+
+    expect(docTrack.documents.export).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        format: 'pdf',
+        pdfColorMode: 'black-and-white',
+        companyLogoPath: 'Database/branding/company-logo.png'
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('lets users select and remove a workspace logo from workspace settings', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      companyLogoPath: 'Database/branding/company-logo.png'
+    };
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.dialogs.pickWorkspaceLogoFile = vi.fn().mockResolvedValue('C:\\logos\\next-logo.png');
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    let dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Saved logo: company-logo.png');
+    await click(getButton('Replace Logo', dialog));
+
+    dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('New logo selected: next-logo.png');
+    await click(getButton('Save Settings', dialog));
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          companyLogoPath: 'Database/branding/company-logo.png'
+        }),
+        companyLogoSourceFilePath: 'C:\\logos\\next-logo.png',
+        clearCompanyLogo: false
+      })
+    );
+
+    await click(getButton('Workspace Settings'));
+    dialog = getDialog();
+    await click(getButton('Remove Logo', dialog));
+    await click(getButton('Save Settings', dialog));
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenLastCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          companyLogoPath: ''
+        }),
+        companyLogoSourceFilePath: null,
+        clearCompanyLogo: true
+      })
+    );
 
     await view.unmount();
   });

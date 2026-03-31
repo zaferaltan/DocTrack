@@ -60,6 +60,7 @@ export interface WorkspaceSettings {
   visibleDocumentColumns: DocumentTableColumn[];
   defaultCompany: string;
   defaultDepartment: string;
+  companyLogoPath: string;
   autoMarkPreviousVersionObsolete: boolean;
 }
 
@@ -72,6 +73,7 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   visibleDocumentColumns: [...DOCUMENT_TABLE_COLUMNS],
   defaultCompany: '',
   defaultDepartment: '',
+  companyLogoPath: '',
   autoMarkPreviousVersionObsolete: true
 };
 
@@ -200,6 +202,18 @@ export const DOCUMENT_TABLE_COLUMN_OPTIONS: Array<{
   { value: 'revisionIntervalMonths', label: 'Revision Interval' },
   { value: 'revisionDescription', label: 'Revision Description' }
 ];
+
+export const DOCUMENT_TABLE_COLUMN_LABELS: Record<DocumentTableColumn, string> =
+  DOCUMENT_TABLE_COLUMN_OPTIONS.reduce(
+    (labels, column) => ({
+      ...labels,
+      [column.value]: column.label
+    }),
+    {} as Record<DocumentTableColumn, string>
+  );
+
+export const getDocumentTableColumnLabel = (column: DocumentTableColumn): string =>
+  DOCUMENT_TABLE_COLUMN_LABELS[column];
 
 const INVALID_PATH_SEGMENT = /[<>:"/\\|?*\u0000-\u001f]/g;
 

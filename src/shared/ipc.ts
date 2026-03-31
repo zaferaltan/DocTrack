@@ -8,6 +8,8 @@ import type {
   CreateVersionInput,
   DeleteDocumentVersionFileInput,
   DocumentDetail,
+  DocumentExportRequest,
+  DocumentExportResult,
   DocumentListItem,
   DocumentVersion,
   DocumentVersionFile,
@@ -23,7 +25,8 @@ import type {
   WorkspaceLanguage,
   WorkspaceLanguageInput,
   WorkspaceCreateInput,
-  WorkspaceInfo
+  WorkspaceInfo,
+  WorkspaceSettingsUpdateInput
 } from '@shared/types';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
@@ -37,6 +40,7 @@ export const IPC_CHANNELS = {
   workspaceUpdateSettings: 'workspace:updateSettings',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
   dialogPickWorkspaceOpenPath: 'dialog:pickWorkspaceOpenPath',
+  dialogPickWorkspaceLogoFile: 'dialog:pickWorkspaceLogoFile',
   dialogPickDocumentFiles: 'dialog:pickDocumentFiles',
   documentsList: 'documents:list',
   documentsDetail: 'documents:detail',
@@ -52,6 +56,7 @@ export const IPC_CHANNELS = {
   documentsOpenVersionFile: 'documents:openVersionFile',
   documentsOpenDocumentFolder: 'documents:openDocumentFolder',
   documentsOpenVersionFolder: 'documents:openVersionFolder',
+  documentsExport: 'documents:export',
   documentTypesList: 'documentTypes:list',
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
@@ -80,11 +85,12 @@ export interface DocTrackApi {
     listOpen: () => Promise<WorkspaceInfo[]>;
     listRecent: () => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
-    updateSettings: (rootPath: string, settings: WorkspaceSettings) => Promise<OpenWorkspaceResult>;
+    updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
   };
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName?: string) => Promise<string | null>;
     pickWorkspaceOpenPath: () => Promise<string | null>;
+    pickWorkspaceLogoFile: () => Promise<string | null>;
     pickDocumentFiles: () => Promise<string[]>;
   };
   documents: {
@@ -111,6 +117,7 @@ export interface DocTrackApi {
     openVersionFile: (rootPath: string, fileId: number) => Promise<void>;
     openDocumentFolder: (rootPath: string, documentRecordId: number) => Promise<void>;
     openVersionFolder: (rootPath: string, documentVersionId: number) => Promise<void>;
+    export: (rootPath: string, request: DocumentExportRequest) => Promise<DocumentExportResult>;
   };
   documentTypes: {
     list: (rootPath: string) => Promise<DocumentType[]>;

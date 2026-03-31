@@ -108,8 +108,9 @@ export class WorkspaceManager {
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
+            CompanyLogoPath,
             AutoMarkPreviousVersionObsolete
-          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -124,6 +125,7 @@ export class WorkspaceManager {
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
+        settings.companyLogoPath,
         settings.autoMarkPreviousVersionObsolete ? 1 : 0
       );
 
@@ -259,6 +261,7 @@ export class WorkspaceManager {
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
+            CompanyLogoPath,
             AutoMarkPreviousVersionObsolete
           FROM Workspaces
           WHERE Id = 1
@@ -274,6 +277,7 @@ export class WorkspaceManager {
           VisibleDocumentColumns: string;
           DefaultCompany: string;
           DefaultDepartment: string;
+          CompanyLogoPath: string;
           AutoMarkPreviousVersionObsolete: number;
         }
       | undefined;
@@ -300,6 +304,7 @@ export class WorkspaceManager {
       visibleDocumentColumns: this.parseVisibleDocumentColumns(row.VisibleDocumentColumns),
       defaultCompany: row.DefaultCompany,
       defaultDepartment: row.DefaultDepartment,
+      companyLogoPath: row.CompanyLogoPath ?? '',
       autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete)
     };
   }
@@ -328,6 +333,7 @@ export class WorkspaceManager {
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:
         typeof settings.defaultDepartment === 'string' ? settings.defaultDepartment.trim() : '',
+      companyLogoPath: typeof settings.companyLogoPath === 'string' ? settings.companyLogoPath.trim() : '',
       autoMarkPreviousVersionObsolete:
         typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
           ? settings.autoMarkPreviousVersionObsolete

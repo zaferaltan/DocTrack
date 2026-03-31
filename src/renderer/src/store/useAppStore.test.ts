@@ -51,6 +51,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
     dialogs: {
       pickWorkspaceCreatePath: vi.fn(),
       pickWorkspaceOpenPath: vi.fn(),
+      pickWorkspaceLogoFile: vi.fn(),
       pickDocumentFiles: vi.fn()
     },
     documents: {
@@ -67,7 +68,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       syncVersionFiles: vi.fn(),
       openVersionFile: vi.fn(),
       openDocumentFolder: vi.fn(),
-      openVersionFolder: vi.fn()
+      openVersionFolder: vi.fn(),
+      export: vi.fn()
     },
     documentTypes: {
       list: vi.fn(),
@@ -145,5 +147,31 @@ describe('useAppStore', () => {
 
     expect(docTrack.appSettings.update).toHaveBeenCalledWith(nextSettings);
     expect(store.getState().applicationSettings).toEqual(nextSettings);
+  });
+
+  it('updates workspace settings through the shared IPC surface using the combined settings payload', async () => {
+    const docTrack = installDocTrackMock();
+    docTrack.workspace.updateSettings.mockResolvedValue(openWorkspaceResult);
+    const store = createAppStore();
+
+    await store.getState().updateWorkspaceSettings(workspaceInfo.rootPath, {
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        companyLogoPath: 'Database/branding/company-logo.png'
+      },
+      companyLogoSourceFilePath: 'C:\\logos\\company.png',
+      clearCompanyLogo: false
+    });
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          companyLogoPath: 'Database/branding/company-logo.png'
+        }),
+        companyLogoSourceFilePath: 'C:\\logos\\company.png',
+        clearCompanyLogo: false
+      })
+    );
   });
 });
