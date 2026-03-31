@@ -222,11 +222,8 @@ export class DocumentService {
       }
 
       const createdDate = nowIso();
-      const documentId = this.documentIdGenerator.generateNextDocumentId(
-        context.db,
-        type.NumberPrefix,
-        createdDate
-      );
+      const title = input.title.trim();
+      const author = input.author.trim();
       const languageId = this.normalizeOptionalReference(
         context.db,
         'Languages',
@@ -245,14 +242,27 @@ export class DocumentService {
         input.projectId,
         'The selected project could not be found.'
       );
+      const languageCode = this.getLookupValue(context.db, 'Languages', 'Code', languageId);
+      const projectName = this.getLookupValue(context.db, 'Projects', 'Name', projectId);
       const company = (input.company ?? context.settings.defaultCompany).trim();
       const department = (input.department ?? context.settings.defaultDepartment).trim();
       const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
+      const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
+        numberPrefix: type.NumberPrefix,
+        documentTypeName: type.Name,
+        createdDate,
+        title,
+        author,
+        languageCode,
+        company,
+        department,
+        projectName
+      });
       const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
         context.settings,
         type.Name,
         documentId,
-        input.title.trim()
+        title
       );
       this.fileStorageService.ensureDocumentFolder(context.rootPath, documentFolderPath);
 
@@ -279,13 +289,13 @@ export class DocumentService {
         )
         .run(
           documentId,
-          input.title.trim(),
+          title,
           input.documentTypeId,
           input.versionScheme,
           documentFolderPath,
           createdDate,
           createdDate,
-          input.author.trim(),
+          author,
           languageId,
           confidentialityClassId,
           projectId,
@@ -1263,8 +1273,18 @@ export class DocumentService {
 
     return this.documentIdGenerator.generateNextDocumentId(
       db,
-      document.NumberPrefix,
-      createdDate
+      settings,
+      {
+        numberPrefix: document.NumberPrefix,
+        documentTypeName: document.TypeName,
+        createdDate,
+        title: document.Title,
+        author: document.Author,
+        languageCode: document.LanguageCode,
+        company: document.Company,
+        department: document.Department,
+        projectName: document.ProjectName
+      }
     );
   }
 
@@ -1389,6 +1409,23 @@ export class DocumentService {
     }
 
     return row.Id;
+  }
+
+  private getLookupValue(
+    db: Database.Database,
+    tableName: 'Languages' | 'Projects',
+    columnName: 'Code' | 'Name',
+    id: number | null
+  ): string | null {
+    if (!id) {
+      return null;
+    }
+
+    const row = db
+      .prepare(`SELECT ${columnName} AS Value FROM ${tableName} WHERE Id = ?`)
+      .get(id) as { Value: string } | undefined;
+
+    return row?.Value ?? null;
   }
 
   private normalizeRevisionIntervalMonths(value: number | null | undefined): number | null {

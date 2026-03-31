@@ -21,7 +21,7 @@ DocTrack lets you:
 - Create a new workspace
 - Open an existing workspace
 - Keep multiple workspaces open at the same time
-- Create documents with automatically generated numeric document IDs
+- Create documents with configurable document ID formats
 - Create document shells before the actual files exist
 - Add new versions to existing documents with configurable version label formats
 - Change document status
@@ -67,19 +67,13 @@ This means:
 
 ## Document ID Format
 
-Each document gets a permanent ID that does not change across versions.
+Each workspace can choose how document IDs are generated.
 
-Format:
+The default preset keeps the legacy numeric format:
 
 ```text
-TTYYYYNNNNN
+<docTypePrefix><year><sequence:5>
 ```
-
-Where:
-
-- `TT` = 2-digit document type prefix
-- `YYYY` = year
-- `NNNNN` = sequence number for that type and year
 
 Examples:
 
@@ -89,13 +83,41 @@ Examples:
 02202600001
 ```
 
+Workspaces can also switch to readable presets such as:
+
+```text
+<docType>-<year>-<sequence:4>
+<docType>-<language>-<year>-<sequence:4>
+```
+
+Or define a fully custom template with placeholders like:
+
+```text
+<docType>-<year>-<author>-<sequence:3>
+```
+
+Supported placeholders include:
+
+- `<docTypePrefix>`
+- `<docType>`
+- `<year>` and `<year2>`
+- `<month>` and `<day>`
+- `<author>`
+- `<language>`
+- `<company>`
+- `<department>`
+- `<project>`
+- `<title>`
+- `<sequence>` or `<sequence:5>`
+
 Important rules:
 
-- document IDs are numeric only
 - document IDs are generated automatically
-- document IDs are unique
-- document IDs stay the same across versions
-- version labels change when you create a new version
+- document IDs are unique within the rendered format prefix
+- placeholder names are case-insensitive
+- every template must include exactly one `<sequence>` placeholder
+- document IDs can stay the same across versions or change per version, depending on workspace settings
+- version labels still change when you create a new version
 
 ## Versioning Model
 
@@ -424,7 +446,7 @@ Important files:
   CRUD operations for document types
 
 - `src/main/services/documentIdGeneratorService.ts`  
-  Generates numeric IDs like `01202600001`
+  Generates document IDs from workspace presets or custom templates
 
 - `src/main/services/fileStorageService.ts`  
   Calculates workspace file paths and copies files

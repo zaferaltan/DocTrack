@@ -13,6 +13,8 @@ import {
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  isDocumentIdFormatPreset,
+  normalizeDocumentIdFormatTemplate,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
   isWorkspaceVersionManagementMode,
@@ -101,12 +103,13 @@ export class WorkspaceManager {
             StorageLayoutPreset,
             FileOrganizationMode,
             VersionManagementMode,
+            DocumentIdFormatPreset,
+            DocumentIdFormatTemplate,
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
             AutoMarkPreviousVersionObsolete
-          )
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -116,6 +119,8 @@ export class WorkspaceManager {
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
         settings.versionManagementMode,
+        settings.documentIdFormatPreset,
+        settings.documentIdFormatTemplate,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -249,6 +254,8 @@ export class WorkspaceManager {
             StorageLayoutPreset,
             FileOrganizationMode,
             VersionManagementMode,
+            DocumentIdFormatPreset,
+            DocumentIdFormatTemplate,
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
@@ -262,6 +269,8 @@ export class WorkspaceManager {
           StorageLayoutPreset: string;
           FileOrganizationMode: string;
           VersionManagementMode: string;
+          DocumentIdFormatPreset: string;
+          DocumentIdFormatTemplate: string;
           VisibleDocumentColumns: string;
           DefaultCompany: string;
           DefaultDepartment: string;
@@ -273,7 +282,8 @@ export class WorkspaceManager {
       !row ||
       !isWorkspaceStorageLayoutPreset(row.StorageLayoutPreset) ||
       !isWorkspaceFileOrganizationMode(row.FileOrganizationMode) ||
-      !isWorkspaceVersionManagementMode(row.VersionManagementMode)
+      !isWorkspaceVersionManagementMode(row.VersionManagementMode) ||
+      !isDocumentIdFormatPreset(row.DocumentIdFormatPreset)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -282,6 +292,11 @@ export class WorkspaceManager {
       storageLayoutPreset: row.StorageLayoutPreset,
       fileOrganizationMode: row.FileOrganizationMode,
       versionManagementMode: row.VersionManagementMode,
+      documentIdFormatPreset: row.DocumentIdFormatPreset,
+      documentIdFormatTemplate: normalizeDocumentIdFormatTemplate(
+        row.DocumentIdFormatTemplate,
+        row.DocumentIdFormatPreset
+      ),
       visibleDocumentColumns: this.parseVisibleDocumentColumns(row.VisibleDocumentColumns),
       defaultCompany: row.DefaultCompany,
       defaultDepartment: row.DefaultDepartment,
@@ -294,7 +309,8 @@ export class WorkspaceManager {
       !settings ||
       !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
       !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode) ||
-      !isWorkspaceVersionManagementMode(settings.versionManagementMode)
+      !isWorkspaceVersionManagementMode(settings.versionManagementMode) ||
+      !isDocumentIdFormatPreset(settings.documentIdFormatPreset)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -303,6 +319,11 @@ export class WorkspaceManager {
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
       versionManagementMode: settings.versionManagementMode,
+      documentIdFormatPreset: settings.documentIdFormatPreset,
+      documentIdFormatTemplate: normalizeDocumentIdFormatTemplate(
+        settings.documentIdFormatTemplate,
+        settings.documentIdFormatPreset
+      ),
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:

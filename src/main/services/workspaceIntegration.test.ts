@@ -82,6 +82,8 @@ describe('workspace integration', () => {
     expect(result.summary.settings.storageLayoutPreset).toBe('stable-id');
     expect(result.summary.settings.fileOrganizationMode).toBe('flat');
     expect(result.summary.settings.versionManagementMode).toBe('shared-document-id');
+    expect(result.summary.settings.documentIdFormatPreset).toBe('legacy-numeric');
+    expect(result.summary.settings.documentIdFormatTemplate).toBe('<docTypePrefix><year><sequence:5>');
     expect(result.summary.settings.visibleDocumentColumns).toEqual(
       DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns
     );
@@ -248,5 +250,23 @@ describe('workspace integration', () => {
     expect(updated.summary.settings.fileOrganizationMode).toBe('role-subfolders');
     expect(updated.warnings?.[0]).toContain('unmanaged paths');
     expect(reopened.summary.settings.fileOrganizationMode).toBe('role-subfolders');
+  });
+
+  it('persists custom document ID format settings', () => {
+    const result = workspaceService.create({
+      name: 'Formats',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        documentIdFormatPreset: 'custom',
+        documentIdFormatTemplate: '<docType>-<language>-<year>-<sequence:3>'
+      },
+      includeExampleData: false
+    });
+
+    expect(result.summary.settings.documentIdFormatPreset).toBe('custom');
+    expect(result.summary.settings.documentIdFormatTemplate).toBe(
+      '<docType>-<language>-<year>-<sequence:3>'
+    );
   });
 });

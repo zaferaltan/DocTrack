@@ -10,6 +10,12 @@ export const WORKSPACE_VERSION_MANAGEMENT_MODES = [
   'shared-document-id',
   'version-specific-document-id'
 ] as const;
+export const DOCUMENT_ID_FORMAT_PRESETS = [
+  'legacy-numeric',
+  'type-year-sequence',
+  'type-language-year-sequence',
+  'custom'
+] as const;
 export const DOCUMENT_TABLE_COLUMNS = [
   'documentId',
   'title',
@@ -33,12 +39,24 @@ export const DOCUMENT_TABLE_COLUMNS = [
 export type WorkspaceStorageLayoutPreset = (typeof WORKSPACE_STORAGE_LAYOUT_PRESETS)[number];
 export type WorkspaceFileOrganizationMode = (typeof WORKSPACE_FILE_ORGANIZATION_MODES)[number];
 export type WorkspaceVersionManagementMode = (typeof WORKSPACE_VERSION_MANAGEMENT_MODES)[number];
+export type DocumentIdFormatPreset = (typeof DOCUMENT_ID_FORMAT_PRESETS)[number];
 export type DocumentTableColumn = (typeof DOCUMENT_TABLE_COLUMNS)[number];
+
+export const DOCUMENT_ID_FORMAT_PRESET_TEMPLATES: Record<
+  Exclude<DocumentIdFormatPreset, 'custom'>,
+  string
+> = {
+  'legacy-numeric': '<docTypePrefix><year><sequence:5>',
+  'type-year-sequence': '<docType>-<year>-<sequence:4>',
+  'type-language-year-sequence': '<docType>-<language>-<year>-<sequence:4>'
+};
 
 export interface WorkspaceSettings {
   storageLayoutPreset: WorkspaceStorageLayoutPreset;
   fileOrganizationMode: WorkspaceFileOrganizationMode;
   versionManagementMode: WorkspaceVersionManagementMode;
+  documentIdFormatPreset: DocumentIdFormatPreset;
+  documentIdFormatTemplate: string;
   visibleDocumentColumns: DocumentTableColumn[];
   defaultCompany: string;
   defaultDepartment: string;
@@ -49,6 +67,8 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   storageLayoutPreset: 'stable-id',
   fileOrganizationMode: 'flat',
   versionManagementMode: 'shared-document-id',
+  documentIdFormatPreset: 'legacy-numeric',
+  documentIdFormatTemplate: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['legacy-numeric'],
   visibleDocumentColumns: [...DOCUMENT_TABLE_COLUMNS],
   defaultCompany: '',
   defaultDepartment: '',
@@ -104,6 +124,58 @@ export const WORKSPACE_VERSION_MANAGEMENT_OPTIONS: Array<{
     label: 'New document ID per version',
     description: 'Each new version gets its own document ID while the versions stay linked together.'
   }
+];
+
+export const DOCUMENT_ID_FORMAT_OPTIONS: Array<{
+  value: DocumentIdFormatPreset;
+  label: string;
+  description: string;
+  template: string;
+}> = [
+  {
+    value: 'legacy-numeric',
+    label: 'Legacy numeric',
+    description: 'Classic prefix + year + padded sequence, like 02202600001.',
+    template: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['legacy-numeric']
+  },
+  {
+    value: 'type-year-sequence',
+    label: 'Type + year',
+    description: 'Readable IDs based on document type, year, and sequence.',
+    template: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['type-year-sequence']
+  },
+  {
+    value: 'type-language-year-sequence',
+    label: 'Type + language + year',
+    description: 'Readable IDs that also include the selected language code.',
+    template: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['type-language-year-sequence']
+  },
+  {
+    value: 'custom',
+    label: 'Custom template',
+    description: 'Define your own format with placeholders and literal text.',
+    template: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['legacy-numeric']
+  }
+];
+
+export const DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS: Array<{
+  placeholder: string;
+  label: string;
+  example: string;
+}> = [
+  { placeholder: '<docTypePrefix>', label: '2-digit document type prefix', example: '02' },
+  { placeholder: '<docType>', label: 'Document type name', example: 'PROCEDURE' },
+  { placeholder: '<year>', label: '4-digit UTC year', example: '2026' },
+  { placeholder: '<year2>', label: '2-digit UTC year', example: '26' },
+  { placeholder: '<month>', label: '2-digit UTC month', example: '03' },
+  { placeholder: '<day>', label: '2-digit UTC day', example: '31' },
+  { placeholder: '<author>', label: 'Document author', example: 'JORDAN-SINGH' },
+  { placeholder: '<language>', label: 'Language code or XX', example: 'EN' },
+  { placeholder: '<company>', label: 'Company name', example: 'ACME-MANUFACTURING' },
+  { placeholder: '<department>', label: 'Department name', example: 'QUALITY-ASSURANCE' },
+  { placeholder: '<project>', label: 'Project name', example: 'QMS-ROLLOUT' },
+  { placeholder: '<title>', label: 'Document title', example: 'OPERATING-PROCEDURE' },
+  { placeholder: '<sequence:5>', label: 'Padded sequence number', example: '00001' }
 ];
 
 export const DOCUMENT_TABLE_COLUMN_OPTIONS: Array<{
@@ -162,8 +234,35 @@ export const isWorkspaceVersionManagementMode = (
 ): value is WorkspaceVersionManagementMode =>
   WORKSPACE_VERSION_MANAGEMENT_MODES.includes(value as WorkspaceVersionManagementMode);
 
+export const isDocumentIdFormatPreset = (value: string): value is DocumentIdFormatPreset =>
+  DOCUMENT_ID_FORMAT_PRESETS.includes(value as DocumentIdFormatPreset);
+
 export const isDocumentTableColumn = (value: string): value is DocumentTableColumn =>
   DOCUMENT_TABLE_COLUMNS.includes(value as DocumentTableColumn);
+
+export const getDocumentIdFormatTemplateForPreset = (preset: DocumentIdFormatPreset): string =>
+  preset === 'custom'
+    ? DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['legacy-numeric']
+    : DOCUMENT_ID_FORMAT_PRESET_TEMPLATES[preset];
+
+export const normalizeDocumentIdFormatTemplate = (
+  value: unknown,
+  fallbackPreset: DocumentIdFormatPreset = DEFAULT_WORKSPACE_SETTINGS.documentIdFormatPreset
+): string => {
+  if (typeof value !== 'string') {
+    return getDocumentIdFormatTemplateForPreset(fallbackPreset);
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : getDocumentIdFormatTemplateForPreset(fallbackPreset);
+};
+
+export const resolveDocumentIdFormatTemplate = (
+  settings: Pick<WorkspaceSettings, 'documentIdFormatPreset' | 'documentIdFormatTemplate'>
+): string =>
+  settings.documentIdFormatPreset === 'custom'
+    ? normalizeDocumentIdFormatTemplate(settings.documentIdFormatTemplate)
+    : getDocumentIdFormatTemplateForPreset(settings.documentIdFormatPreset);
 
 export const normalizeVisibleDocumentColumns = (value: unknown): DocumentTableColumn[] => {
   if (!Array.isArray(value)) {

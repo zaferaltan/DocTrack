@@ -76,10 +76,15 @@ import {
   buildDocumentVersionRelativePath,
   buildVersionFileRelativePath,
   DEFAULT_WORKSPACE_SETTINGS,
+  DOCUMENT_ID_FORMAT_OPTIONS,
+  DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS,
   DOCUMENT_TABLE_COLUMN_OPTIONS,
   WORKSPACE_FILE_ORGANIZATION_OPTIONS,
   WORKSPACE_STORAGE_LAYOUT_OPTIONS,
   WORKSPACE_VERSION_MANAGEMENT_OPTIONS,
+  getDocumentIdFormatTemplateForPreset,
+  normalizeDocumentIdFormatTemplate,
+  resolveDocumentIdFormatTemplate,
   type DocumentTableColumn,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
@@ -401,6 +406,59 @@ const parseOptionalPositiveInteger = (value: string): number | null => {
 
   const parsed = Number(trimmed);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : Number.NaN;
+};
+
+const normalizeDocumentIdPreviewSegment = (value: string, fallback: string): string => {
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/_/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toUpperCase();
+
+  return normalized || fallback;
+};
+
+const buildDocumentIdPreview = (
+  settings: WorkspaceSettings,
+  sequenceNumber: number
+): string => {
+  const createdDate = new Date('2026-03-31T09:00:00.000Z');
+  const year = String(createdDate.getUTCFullYear());
+  const replacements: Record<string, string> = {
+    doctypeprefix: '02',
+    documenttypeprefix: '02',
+    prefix: '02',
+    doctype: 'PROCEDURE',
+    documenttype: 'PROCEDURE',
+    year,
+    year2: year.slice(-2),
+    month: String(createdDate.getUTCMonth() + 1).padStart(2, '0'),
+    day: String(createdDate.getUTCDate()).padStart(2, '0'),
+    author: normalizeDocumentIdPreviewSegment('Jordan Singh', 'UNKNOWN'),
+    language: 'EN',
+    languagecode: 'EN',
+    company: normalizeDocumentIdPreviewSegment('Acme Manufacturing', 'NA'),
+    department: normalizeDocumentIdPreviewSegment('Quality Assurance', 'NA'),
+    project: normalizeDocumentIdPreviewSegment('QMS Rollout', 'NA'),
+    projectname: normalizeDocumentIdPreviewSegment('QMS Rollout', 'NA'),
+    title: normalizeDocumentIdPreviewSegment('Operating Procedure', 'UNTITLED')
+  };
+
+  return resolveDocumentIdFormatTemplate(settings).replace(/<([^>]+)>/gi, (_match, tokenContent) => {
+    const [rawName, rawArgument] = String(tokenContent).split(':', 2);
+    const tokenName = rawName.trim().toLowerCase();
+
+    if (tokenName === 'sequence') {
+      const width = Number(rawArgument?.trim() || '5');
+      const safeWidth = Number.isInteger(width) && width > 0 ? width : 5;
+      return String(sequenceNumber).padStart(safeWidth, '0');
+    }
+
+    return replacements[tokenName] ?? `<${tokenContent}>`;
+  });
 };
 
 const toDateInputValue = (value: string | null | undefined): string => (value ? value.slice(0, 10) : '');
@@ -3674,6 +3732,7 @@ function WorkspaceStorageSettingsFields({
   settings: WorkspaceSettings;
   onSettingsChange: (settings: WorkspaceSettings) => void;
 }) {
+  const [showDocumentIdPlaceholders, setShowDocumentIdPlaceholders] = useState(false);
   const selectedStorageOption =
     WORKSPACE_STORAGE_LAYOUT_OPTIONS.find((option) => option.value === settings.storageLayoutPreset) ??
     WORKSPACE_STORAGE_LAYOUT_OPTIONS[0];
@@ -3685,9 +3744,18 @@ function WorkspaceStorageSettingsFields({
     WORKSPACE_VERSION_MANAGEMENT_OPTIONS.find(
       (option) => option.value === settings.versionManagementMode
     ) ?? WORKSPACE_VERSION_MANAGEMENT_OPTIONS[0];
+  const selectedDocumentIdOption =
+    DOCUMENT_ID_FORMAT_OPTIONS.find((option) => option.value === settings.documentIdFormatPreset) ??
+    DOCUMENT_ID_FORMAT_OPTIONS[0];
+  const activeDocumentIdTemplate = resolveDocumentIdFormatTemplate(settings);
   const previewWorkspaceName = workspaceName.trim() || 'Quality Operations';
+  const previewDocumentIds = [
+    buildDocumentIdPreview(settings, 1),
+    buildDocumentIdPreview(settings, 2),
+    buildDocumentIdPreview(settings, 3)
+  ];
   const previewVersionFolderPath = buildDocumentVersionRelativePath(
-    buildDocumentFolderRelativePath(settings, 'Procedure', '02202600001', 'Operating Procedure'),
+    buildDocumentFolderRelativePath(settings, 'Procedure', previewDocumentIds[0], 'Operating Procedure'),
     '001'
   );
   const previewRelativePath = buildVersionFileRelativePath(
@@ -3698,8 +3766,8 @@ function WorkspaceStorageSettingsFields({
   );
   const previewVersionIds =
     settings.versionManagementMode === 'version-specific-document-id'
-      ? ['02202600001', '02202600002', '02202600003']
-      : ['02202600001', '02202600001', '02202600001'];
+      ? previewDocumentIds
+      : [previewDocumentIds[0], previewDocumentIds[0], previewDocumentIds[0]];
   const showDefaultCompany = settings.visibleDocumentColumns.includes('company');
   const showDefaultDepartment = settings.visibleDocumentColumns.includes('department');
 
@@ -3759,6 +3827,87 @@ function WorkspaceStorageSettingsFields({
         </Select>
       </Field>
 
+      <Field label="Document ID Format">
+        <Select
+          value={settings.documentIdFormatPreset}
+          onChange={(event) => {
+            const nextPreset = event.target.value as WorkspaceSettings['documentIdFormatPreset'];
+            onSettingsChange({
+              ...settings,
+              documentIdFormatPreset: nextPreset,
+              documentIdFormatTemplate:
+                nextPreset === 'custom'
+                  ? normalizeDocumentIdFormatTemplate(settings.documentIdFormatTemplate)
+                  : getDocumentIdFormatTemplateForPreset(nextPreset)
+            });
+          }}
+        >
+          {DOCUMENT_ID_FORMAT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+        <div className="text-xs text-muted-foreground">{selectedDocumentIdOption.description}</div>
+      </Field>
+
+      <Field label="Document ID Template">
+        <Textarea
+          rows={2}
+          placeholder="<docTypePrefix><year><sequence:5>"
+          value={settings.documentIdFormatTemplate}
+          disabled={settings.documentIdFormatPreset !== 'custom'}
+          onChange={(event) =>
+            onSettingsChange({
+              ...settings,
+              documentIdFormatPreset: 'custom',
+              documentIdFormatTemplate: event.target.value
+            })
+          }
+        />
+        <div className="text-xs text-muted-foreground">
+          Use one <code>{'<sequence>'}</code> placeholder. Placeholder names are case-insensitive,
+          so <code>{'<Language>'}</code> works the same as <code>{'<language>'}</code>.
+        </div>
+        {settings.documentIdFormatPreset === 'custom' ? (
+          <div className="rounded-lg bg-card px-2.5 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Live Preview
+            </div>
+            <div className="mt-1.5 font-mono text-xs text-primary">
+              {buildDocumentIdPreview(settings, 1)}
+            </div>
+          </div>
+        ) : null}
+      </Field>
+
+      {settings.documentIdFormatPreset === 'custom' ? (
+        <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left"
+            onClick={() => setShowDocumentIdPlaceholders((current) => !current)}
+          >
+            <span className="font-medium">Document ID placeholders</span>
+            <span className="text-xs text-muted-foreground">
+              {showDocumentIdPlaceholders ? 'Hide' : 'Show'}
+            </span>
+          </button>
+
+          {showDocumentIdPlaceholders ? (
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS.map((option) => (
+                <div key={option.placeholder} className="rounded-lg bg-card px-2.5 py-2">
+                  <div className="font-mono text-xs text-primary">{option.placeholder}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{option.label}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">Example: {option.example}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
         <div className="font-medium">{selectedStorageOption.label}</div>
         <div className="mt-1 text-muted-foreground">{selectedStorageOption.description}</div>
@@ -3766,6 +3915,22 @@ function WorkspaceStorageSettingsFields({
         <div className="mt-1 text-muted-foreground">{selectedFileOrganizationOption.description}</div>
         <div className="mt-2 font-medium">{selectedVersionManagementOption.label}</div>
         <div className="mt-1 text-muted-foreground">{selectedVersionManagementOption.description}</div>
+        <div className="mt-2 font-medium">{selectedDocumentIdOption.label}</div>
+        <div className="mt-1 text-muted-foreground">{selectedDocumentIdOption.description}</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Active Template
+        </div>
+        <div className="mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+          {activeDocumentIdTemplate}
+        </div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Example Document IDs
+        </div>
+        <div className="mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+          <div>Create -&gt; {previewDocumentIds[0]}</div>
+          <div>Next -&gt; {previewDocumentIds[1]}</div>
+          <div>Then -&gt; {previewDocumentIds[2]}</div>
+        </div>
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Example Path
         </div>

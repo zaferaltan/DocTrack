@@ -10,6 +10,9 @@ import { DOCUMENT_STATUSES } from '@shared/types';
 import type { DocumentType, OpenWorkspaceResult, WorkspaceCreateInput } from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
+  isDocumentIdFormatPreset,
+  normalizeDocumentIdFormatTemplate,
+  resolveDocumentIdFormatTemplate,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
   isWorkspaceVersionManagementMode,
@@ -34,6 +37,7 @@ export class WorkspaceService {
   ) {}
 
   create(input: WorkspaceCreateInput): OpenWorkspaceResult {
+    this.assertDocumentIdTemplateIsValid(this.normalizeWorkspaceSettings(input.settings));
     const context = this.workspaceManager.createWorkspace(input, (workspaceContext) => {
       this.seedStarterTypes(workspaceContext.db);
       this.ensureDocumentTypeDirectories(workspaceContext);
@@ -96,6 +100,7 @@ export class WorkspaceService {
   updateSettings(rootPath: string, settings: WorkspaceSettings): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
     const nextSettings = this.normalizeWorkspaceSettings(settings);
+    this.assertDocumentIdTemplateIsValid(nextSettings);
     const requiresStorageMigration =
       context.settings.storageLayoutPreset !== nextSettings.storageLayoutPreset ||
       context.settings.fileOrganizationMode !== nextSettings.fileOrganizationMode;
@@ -139,6 +144,8 @@ export class WorkspaceService {
             StorageLayoutPreset = ?,
             FileOrganizationMode = ?,
             VersionManagementMode = ?,
+            DocumentIdFormatPreset = ?,
+            DocumentIdFormatTemplate = ?,
             VisibleDocumentColumns = ?,
             DefaultCompany = ?,
             DefaultDepartment = ?,
@@ -150,6 +157,8 @@ export class WorkspaceService {
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
         settings.versionManagementMode,
+        settings.documentIdFormatPreset,
+        settings.documentIdFormatTemplate,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -162,6 +171,8 @@ export class WorkspaceService {
       left.storageLayoutPreset === right.storageLayoutPreset &&
       left.fileOrganizationMode === right.fileOrganizationMode &&
       left.versionManagementMode === right.versionManagementMode &&
+      left.documentIdFormatPreset === right.documentIdFormatPreset &&
+      left.documentIdFormatTemplate === right.documentIdFormatTemplate &&
       left.defaultCompany === right.defaultCompany &&
       left.defaultDepartment === right.defaultDepartment &&
       left.autoMarkPreviousVersionObsolete === right.autoMarkPreviousVersionObsolete &&
@@ -484,11 +495,17 @@ export class WorkspaceService {
     }
 
     const createdDate = nowIso();
-    const documentId = this.documentIdGenerator.generateNextDocumentId(
-      context.db,
-      type.NumberPrefix,
-      createdDate
-    );
+    const company = context.settings.defaultCompany;
+    const department = context.settings.defaultDepartment;
+    const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
+      numberPrefix: type.NumberPrefix,
+      documentTypeName: type.Name,
+      createdDate,
+      title: input.title,
+      author: input.author,
+      company,
+      department
+    });
     const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
       context.settings,
       type.Name,
@@ -508,8 +525,10 @@ export class WorkspaceService {
             DocumentFolderPath,
             CreatedDate,
             ModifiedDate,
-            Author
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            Author,
+            Company,
+            Department
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -520,7 +539,9 @@ export class WorkspaceService {
         documentFolderPath,
         createdDate,
         createdDate,
-        input.author
+        input.author,
+        company,
+        department
       );
 
     const documentRecordId = Number(documentInsert.lastInsertRowid);
@@ -561,8 +582,16 @@ export class WorkspaceService {
       ) {
         currentVersionDocumentId = this.documentIdGenerator.generateNextDocumentId(
           context.db,
-          type.NumberPrefix,
-          createdDate
+          context.settings,
+          {
+            numberPrefix: type.NumberPrefix,
+            documentTypeName: type.Name,
+            createdDate,
+            title: input.title,
+            author: input.author,
+            company,
+            department
+          }
         );
       }
 
@@ -603,7 +632,8 @@ export class WorkspaceService {
     if (
       !isWorkspaceStorageLayoutPreset(settings.storageLayoutPreset) ||
       !isWorkspaceFileOrganizationMode(settings.fileOrganizationMode) ||
-      !isWorkspaceVersionManagementMode(settings.versionManagementMode)
+      !isWorkspaceVersionManagementMode(settings.versionManagementMode) ||
+      !isDocumentIdFormatPreset(settings.documentIdFormatPreset)
     ) {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
@@ -612,6 +642,11 @@ export class WorkspaceService {
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
       versionManagementMode: settings.versionManagementMode,
+      documentIdFormatPreset: settings.documentIdFormatPreset,
+      documentIdFormatTemplate: normalizeDocumentIdFormatTemplate(
+        settings.documentIdFormatTemplate,
+        settings.documentIdFormatPreset
+      ),
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:
@@ -621,6 +656,10 @@ export class WorkspaceService {
           ? settings.autoMarkPreviousVersionObsolete
           : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
     };
+  }
+
+  private assertDocumentIdTemplateIsValid(settings: WorkspaceSettings): void {
+    this.documentIdGenerator.validateTemplate(resolveDocumentIdFormatTemplate(settings));
   }
 
   private rewriteRelativePathPrefix(

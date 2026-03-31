@@ -3,6 +3,7 @@ import initialMigration from '../../../migrations/001_initial.sql?raw';
 import workspaceLayoutMigration from '../../../migrations/002_workspace_layout.sql?raw';
 import documentMetadataMigration from '../../../migrations/003_document_metadata.sql?raw';
 import versionManagementMigration from '../../../migrations/004_version_management.sql?raw';
+import documentIdFormatMigration from '../../../migrations/005_document_id_format.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
@@ -21,6 +22,10 @@ const MIGRATIONS = [
   {
     id: '004_version_management',
     sql: versionManagementMigration
+  },
+  {
+    id: '005_document_id_format',
+    sql: documentIdFormatMigration
   }
 ] as const;
 

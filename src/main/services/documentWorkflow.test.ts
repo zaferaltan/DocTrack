@@ -187,6 +187,35 @@ describe('document workflow integration', () => {
     expect(secondVersion.versions[1]?.documentId).toBe(created.id);
   });
 
+  it('uses the configured custom document ID template for new documents and versions', () => {
+    const language = workspaceCatalogService.createLanguage(workspaceRootPath, {
+      code: 'FR'
+    });
+
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      documentIdFormatPreset: 'custom',
+      documentIdFormatTemplate: '<docType>-<language>-<year2>-<sequence:3>',
+      versionManagementMode: 'version-specific-document-id'
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Custom Format Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3',
+      languageId: language.id
+    });
+    const nextVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Second identifier'
+    });
+
+    expect(created.documentId).toBe('PROCEDURE-FR-26-001');
+    expect(nextVersion.documentId).toBe('PROCEDURE-FR-26-002');
+    expect(nextVersion.versions[1]?.versionDocumentId).toBe('PROCEDURE-FR-26-001');
+  });
+
   it('adds files, syncs manual filesystem changes, and preserves role metadata across rename', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',
