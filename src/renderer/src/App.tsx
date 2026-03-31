@@ -1901,6 +1901,7 @@ function App() {
         onStateChange={setLatestVersionDialog}
         onSubmit={handleSaveLatestVersion}
         documentDetail={selectedDocumentDetail}
+        availableColumns={activeWorkspaceAvailableColumns}
       />
 
       <StatusChangeDialog
@@ -4177,7 +4178,8 @@ function LatestVersionDialog({
   state,
   onStateChange,
   onSubmit,
-  documentDetail
+  documentDetail,
+  availableColumns
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -4185,7 +4187,13 @@ function LatestVersionDialog({
   onStateChange: React.Dispatch<React.SetStateAction<LatestVersionDialogState>>;
   onSubmit: () => Promise<void>;
   documentDetail: DocumentDetail | null;
+  availableColumns: DocumentTableColumn[];
 }) {
+  const showReleasedDate = availableColumns.includes('releasedDate');
+  const showApprovedBy = availableColumns.includes('approvedBy');
+  const showRevisionDescription = availableColumns.includes('revisionDescription');
+  const detailFieldCount = Number(showReleasedDate) + Number(showApprovedBy);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -4221,46 +4229,54 @@ function LatestVersionDialog({
           </Select>
         </Field>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Released Date">
-            <Input
-              type="date"
-              value={state.releasedDate}
+        {detailFieldCount > 0 ? (
+          <div className={cn('grid gap-4', detailFieldCount > 1 ? 'md:grid-cols-2' : 'md:grid-cols-1')}>
+            {showReleasedDate ? (
+              <Field label="Released Date">
+                <Input
+                  type="date"
+                  value={state.releasedDate}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      releasedDate: event.target.value
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+
+            {showApprovedBy ? (
+              <Field label="Approved By">
+                <Input
+                  placeholder="Taylor Reed"
+                  value={state.approvedBy}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      approvedBy: event.target.value
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+          </div>
+        ) : null}
+
+        {showRevisionDescription ? (
+          <Field label="Revision Description">
+            <Textarea
+              placeholder="What changed in this version?"
+              value={state.revisionDescription}
               onChange={(event) =>
                 onStateChange((current) => ({
                   ...current,
-                  releasedDate: event.target.value
+                  revisionDescription: event.target.value
                 }))
               }
             />
           </Field>
-
-          <Field label="Approved By">
-            <Input
-              placeholder="Taylor Reed"
-              value={state.approvedBy}
-              onChange={(event) =>
-                onStateChange((current) => ({
-                  ...current,
-                  approvedBy: event.target.value
-                }))
-              }
-            />
-          </Field>
-        </div>
-
-        <Field label="Revision Description">
-          <Textarea
-            placeholder="What changed in this version?"
-            value={state.revisionDescription}
-            onChange={(event) =>
-              onStateChange((current) => ({
-                ...current,
-                revisionDescription: event.target.value
-              }))
-            }
-          />
-        </Field>
+        ) : null}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

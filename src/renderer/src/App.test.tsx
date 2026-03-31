@@ -718,6 +718,41 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('hides disabled version metadata fields in the edit latest version dialog', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      visibleDocumentColumns: DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns.filter(
+        (column) => column !== 'approvedBy'
+      )
+    };
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await click(getButton('Latest Version'));
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Released Date');
+    expect(normalizeText(dialog.textContent)).not.toContain('Approved By');
+    expect(normalizeText(dialog.textContent)).toContain('Revision Description');
+
+    await view.unmount();
+  });
+
   it('shows languages on their own page and keeps the workspace settings dialog scrollable', async () => {
     buildDocTrackMock();
     const view = await renderApp();
