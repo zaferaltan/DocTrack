@@ -71,6 +71,20 @@ describe('app catalog service', () => {
     expect(reopened.getApplicationSettings()).toEqual(settings);
   });
 
+  it('preserves sidebar widths below the old fixed pixel minimum', () => {
+    const service = createService();
+
+    service.updateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      documentDetailSidebarWidth: 420
+    });
+
+    expect(service.getApplicationSettings()).toEqual({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      documentDetailSidebarWidth: 420
+    });
+  });
+
   it('migrates legacy theme mode catalogs into application settings', () => {
     const service = createService();
     const catalogPath = path.join(tempRoot, 'catalog.json');
@@ -117,7 +131,7 @@ describe('app catalog service', () => {
         {
           applicationSettings: {
             documentDetailViewMode: 'invalid',
-            documentDetailSidebarWidth: 2400,
+            documentDetailSidebarWidth: -40,
             workspaceTabDensity: 'dense',
             keyboardShortcuts: {
               openSettings: 'ctrl + ,',
@@ -136,7 +150,6 @@ describe('app catalog service', () => {
 
     expect(service.getApplicationSettings()).toEqual({
       ...DEFAULT_APPLICATION_SETTINGS,
-      documentDetailSidebarWidth: 2000,
       keyboardShortcuts: {
         ...DEFAULT_KEYBOARD_SHORTCUTS,
         openSettings: 'Mod+,',

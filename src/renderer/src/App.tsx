@@ -64,8 +64,8 @@ import {
   DEFAULT_KEYBOARD_SHORTCUTS,
   DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS,
   DEFAULT_APPLICATION_SETTINGS,
-  DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
-  DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+  DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT,
+  DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT,
   DOCUMENT_DETAIL_VIEW_MODE_OPTIONS,
   DOCUMENT_TABLE_DENSITY_OPTIONS,
   KEYBOARD_SHORTCUT_ACTIONS,
@@ -2618,45 +2618,6 @@ function ApplicationSettingsDialog({
               <div className="text-xs text-muted-foreground">{selectedTabDensity.description}</div>
             </Field>
 
-            {state.settings.documentDetailViewMode === 'sidebar' ? (
-              <Field label="Sidebar Width">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
-                  <input
-                    type="range"
-                    min={DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH}
-                    max={DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH}
-                    step={10}
-                    value={state.settings.documentDetailSidebarWidth}
-                    onChange={(event) =>
-                      updateSettings({
-                        documentDetailSidebarWidth: Number(event.target.value)
-                      })
-                    }
-                  />
-                  <Input
-                    type="number"
-                    min={DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH}
-                    max={DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH}
-                    step={10}
-                    value={String(state.settings.documentDetailSidebarWidth)}
-                    onChange={(event) =>
-                      updateSettings({
-                        documentDetailSidebarWidth: Math.max(
-                          DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
-                          Math.min(
-                            DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
-                            Number(event.target.value) || DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH
-                          )
-                        )
-                      })
-                    }
-                  />
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Controls the default width of the overlay sidebar for document details.
-                </div>
-              </Field>
-            ) : null}
           </SettingsSection>
 
           <SettingsSection title="Table & Display" description="Tune how dense the main document workspace feels.">
@@ -3097,11 +3058,13 @@ function DocumentsView({
   const [projectFilter, setProjectFilter] = useState<string>('All');
   const [exportDialog, setExportDialog] = useState(defaultDocumentExportDialogState);
   const [sidebarWidth, setSidebarWidth] = useState(applicationSettings.documentDetailSidebarWidth);
+  const [isSidebarEntered, setIsSidebarEntered] = useState(false);
   const availableColumns = workspace.settings.visibleDocumentColumns;
   const projectFeatureEnabled = availableColumns.includes('project');
   const deferredSearch = useDeferredValue(search);
   const detailViewMode = applicationSettings.documentDetailViewMode;
   const hasSelectedDocument = Boolean(workspace.selectedDocumentRecordId);
+  const isSidebarOpen = detailViewMode === 'sidebar' && hasSelectedDocument;
   const headerCellClassName =
     documentTableDensity === 'compact'
       ? 'whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground'
@@ -3149,8 +3112,30 @@ function DocumentsView({
   }, [exportGroupingOptions]);
 
   useEffect(() => {
-    setSidebarWidth(applicationSettings.documentDetailSidebarWidth);
+    const appWidth = window.innerWidth;
+    const minWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
+    const maxWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
+
+    setSidebarWidth(() =>
+      appWidth > 0
+        ? Math.max(minWidth, Math.min(maxWidth, applicationSettings.documentDetailSidebarWidth))
+        : applicationSettings.documentDetailSidebarWidth
+    );
   }, [applicationSettings.documentDetailSidebarWidth]);
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      setIsSidebarEntered(false);
+      return;
+    }
+
+    setIsSidebarEntered(false);
+    const frame = window.requestAnimationFrame(() => {
+      setIsSidebarEntered(true);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isSidebarOpen]);
 
   const filteredDocuments = useMemo(
     () =>
@@ -3509,15 +3494,23 @@ function DocumentsView({
 
   const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    const appWidth = window.innerWidth;
+    if (appWidth <= 0) {
+      return;
+    }
+
+    const minWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
+    const maxWidth = (appWidth * DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT) / 100;
     const startX = event.clientX;
-    const startWidth = sidebarWidth;
+    const startWidth = Math.max(minWidth, Math.min(maxWidth, sidebarWidth));
     let nextWidth = startWidth;
+    setSidebarWidth(startWidth);
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       nextWidth = Math.max(
-        DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
+        minWidth,
         Math.min(
-          DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
+          maxWidth,
           startWidth + (startX - moveEvent.clientX)
         )
       );
@@ -3527,7 +3520,9 @@ function DocumentsView({
     const handlePointerUp = () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
-      void onUpdateSidebarWidth(nextWidth);
+      const persistedWidth = Math.round(nextWidth);
+      setSidebarWidth(persistedWidth);
+      void onUpdateSidebarWidth(persistedWidth);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -3559,143 +3554,146 @@ function DocumentsView({
   return (
     <>
       <div className="relative h-full">
-      <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
-          <div>
-            <div className="text-lg font-semibold">{workspace.workspace.name}</div>
-            <div className="mt-1 text-[13px] text-muted-foreground">
-              {workspace.documents.length} documents tracked in this workspace
+        <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/80 px-1 pb-3">
+            <div>
+              <div className="text-lg font-semibold">{workspace.workspace.name}</div>
+              <div className="mt-1 text-[13px] text-muted-foreground">
+                {workspace.documents.length} documents tracked in this workspace
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onRequestNewDocument}>
+                <FilePlus2 className="h-4 w-4" />
+                New Document
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setExportDialog({ ...defaultDocumentExportDialogState, open: true })}
+              >
+                <FileStack className="h-4 w-4" />
+                Export
+              </Button>
+              <Button
+                aria-label="Table View Settings"
+                variant="outline"
+                size="icon"
+                onClick={onOpenTableSettings}
+                title="Table View Settings"
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onRequestNewDocument}>
-              <FilePlus2 className="h-4 w-4" />
-              New Document
-            </Button>
-            <Button variant="outline" onClick={() => setExportDialog({ ...defaultDocumentExportDialogState, open: true })}>
-              <FileStack className="h-4 w-4" />
-              Export
-            </Button>
-            <Button
-              aria-label="Table View Settings"
-              variant="outline"
-              size="icon"
-              onClick={onOpenTableSettings}
-              title="Table View Settings"
-            >
-              <Settings2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2.5">
-          <div className="relative min-w-[240px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              data-doc-search="true"
-              className="pl-10"
-              placeholder="Search by ID, title, type, author, project, status, or metadata"
-              value={search}
-              onChange={(event) => {
-                startTransition(() => {
-                  setSearch(event.target.value);
-                });
-              }}
-            />
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                data-doc-search="true"
+                className="pl-10"
+                placeholder="Search by ID, title, type, author, project, status, or metadata"
+                value={search}
+                onChange={(event) => {
+                  startTransition(() => {
+                    setSearch(event.target.value);
+                  });
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {statusOptions.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  className={cn(
+                    'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
+                    statusFilter === status
+                      ? 'border-border bg-secondary text-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                  )}
+                  onClick={() => setStatusFilter(status)}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+            {projectFeatureEnabled ? (
+              <Field label="Project">
+                <Select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+                  <option value="All">All projects</option>
+                  {workspace.projects.map((project) => (
+                    <option key={project.id} value={String(project.id)}>
+                      {project.name}
+                    </option>
+                  ))}
+                  <option value="">No project</option>
+                </Select>
+              </Field>
+            ) : null}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {statusOptions.map((status) => (
-              <button
-                key={status}
-                type="button"
-                className={cn(
-                  'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition',
-                  statusFilter === status
-                    ? 'border-border bg-secondary text-foreground'
-                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
-                )}
-                onClick={() => setStatusFilter(status)}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          {projectFeatureEnabled ? (
-            <Field label="Project">
-              <Select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-                <option value="All">All projects</option>
-                {workspace.projects.map((project) => (
-                  <option key={project.id} value={String(project.id)}>
-                    {project.name}
-                  </option>
-                ))}
-                <option value="">No project</option>
-              </Select>
-            </Field>
-          ) : null}
-        </div>
 
-        <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
-          <div className="h-full overflow-auto">
-            <table className="min-w-full border-collapse text-[13px]">
-              <thead className="sticky top-0 z-10 bg-card/95">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id} className="border-b border-border">
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className={cn(
-                          headerCellClassName,
-                          header.id === 'actions' && 'text-right'
-                        )}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length} className={emptyStateClassName}>
-                      No documents match the current search and filter settings.
-                    </td>
-                  </tr>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={cn(
-                        'cursor-pointer border-b border-border/60 transition hover:bg-accent/70',
-                        workspace.selectedDocumentRecordId === row.original.id && 'bg-accent/70'
-                      )}
-                      onClick={() => onSelectDocument(row.original.id)}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
+          <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
+            <div className="h-full overflow-auto">
+              <table className="min-w-full border-collapse text-[13px]">
+                <thead className="sticky top-0 z-10 bg-card/95">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id} className="border-b border-border">
+                      {headerGroup.headers.map((header) => (
+                        <th
+                          key={header.id}
                           className={cn(
-                            bodyCellClassName,
-                            cell.column.id === 'actions' && 'min-w-[180px]'
+                            headerCellClassName,
+                            header.id === 'actions' && 'text-right'
                           )}
                         >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
                       ))}
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ))}
+                </thead>
+                <tbody>
+                  {table.getRowModel().rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length} className={emptyStateClassName}>
+                        No documents match the current search and filter settings.
+                      </td>
+                    </tr>
+                  ) : (
+                    table.getRowModel().rows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={cn(
+                          'cursor-pointer border-b border-border/60 transition hover:bg-accent/70',
+                          workspace.selectedDocumentRecordId === row.original.id && 'bg-accent/70'
+                        )}
+                        onClick={() => onSelectDocument(row.original.id)}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <td
+                            key={cell.id}
+                            className={cn(
+                              bodyCellClassName,
+                              cell.column.id === 'actions' && 'min-w-[180px]'
+                            )}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
 
-      {false ? (
-      <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
+        {false ? (
+        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 shadow-sm">
         <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <div>
             <div className="text-base font-semibold">Document Detail</div>
@@ -3877,18 +3875,25 @@ function DocumentsView({
             </div>
           </div>
         ) : null}
-      </div>
-      ) : null}
-      </div>
-      {detailViewMode === 'sidebar' && hasSelectedDocument ? (
-        <>
+        </div>
+        ) : null}
+        {isSidebarOpen ? (
+          <>
           <div
-            className="absolute inset-0 z-[45] rounded-2xl bg-slate-950/10 backdrop-blur-[1px]"
+            className={cn(
+              'fixed inset-0 z-[70] bg-slate-950/12 backdrop-blur-[1px] transition-opacity duration-300 ease-out',
+              isSidebarEntered ? 'opacity-100' : 'opacity-0'
+            )}
             onClick={onCloseDocumentDetail}
           />
           <div
-            className="absolute bottom-0 right-0 top-0 z-[55] flex border-l border-border bg-card shadow-2xl"
-            style={{ width: `${sidebarWidth}px` }}
+            className={cn(
+              'fixed inset-y-0 right-0 z-[80] flex border-l border-border bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-out',
+              isSidebarEntered ? 'translate-x-0 opacity-100' : 'translate-x-8 opacity-0'
+            )}
+            style={{
+              width: `clamp(${DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT}vw, ${Math.round(sidebarWidth)}px, ${DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT}vw)`
+            }}
             data-detail-sidebar="true"
           >
             <div
@@ -3900,8 +3905,9 @@ function DocumentsView({
             </div>
             <div className="min-w-0 flex-1 overflow-hidden">{renderDetailContent('sidebar')}</div>
           </div>
-        </>
-      ) : null}
+          </>
+        ) : null}
+      </div>
       <Dialog
         open={detailViewMode === 'modal' && hasSelectedDocument}
         onOpenChange={(open) => !open && onCloseDocumentDetail()}

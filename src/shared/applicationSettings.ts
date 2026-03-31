@@ -1,53 +1,64 @@
-import type { DocumentVersionScheme } from '@shared/documentModel';
-import { DOCUMENT_TABLE_COLUMNS, type DocumentTableColumn } from '@shared/workspaceLayout';
+import type { DocumentVersionScheme } from "@shared/documentModel";
+import {
+  DOCUMENT_TABLE_COLUMNS,
+  type DocumentTableColumn,
+} from "@shared/workspaceLayout";
 
-export const THEME_MODES = ['light', 'dark', 'system'] as const;
-export const APPLICATION_LAUNCH_BEHAVIORS = ['home', 'reopen-last-workspace'] as const;
-export const DOCUMENT_DETAIL_VIEW_MODES = ['sidebar', 'modal', 'page'] as const;
-export const WORKSPACE_VIEWS = [
-  'documents',
-  'documentTypes',
-  'projects',
-  'classifications',
-  'languages'
+export const THEME_MODES = ["light", "dark", "system"] as const;
+export const APPLICATION_LAUNCH_BEHAVIORS = [
+  "home",
+  "reopen-last-workspace",
 ] as const;
-export const DOCUMENT_TABLE_DENSITIES = ['comfortable', 'compact'] as const;
-export const WORKSPACE_TAB_DENSITIES = ['comfortable', 'compact'] as const;
-export const DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH = 760;
-export const DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH = 2000;
+export const DOCUMENT_DETAIL_VIEW_MODES = ["sidebar", "modal", "page"] as const;
+export const WORKSPACE_VIEWS = [
+  "documents",
+  "documentTypes",
+  "projects",
+  "classifications",
+  "languages",
+] as const;
+export const DOCUMENT_TABLE_DENSITIES = ["comfortable", "compact"] as const;
+export const WORKSPACE_TAB_DENSITIES = ["comfortable", "compact"] as const;
+export const DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT = 50;
+export const DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT = 90;
 export const DOCUMENT_DETAIL_SIDEBAR_DEFAULT_WIDTH = 800;
 export const KEYBOARD_SHORTCUT_ACTIONS = [
-  'openSettings',
-  'newWorkspace',
-  'openWorkspaceFolder',
-  'newDocument',
-  'focusSearch'
+  "openSettings",
+  "newWorkspace",
+  "openWorkspaceFolder",
+  "newDocument",
+  "focusSearch",
 ] as const;
 export const DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS: DocumentTableColumn[] = [
-  'documentId',
-  'title',
-  'documentType',
-  'version',
-  'status',
-  'project'
+  "documentId",
+  "title",
+  "documentType",
+  "version",
+  "status",
+  "project",
 ];
 
 export type ThemeMode = (typeof THEME_MODES)[number];
-export type ApplicationLaunchBehavior = (typeof APPLICATION_LAUNCH_BEHAVIORS)[number];
-export type DocumentDetailViewMode = (typeof DOCUMENT_DETAIL_VIEW_MODES)[number];
+export type ApplicationLaunchBehavior =
+  (typeof APPLICATION_LAUNCH_BEHAVIORS)[number];
+export type DocumentDetailViewMode =
+  (typeof DOCUMENT_DETAIL_VIEW_MODES)[number];
 export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];
 export type DocumentTableDensity = (typeof DOCUMENT_TABLE_DENSITIES)[number];
 export type WorkspaceTabDensity = (typeof WORKSPACE_TAB_DENSITIES)[number];
 export type KeyboardShortcutAction = (typeof KEYBOARD_SHORTCUT_ACTIONS)[number];
 export type KeyboardShortcutValue = string | null;
-export type KeyboardShortcutMap = Record<KeyboardShortcutAction, KeyboardShortcutValue>;
+export type KeyboardShortcutMap = Record<
+  KeyboardShortcutAction,
+  KeyboardShortcutValue
+>;
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutMap = {
-  openSettings: 'Mod+,',
-  newWorkspace: 'Mod+Shift+N',
-  openWorkspaceFolder: 'Mod+O',
-  newDocument: 'Mod+N',
-  focusSearch: 'Mod+F'
+  openSettings: "Mod+,",
+  newWorkspace: "Mod+Shift+N",
+  openWorkspaceFolder: "Mod+O",
+  newDocument: "Mod+N",
+  focusSearch: "Mod+F",
 };
 
 export interface ApplicationSettings {
@@ -68,20 +79,20 @@ export interface ApplicationSettings {
 }
 
 export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
-  themeMode: 'system',
-  launchBehavior: 'home',
-  defaultWorkspaceView: 'documents',
-  documentDetailViewMode: 'sidebar',
+  themeMode: "system",
+  launchBehavior: "home",
+  defaultWorkspaceView: "documents",
+  documentDetailViewMode: "sidebar",
   documentDetailSidebarWidth: DOCUMENT_DETAIL_SIDEBAR_DEFAULT_WIDTH,
-  documentTableDensity: 'comfortable',
-  workspaceTabDensity: 'comfortable',
+  documentTableDensity: "comfortable",
+  workspaceTabDensity: "comfortable",
   documentTableVisibleColumns: [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS],
   keyboardShortcuts: { ...DEFAULT_KEYBOARD_SHORTCUTS },
   defaultIncludeExampleData: true,
-  defaultDocumentAuthor: '',
-  defaultDocumentVersionScheme: 'numeric-3',
+  defaultDocumentAuthor: "",
+  defaultDocumentVersionScheme: "numeric-3",
   confirmDestructiveActions: true,
-  autoDismissSuccessNotifications: true
+  autoDismissSuccessNotifications: true,
 };
 
 export const THEME_MODE_OPTIONS: Array<{
@@ -90,20 +101,20 @@ export const THEME_MODE_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'light',
-    label: 'Light',
-    description: 'Use the light interface regardless of system preference.'
+    value: "light",
+    label: "Light",
+    description: "Use the light interface regardless of system preference.",
   },
   {
-    value: 'dark',
-    label: 'Dark',
-    description: 'Use the dark interface regardless of system preference.'
+    value: "dark",
+    label: "Dark",
+    description: "Use the dark interface regardless of system preference.",
   },
   {
-    value: 'system',
-    label: 'System',
-    description: 'Follow the operating system appearance automatically.'
-  }
+    value: "system",
+    label: "System",
+    description: "Follow the operating system appearance automatically.",
+  },
 ];
 
 export const APPLICATION_LAUNCH_BEHAVIOR_OPTIONS: Array<{
@@ -112,15 +123,17 @@ export const APPLICATION_LAUNCH_BEHAVIOR_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'home',
-    label: 'Open home screen',
-    description: 'Start on the welcome screen and let the user choose what to open.'
+    value: "home",
+    label: "Open home screen",
+    description:
+      "Start on the welcome screen and let the user choose what to open.",
   },
   {
-    value: 'reopen-last-workspace',
-    label: 'Reopen last workspace',
-    description: 'Reopen the most recent workspace automatically when nothing is already open.'
-  }
+    value: "reopen-last-workspace",
+    label: "Reopen last workspace",
+    description:
+      "Reopen the most recent workspace automatically when nothing is already open.",
+  },
 ];
 
 export const WORKSPACE_VIEW_OPTIONS: Array<{
@@ -129,30 +142,30 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'documents',
-    label: 'Documents',
-    description: 'Open workspaces on the documents view by default.'
+    value: "documents",
+    label: "Documents",
+    description: "Open workspaces on the documents view by default.",
   },
   {
-    value: 'documentTypes',
-    label: 'Document Types',
-    description: 'Open workspaces on the document types view by default.'
+    value: "documentTypes",
+    label: "Document Types",
+    description: "Open workspaces on the document types view by default.",
   },
   {
-    value: 'projects',
-    label: 'Projects',
-    description: 'Open workspaces on the projects view by default.'
+    value: "projects",
+    label: "Projects",
+    description: "Open workspaces on the projects view by default.",
   },
   {
-    value: 'classifications',
-    label: 'Classifications',
-    description: 'Open workspaces on the classifications view by default.'
+    value: "classifications",
+    label: "Classifications",
+    description: "Open workspaces on the classifications view by default.",
   },
   {
-    value: 'languages',
-    label: 'Languages',
-    description: 'Open workspaces on the languages view by default.'
-  }
+    value: "languages",
+    label: "Languages",
+    description: "Open workspaces on the languages view by default.",
+  },
 ];
 
 export const DOCUMENT_DETAIL_VIEW_MODE_OPTIONS: Array<{
@@ -161,20 +174,23 @@ export const DOCUMENT_DETAIL_VIEW_MODE_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'sidebar',
-    label: 'Sidebar',
-    description: 'Open document details in an overlay panel that keeps the table visible.'
+    value: "sidebar",
+    label: "Sidebar",
+    description:
+      "Open document details in an overlay panel that keeps the table visible.",
   },
   {
-    value: 'modal',
-    label: 'Modal',
-    description: 'Open document details in a large dialog that nearly fills the workspace.'
+    value: "modal",
+    label: "Modal",
+    description:
+      "Open document details in a large dialog that nearly fills the workspace.",
   },
   {
-    value: 'page',
-    label: 'Full Page',
-    description: 'Replace the documents view with a dedicated document detail page.'
-  }
+    value: "page",
+    label: "Full Page",
+    description:
+      "Replace the documents view with a dedicated document detail page.",
+  },
 ];
 
 export const DOCUMENT_TABLE_DENSITY_OPTIONS: Array<{
@@ -183,15 +199,15 @@ export const DOCUMENT_TABLE_DENSITY_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'comfortable',
-    label: 'Comfortable',
-    description: 'Use the current table spacing with more breathing room.'
+    value: "comfortable",
+    label: "Comfortable",
+    description: "Use the current table spacing with more breathing room.",
   },
   {
-    value: 'compact',
-    label: 'Compact',
-    description: 'Fit more rows on screen with tighter table spacing.'
-  }
+    value: "compact",
+    label: "Compact",
+    description: "Fit more rows on screen with tighter table spacing.",
+  },
 ];
 
 export const WORKSPACE_TAB_DENSITY_OPTIONS: Array<{
@@ -200,15 +216,17 @@ export const WORKSPACE_TAB_DENSITY_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'comfortable',
-    label: 'Comfortable',
-    description: 'Show the workspace name with document counts and roomier tab spacing.'
+    value: "comfortable",
+    label: "Comfortable",
+    description:
+      "Show the workspace name with document counts and roomier tab spacing.",
   },
   {
-    value: 'compact',
-    label: 'Compact',
-    description: 'Use shorter tabs and hide the document count to fit more workspaces.'
-  }
+    value: "compact",
+    label: "Compact",
+    description:
+      "Use shorter tabs and hide the document count to fit more workspaces.",
+  },
 ];
 
 export const KEYBOARD_SHORTCUT_ACTION_DETAILS: Record<
@@ -219,91 +237,107 @@ export const KEYBOARD_SHORTCUT_ACTION_DETAILS: Record<
   }
 > = {
   openSettings: {
-    label: 'Open Settings',
-    description: 'Open the application settings dialog.'
+    label: "Open Settings",
+    description: "Open the application settings dialog.",
   },
   newWorkspace: {
-    label: 'Create Workspace',
-    description: 'Open the new workspace dialog.'
+    label: "Create Workspace",
+    description: "Open the new workspace dialog.",
   },
   openWorkspaceFolder: {
-    label: 'Open Workspace Folder',
-    description: 'Open the workspace folder picker.'
+    label: "Open Workspace Folder",
+    description: "Open the workspace folder picker.",
   },
   newDocument: {
-    label: 'Create Document',
-    description: 'Open the new document dialog in the active workspace.'
+    label: "Create Document",
+    description: "Open the new document dialog in the active workspace.",
   },
   focusSearch: {
-    label: 'Focus Search',
-    description: 'Focus and select the documents search field.'
-  }
+    label: "Focus Search",
+    description: "Focus and select the documents search field.",
+  },
 };
 
 export const isThemeMode = (value: string): value is ThemeMode =>
   THEME_MODES.includes(value as ThemeMode);
 
 export const isApplicationLaunchBehavior = (
-  value: string
+  value: string,
 ): value is ApplicationLaunchBehavior =>
   APPLICATION_LAUNCH_BEHAVIORS.includes(value as ApplicationLaunchBehavior);
 
-export const isDocumentDetailViewMode = (value: string): value is DocumentDetailViewMode =>
+export const isDocumentDetailViewMode = (
+  value: string,
+): value is DocumentDetailViewMode =>
   DOCUMENT_DETAIL_VIEW_MODES.includes(value as DocumentDetailViewMode);
 
 export const isWorkspaceView = (value: string): value is WorkspaceView =>
   WORKSPACE_VIEWS.includes(value as WorkspaceView);
 
-export const isDocumentTableDensity = (value: string): value is DocumentTableDensity =>
+export const isDocumentTableDensity = (
+  value: string,
+): value is DocumentTableDensity =>
   DOCUMENT_TABLE_DENSITIES.includes(value as DocumentTableDensity);
 
-export const isWorkspaceTabDensity = (value: string): value is WorkspaceTabDensity =>
+export const isWorkspaceTabDensity = (
+  value: string,
+): value is WorkspaceTabDensity =>
   WORKSPACE_TAB_DENSITIES.includes(value as WorkspaceTabDensity);
 
-export const normalizeDocumentTableVisibleColumns = (value: unknown): DocumentTableColumn[] => {
+export const normalizeDocumentTableVisibleColumns = (
+  value: unknown,
+): DocumentTableColumn[] => {
   if (!Array.isArray(value)) {
     return [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS];
   }
 
   const selected = new Set(
-    value.filter((item): item is DocumentTableColumn => typeof item === 'string' && DOCUMENT_TABLE_COLUMNS.includes(item as DocumentTableColumn))
+    value.filter(
+      (item): item is DocumentTableColumn =>
+        typeof item === "string" &&
+        DOCUMENT_TABLE_COLUMNS.includes(item as DocumentTableColumn),
+    ),
   );
-  const normalized = DOCUMENT_TABLE_COLUMNS.filter((column) => selected.has(column));
-  return normalized.length > 0 ? normalized : [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS];
+  const normalized = DOCUMENT_TABLE_COLUMNS.filter((column) =>
+    selected.has(column),
+  );
+  return normalized.length > 0
+    ? normalized
+    : [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS];
 };
 
-const KEYBOARD_SHORTCUT_MODIFIER_ORDER = ['Mod', 'Alt', 'Shift'] as const;
+const KEYBOARD_SHORTCUT_MODIFIER_ORDER = ["Mod", "Alt", "Shift"] as const;
 const NORMALIZED_SHORTCUT_ALIASES: Record<string, string> = {
-  cmd: 'Mod',
-  command: 'Mod',
-  ctrl: 'Mod',
-  control: 'Mod',
-  meta: 'Mod',
-  mod: 'Mod',
-  option: 'Alt',
-  alt: 'Alt',
-  shift: 'Shift',
-  comma: ',',
-  period: '.',
-  slash: '/',
-  backslash: '\\',
-  semicolon: ';',
+  cmd: "Mod",
+  command: "Mod",
+  ctrl: "Mod",
+  control: "Mod",
+  meta: "Mod",
+  mod: "Mod",
+  option: "Alt",
+  alt: "Alt",
+  shift: "Shift",
+  comma: ",",
+  period: ".",
+  slash: "/",
+  backslash: "\\",
+  semicolon: ";",
   apostrophe: "'",
   quote: "'",
-  minus: '-',
-  dash: '-',
-  equal: '=',
-  equals: '=',
-  bracketleft: '[',
-  bracketright: ']',
-  backquote: '`',
-  grave: '`',
-  escape: 'Escape',
-  esc: 'Escape',
-  enter: 'Enter',
-  return: 'Enter',
-  tab: 'Tab',
-  space: 'Space'
+  minus: "-",
+  dash: "-",
+  equal: "=",
+  equals: "=",
+  bracketleft: "[",
+  bracketright: "]",
+  backquote: "`",
+  grave: "`",
+  escape: "Escape",
+  esc: "Escape",
+  enter: "Enter",
+  return: "Enter",
+  tab: "Tab",
+  space: "Space",
 };
 
 const normalizeShortcutKeyToken = (token: string): string | null => {
@@ -330,12 +364,14 @@ const normalizeShortcutKeyToken = (token: string): string | null => {
     : null;
 };
 
-export const normalizeKeyboardShortcut = (value: unknown): KeyboardShortcutValue => {
+export const normalizeKeyboardShortcut = (
+  value: unknown,
+): KeyboardShortcutValue => {
   if (value === null || value === undefined) {
     return null;
   }
 
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return null;
   }
 
@@ -345,7 +381,7 @@ export const normalizeKeyboardShortcut = (value: unknown): KeyboardShortcutValue
   }
 
   const tokens = trimmed
-    .split('+')
+    .split("+")
     .map((token) => token.trim())
     .filter(Boolean);
 
@@ -353,7 +389,9 @@ export const normalizeKeyboardShortcut = (value: unknown): KeyboardShortcutValue
     return null;
   }
 
-  const modifiers = new Set<(typeof KEYBOARD_SHORTCUT_MODIFIER_ORDER)[number]>();
+  const modifiers = new Set<
+    (typeof KEYBOARD_SHORTCUT_MODIFIER_ORDER)[number]
+  >();
   let keyToken: string | null = null;
 
   for (const token of tokens) {
@@ -363,9 +401,9 @@ export const normalizeKeyboardShortcut = (value: unknown): KeyboardShortcutValue
     }
 
     if (
-      normalized === 'Mod' ||
-      normalized === 'Alt' ||
-      normalized === 'Shift'
+      normalized === "Mod" ||
+      normalized === "Alt" ||
+      normalized === "Shift"
     ) {
       modifiers.add(normalized);
       continue;
@@ -383,22 +421,30 @@ export const normalizeKeyboardShortcut = (value: unknown): KeyboardShortcutValue
   }
 
   const orderedModifiers = KEYBOARD_SHORTCUT_MODIFIER_ORDER.filter((modifier) =>
-    modifiers.has(modifier)
+    modifiers.has(modifier),
   );
 
-  return [...orderedModifiers, keyToken].join('+');
+  return [...orderedModifiers, keyToken].join("+");
 };
 
-export const normalizeKeyboardShortcuts = (value: unknown): KeyboardShortcutMap => {
-  const candidate = value && typeof value === 'object' ? (value as Partial<KeyboardShortcutMap>) : {};
-  return KEYBOARD_SHORTCUT_ACTIONS.reduce<KeyboardShortcutMap>((result, action) => {
-    if (Object.prototype.hasOwnProperty.call(candidate, action)) {
-      const normalized = normalizeKeyboardShortcut(candidate[action]);
-      result[action] = normalized;
-      return result;
-    }
+export const normalizeKeyboardShortcuts = (
+  value: unknown,
+): KeyboardShortcutMap => {
+  const candidate =
+    value && typeof value === "object"
+      ? (value as Partial<KeyboardShortcutMap>)
+      : {};
+  return KEYBOARD_SHORTCUT_ACTIONS.reduce<KeyboardShortcutMap>(
+    (result, action) => {
+      if (Object.prototype.hasOwnProperty.call(candidate, action)) {
+        const normalized = normalizeKeyboardShortcut(candidate[action]);
+        result[action] = normalized;
+        return result;
+      }
 
-    result[action] = DEFAULT_KEYBOARD_SHORTCUTS[action];
-    return result;
-  }, {} as KeyboardShortcutMap);
+      result[action] = DEFAULT_KEYBOARD_SHORTCUTS[action];
+      return result;
+    },
+    {} as KeyboardShortcutMap,
+  );
 };

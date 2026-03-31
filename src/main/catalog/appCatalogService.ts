@@ -2,8 +2,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   DEFAULT_APPLICATION_SETTINGS,
-  DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
-  DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
   isApplicationLaunchBehavior,
   isDocumentDetailViewMode,
   isDocumentTableDensity,
@@ -142,14 +140,9 @@ export class AppCatalogService {
           : DEFAULT_APPLICATION_SETTINGS.documentDetailViewMode,
       documentDetailSidebarWidth:
         typeof nextSettings.documentDetailSidebarWidth === 'number' &&
-        Number.isFinite(nextSettings.documentDetailSidebarWidth)
-          ? Math.max(
-              DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH,
-              Math.min(
-                DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH,
-                Math.round(nextSettings.documentDetailSidebarWidth)
-              )
-            )
+        Number.isFinite(nextSettings.documentDetailSidebarWidth) &&
+        nextSettings.documentDetailSidebarWidth > 0
+          ? Math.round(nextSettings.documentDetailSidebarWidth)
           : DEFAULT_APPLICATION_SETTINGS.documentDetailSidebarWidth,
       documentTableDensity:
         typeof nextSettings.documentTableDensity === 'string' &&

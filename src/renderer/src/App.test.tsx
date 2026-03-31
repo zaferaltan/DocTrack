@@ -350,6 +350,17 @@ const changeSelect = async (element: HTMLSelectElement, value: string) => {
   await flushPromises();
 };
 
+const dispatchPointerEvent = async (
+  target: HTMLElement | Window,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  clientX: number
+) => {
+  await act(async () => {
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX }));
+  });
+  await flushPromises();
+};
+
 describe('App', () => {
   beforeEach(() => {
     // @ts-expect-error React act environment flag for tests.
@@ -358,6 +369,7 @@ describe('App', () => {
     document.documentElement.className = '';
     resetStore();
     vi.useFakeTimers();
+    window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
     window.matchMedia = vi.fn().mockImplementation(() => ({
       matches: false,
       media: '(prefers-color-scheme: dark)',
@@ -459,6 +471,21 @@ describe('App', () => {
 
     const firstHeaderCell = document.querySelector('thead th');
     expect(firstHeaderCell?.className).toContain('py-2');
+
+    await view.unmount();
+  });
+
+  it('does not show a sidebar width control in application settings', async () => {
+    buildDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'light',
+      documentDetailViewMode: 'sidebar'
+    });
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+
+    expect(normalizeText(getDialog().textContent)).not.toContain('Sidebar Width');
 
     await view.unmount();
   });
@@ -1054,6 +1081,52 @@ describe('App', () => {
     expect(normalizeText(dialog.textContent)).toContain('Released Date');
     expect(normalizeText(dialog.textContent)).not.toContain('Approved By');
     expect(normalizeText(dialog.textContent)).toContain('Revision Description');
+
+    await view.unmount();
+  });
+
+  it('clamps sidebar drag-resizing to the app width before persisting', async () => {
+    const docTrack = buildDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'light',
+      documentDetailSidebarWidth: 400
+    });
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+
+    const view = await renderApp();
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 1000
+    });
+
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+
+    const sidebar = document.querySelector('[data-detail-sidebar="true"]');
+    if (!(sidebar instanceof HTMLElement)) {
+      throw new Error('Unable to find the sidebar.');
+    }
+
+    expect(sidebar.className).toContain('fixed');
+
+    const resizeHandle = document.querySelector('[title="Resize detail sidebar"]');
+    if (!(resizeHandle instanceof HTMLElement)) {
+      throw new Error('Unable to find the sidebar resize handle.');
+    }
+
+    await dispatchPointerEvent(resizeHandle, 'pointerdown', 800);
+    await dispatchPointerEvent(window, 'pointermove', 0);
+    await dispatchPointerEvent(window, 'pointerup', 0);
+
+    expect(docTrack.appSettings.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        documentDetailSidebarWidth: 800
+      })
+    );
 
     await view.unmount();
   });
