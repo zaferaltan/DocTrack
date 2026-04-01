@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type Database from 'better-sqlite3';
 import { shell } from 'electron';
 import type { WorkspaceManager } from '@main/database/workspaceManager';
+import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { FileStorageService, type ManagedFileInfo } from '@main/services/fileStorageService';
 import { nowIso } from '@main/utils/date';
@@ -16,16 +21,23 @@ import type {
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
   CreateDocumentInput,
+  DeleteDocumentInput,
+  DeleteDocumentVersionInput,
   CreateVersionInput,
   DeleteDocumentVersionFileInput,
   DocumentDetail,
+  DocumentHealthFlag,
   DocumentListItem,
   DocumentStatus,
   DocumentVersion,
   DocumentVersionFile,
+  FilePreviewResult,
   RenameDocumentVersionFileInput,
   UpdateDocumentInput,
-  UpdateLatestVersionInput
+  UpdateLatestVersionInput,
+  VersionComparisonResult,
+  VersionFileDelta,
+  VersionFileImportPlan
 } from '@shared/types';
 
 interface DocumentListRow {
@@ -52,6 +64,8 @@ interface DocumentListRow {
   Company: string;
   Department: string;
   RevisionIntervalMonths: number | null;
+  LatestVersionId: number | null;
+  ReviewBaselineReleasedDate: string | null;
 }
 
 interface DocumentRow {
@@ -130,7 +144,8 @@ export class DocumentService {
   constructor(
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
-    private readonly fileStorageService: FileStorageService
+    private readonly fileStorageService: FileStorageService,
+    private readonly activityLogService: ActivityLogService
   ) {}
 
   list(rootPath: string): DocumentListItem[] {
@@ -161,7 +176,16 @@ export class DocumentService {
             p.Name AS ProjectName,
             d.Company,
             d.Department,
-            d.RevisionIntervalMonths
+            d.RevisionIntervalMonths,
+            dv.Id AS LatestVersionId,
+            (
+              SELECT released.ReleasedDate
+              FROM DocumentVersions released
+              WHERE released.DocumentId = d.Id
+                AND released.ReleasedDate IS NOT NULL
+              ORDER BY released.SequenceNumber DESC
+              LIMIT 1
+            ) AS ReviewBaselineReleasedDate
           FROM Documents d
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
           LEFT JOIN Languages l ON l.Id = d.LanguageId
@@ -173,31 +197,59 @@ export class DocumentService {
       )
       .all() as DocumentListRow[];
 
-    return rows.map((row) => ({
-      id: row.Id,
-      documentId: row.DisplayDocumentID,
-      title: row.Title,
-      typeId: row.DocumentTypeId,
-      typeName: row.TypeName,
-      versionScheme: row.VersionScheme,
-      status: row.Status,
-      latestVersionLabel: row.LatestVersionLabel,
-      releasedDate: row.ReleasedDate,
-      approvedBy: row.ApprovedBy ?? '',
-      revisionDescription: row.RevisionDescription ?? '',
-      modifiedDate: row.ModifiedDate,
-      createdDate: row.CreatedDate,
-      author: row.Author,
-      languageId: row.LanguageId,
-      languageCode: row.LanguageCode,
-      confidentialityClassId: row.ConfidentialityClassId,
-      confidentialityClassName: row.ConfidentialityClassName,
-      projectId: row.ProjectId,
-      projectName: row.ProjectName,
-      company: row.Company,
-      department: row.Department,
-      revisionIntervalMonths: row.RevisionIntervalMonths
-    }));
+    return rows.map((row) => {
+      const latestVersion =
+        row.LatestVersionId !== null ? this.getVersionRow(context.db, row.LatestVersionId) : undefined;
+      const unmanagedPaths = latestVersion ? this.syncVersionFilesInternal(context, latestVersion) : [];
+      const latestVersionFileCount =
+        latestVersion ? this.getVersionFileRows(context.db, latestVersion.Id).length : 0;
+      const nextReviewDate = this.getNextReviewDate(
+        row.ReviewBaselineReleasedDate ?? row.ReleasedDate,
+        row.RevisionIntervalMonths
+      );
+      const isOverdue =
+        nextReviewDate !== null &&
+        this.isDateInPast(nextReviewDate) &&
+        row.Status !== 'Archived' &&
+        row.Status !== 'Obsolete';
+
+      return {
+        id: row.Id,
+        documentId: row.DisplayDocumentID,
+        title: row.Title,
+        typeId: row.DocumentTypeId,
+        typeName: row.TypeName,
+        versionScheme: row.VersionScheme,
+        status: row.Status,
+        latestVersionLabel: row.LatestVersionLabel,
+        releasedDate: row.ReleasedDate,
+        approvedBy: row.ApprovedBy ?? '',
+        revisionDescription: row.RevisionDescription ?? '',
+        modifiedDate: row.ModifiedDate,
+        createdDate: row.CreatedDate,
+        author: row.Author,
+        languageId: row.LanguageId,
+        languageCode: row.LanguageCode,
+        confidentialityClassId: row.ConfidentialityClassId,
+        confidentialityClassName: row.ConfidentialityClassName,
+        projectId: row.ProjectId,
+        projectName: row.ProjectName,
+        company: row.Company,
+        department: row.Department,
+        revisionIntervalMonths: row.RevisionIntervalMonths,
+        nextReviewDate,
+        isOverdue,
+        healthFlags: this.getDocumentHealthFlags({
+          latestVersionLabel: row.LatestVersionLabel,
+          latestVersionFileCount,
+          unmanagedPathCount: unmanagedPaths.length,
+          modifiedDate: row.ModifiedDate,
+          isOverdue
+        }),
+        latestVersionFileCount,
+        lastActivityDate: row.ModifiedDate
+      };
+    });
   }
 
   getDetail(rootPath: string, documentRecordId: number): DocumentDetail {
@@ -304,7 +356,14 @@ export class DocumentService {
           revisionIntervalMonths
         );
 
-      return Number(documentInsert.lastInsertRowid);
+      const documentRecordId = Number(documentInsert.lastInsertRowid);
+      this.activityLogService.log(context.db, {
+        eventType: 'document.created',
+        message: `Created document "${title}".`,
+        documentRecordId
+      });
+
+      return documentRecordId;
     })();
 
     return this.getDetail(rootPath, insertedDocumentId);
@@ -342,7 +401,7 @@ export class DocumentService {
           .run('Obsolete', latestVersion.Id);
       }
 
-      context.db
+      const versionInsert = context.db
         .prepare(
           `
             INSERT INTO DocumentVersions (
@@ -369,16 +428,73 @@ export class DocumentService {
           createdDate,
           input.revisionDescription.trim()
         );
+      const documentVersionId = Number(versionInsert.lastInsertRowid);
 
       context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
         createdDate,
         document.Id
       );
+      this.activityLogService.log(context.db, {
+        eventType: 'document.version.created',
+        message: `Created version ${versionLabel}.`,
+        documentRecordId: document.Id,
+        documentVersionId
+      });
 
       return document.Id;
     })();
 
     return this.getDetail(rootPath, documentRecordId);
+  }
+
+  deleteDocument(rootPath: string, input: DeleteDocumentInput): void {
+    const context = this.workspaceManager.getContext(rootPath);
+    const document = this.getDocumentRow(context.db, input.documentRecordId);
+
+    context.db.transaction(() => {
+      this.activityLogService.log(context.db, {
+        eventType: 'document.deleted',
+        message: `Deleted document "${document.Title}".`,
+        documentRecordId: input.documentRecordId
+      });
+      context.db.prepare('DELETE FROM Documents WHERE Id = ?').run(input.documentRecordId);
+    })();
+
+    this.fileStorageService.deleteDocumentFolder(
+      context.rootPath,
+      document.DocumentFolderPath
+    );
+  }
+
+  deleteVersion(rootPath: string, input: DeleteDocumentVersionInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
+    const version = this.getVersionRow(context.db, input.documentVersionId);
+    const document = this.getDocumentRow(context.db, version.DocumentId);
+
+    context.db.transaction(() => {
+      this.activityLogService.log(context.db, {
+        eventType: 'document.version.deleted',
+        message: `Deleted version ${version.VersionLabel}.`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
+      });
+      context.db
+        .prepare('DELETE FROM IgnoredUnmanagedPaths WHERE DocumentVersionId = ?')
+        .run(input.documentVersionId);
+      context.db.prepare('DELETE FROM DocumentVersions WHERE Id = ?').run(input.documentVersionId);
+      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
+        nowIso(),
+        document.Id
+      );
+    })();
+
+    this.fileStorageService.deleteVersionFolder(
+      context.rootPath,
+      document.DocumentFolderPath,
+      version.VersionLabel
+    );
+
+    return this.getDetail(rootPath, document.Id);
   }
 
   addVersionFiles(rootPath: string, input: AddDocumentVersionFilesInput): DocumentVersion {
@@ -437,6 +553,12 @@ export class DocumentService {
           createdDate,
           document.Id
         );
+        this.activityLogService.log(context.db, {
+          eventType: 'document.files.added',
+          message: `Added ${newFiles.length} file${newFiles.length === 1 ? '' : 's'} to version ${version.VersionLabel}.`,
+          documentRecordId: document.Id,
+          documentVersionId: version.Id
+        });
       })();
     } catch (error) {
       for (const file of importedFiles) {
@@ -493,6 +615,12 @@ export class DocumentService {
         nowIso(),
         document.Id
       );
+      this.activityLogService.log(context.db, {
+        eventType: 'document.file.renamed',
+        message: `Renamed a file in version ${version.VersionLabel} to "${updatedFile.fileName}".`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
+      });
     })();
 
     return this.syncVersionFiles(rootPath, version.Id);
@@ -512,6 +640,12 @@ export class DocumentService {
         nowIso(),
         fileRow.DocumentId
       );
+      this.activityLogService.log(context.db, {
+        eventType: 'document.file.deleted',
+        message: `Deleted "${fileRow.FileName}" from version ${version.VersionLabel}.`,
+        documentRecordId: fileRow.DocumentId,
+        documentVersionId: version.Id
+      });
     })();
 
     return this.syncVersionFiles(rootPath, version.Id);
@@ -565,6 +699,12 @@ export class DocumentService {
         nowIso(),
         document.Id
       );
+      this.activityLogService.log(context.db, {
+        eventType: 'document.file.roleChanged',
+        message: `Moved "${fileRow.FileName}" to the ${input.role} role in version ${version.VersionLabel}.`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
+      });
     })();
 
     return this.syncVersionFiles(rootPath, version.Id);
@@ -575,6 +715,330 @@ export class DocumentService {
     const version = this.getVersionRow(context.db, documentVersionId);
     const unmanagedPaths = this.syncVersionFilesInternal(context, version);
     return this.getVersionFromDatabase(context.db, documentVersionId, unmanagedPaths);
+  }
+
+  previewVersionFile(rootPath: string, fileId: number): FilePreviewResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const fileRow = this.getVersionFileContextRow(context.db, fileId);
+    const absolutePath = this.fileStorageService.resolveStoredFilePath(context.rootPath, fileRow.FilePath);
+    const extension = path.extname(fileRow.FileName).toLowerCase();
+
+    if (extension === '.pdf') {
+      return {
+        fileId,
+        fileName: fileRow.FileName,
+        filePath: fileRow.FilePath,
+        absolutePath,
+        kind: 'pdf',
+        isSupported: true,
+        previewUrl: pathToFileURL(absolutePath).toString(),
+        textContent: null,
+        warning: null
+      };
+    }
+
+    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'].includes(extension)) {
+      return {
+        fileId,
+        fileName: fileRow.FileName,
+        filePath: fileRow.FilePath,
+        absolutePath,
+        kind: 'image',
+        isSupported: true,
+        previewUrl: pathToFileURL(absolutePath).toString(),
+        textContent: null,
+        warning: null
+      };
+    }
+
+    if (extension === '.csv') {
+      return {
+        fileId,
+        fileName: fileRow.FileName,
+        filePath: fileRow.FilePath,
+        absolutePath,
+        kind: 'csv',
+        isSupported: true,
+        previewUrl: null,
+        textContent: readFileSync(absolutePath, 'utf8').slice(0, 50000),
+        warning: null
+      };
+    }
+
+    if (['.txt', '.md', '.json', '.yaml', '.yml', '.xml', '.html', '.log'].includes(extension)) {
+      return {
+        fileId,
+        fileName: fileRow.FileName,
+        filePath: fileRow.FilePath,
+        absolutePath,
+        kind: 'text',
+        isSupported: true,
+        previewUrl: null,
+        textContent: readFileSync(absolutePath, 'utf8').slice(0, 50000),
+        warning: null
+      };
+    }
+
+    return {
+      fileId,
+      fileName: fileRow.FileName,
+      filePath: fileRow.FilePath,
+      absolutePath,
+      kind: 'unsupported',
+      isSupported: false,
+      previewUrl: null,
+      textContent: null,
+      warning: 'Preview is only available for PDF, image, text, and CSV files.'
+    };
+  }
+
+  compareVersions(
+    rootPath: string,
+    currentVersionId: number,
+    previousVersionId: number
+  ): VersionComparisonResult {
+    const currentVersion = this.syncVersionFiles(rootPath, currentVersionId);
+    const previousVersion = this.syncVersionFiles(rootPath, previousVersionId);
+    const deltas: VersionFileDelta[] = [];
+    const matchedPreviousIds = new Set<number>();
+    const matchedCurrentIds = new Set<number>();
+
+    for (const currentFile of currentVersion.files) {
+      const exactPathMatch = previousVersion.files.find(
+        (file) =>
+          this.fileStorageService.normalizeRelativePath(file.filePath) ===
+          this.fileStorageService.normalizeRelativePath(currentFile.filePath)
+      );
+
+      if (!exactPathMatch) {
+        continue;
+      }
+
+      matchedPreviousIds.add(exactPathMatch.id);
+      matchedCurrentIds.add(currentFile.id);
+
+      if (exactPathMatch.contentHash !== currentFile.contentHash) {
+        deltas.push({
+          changeType: 'content-changed',
+          summary: `${currentFile.fileName} content changed.`,
+          before: exactPathMatch,
+          after: currentFile
+        });
+      } else if (exactPathMatch.role !== currentFile.role) {
+        deltas.push({
+          changeType: 'role-changed',
+          summary: `${currentFile.fileName} moved from ${exactPathMatch.role} to ${currentFile.role}.`,
+          before: exactPathMatch,
+          after: currentFile
+        });
+      }
+    }
+
+    const remainingPrevious = previousVersion.files.filter((file) => !matchedPreviousIds.has(file.id));
+    const remainingCurrent = currentVersion.files.filter((file) => !matchedCurrentIds.has(file.id));
+
+    for (const currentFile of remainingCurrent) {
+      const hashMatch = remainingPrevious.find((file) => file.contentHash === currentFile.contentHash);
+      if (!hashMatch) {
+        continue;
+      }
+
+      matchedPreviousIds.add(hashMatch.id);
+      matchedCurrentIds.add(currentFile.id);
+      deltas.push({
+        changeType: hashMatch.role !== currentFile.role ? 'role-changed' : 'renamed',
+        summary:
+          hashMatch.role !== currentFile.role
+            ? `${hashMatch.fileName} moved roles and became ${currentFile.fileName}.`
+            : `${hashMatch.fileName} was renamed to ${currentFile.fileName}.`,
+        before: hashMatch,
+        after: currentFile
+      });
+    }
+
+    for (const previousFile of previousVersion.files.filter((file) => !matchedPreviousIds.has(file.id))) {
+      deltas.push({
+        changeType: 'removed',
+        summary: `${previousFile.fileName} was removed.`,
+        before: previousFile,
+        after: null
+      });
+    }
+
+    for (const currentFile of currentVersion.files.filter((file) => !matchedCurrentIds.has(file.id))) {
+      deltas.push({
+        changeType: 'added',
+        summary: `${currentFile.fileName} was added.`,
+        before: null,
+        after: currentFile
+      });
+    }
+
+    return {
+      currentVersionId: currentVersion.id,
+      previousVersionId: previousVersion.id,
+      currentVersionLabel: currentVersion.versionLabel,
+      previousVersionLabel: previousVersion.versionLabel,
+      deltas,
+      unchangedCount: Math.max(
+        0,
+        currentVersion.files.length - deltas.filter((delta) => delta.after !== null).length
+      )
+    };
+  }
+
+  planVersionFileImport(
+    rootPath: string,
+    documentVersionId: number,
+    sourceFilePaths: string[]
+  ): VersionFileImportPlan {
+    const context = this.workspaceManager.getContext(rootPath);
+    const version = this.getVersionRow(context.db, documentVersionId);
+    const existingFiles = this.getVersionFileRows(context.db, version.Id);
+    const candidates = sourceFilePaths.map((sourceFilePath) => {
+      const fileName = path.basename(sourceFilePath);
+      const suggestedRole = this.suggestRoleForFile(fileName);
+      const duplicateWarnings: string[] = [];
+      const fileHash = this.hashAbsoluteFile(sourceFilePath);
+
+      if (
+        existingFiles.some((file) =>
+          file.FileName.localeCompare(fileName, undefined, { sensitivity: 'base' }) === 0
+        )
+      ) {
+        duplicateWarnings.push(`A file named "${fileName}" already exists in this version.`);
+      }
+
+      if (existingFiles.some((file) => file.ContentHash === fileHash)) {
+        duplicateWarnings.push(`"${fileName}" matches the contents of an existing tracked file.`);
+      }
+
+      return {
+        sourceFilePath,
+        fileName,
+        suggestedRole,
+        duplicateWarnings
+      };
+    });
+    const roleCounts = candidates.reduce((accumulator, candidate) => {
+      accumulator.set(candidate.suggestedRole, (accumulator.get(candidate.suggestedRole) ?? 0) + 1);
+      return accumulator;
+    }, new Map<DocumentVersionFileRole, number>());
+    const suggestedRole =
+      [...roleCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'other';
+    const warnings = candidates.flatMap((candidate) => candidate.duplicateWarnings);
+
+    return {
+      versionId: documentVersionId,
+      suggestedRole,
+      hasBlockingDuplicates: warnings.length > 0,
+      warnings,
+      candidates
+    };
+  }
+
+  reconcileUnmanagedPath(
+    rootPath: string,
+    documentVersionId: number,
+    relativePath: string
+  ): DocumentVersion {
+    const context = this.workspaceManager.getContext(rootPath);
+    const version = this.getVersionRow(context.db, documentVersionId);
+    const document = this.getDocumentRow(context.db, version.DocumentId);
+    this.assertVersionIsMutable(context.db, version);
+    const targetAbsolutePath = this.fileStorageService.resolveStoredFilePath(context.rootPath, relativePath, true);
+
+    if (!existsSync(targetAbsolutePath)) {
+      throw new Error('The selected unmanaged path could not be found.');
+    }
+
+    const sourceFilePaths = this.collectFilesFromPath(targetAbsolutePath);
+    if (sourceFilePaths.length === 0) {
+      throw new Error('The selected unmanaged path does not contain any files to import.');
+    }
+
+    const filesByRole = sourceFilePaths.reduce((accumulator, sourceFilePath) => {
+      const role = this.suggestRoleForFile(path.basename(sourceFilePath));
+      const group = accumulator.get(role) ?? [];
+      group.push(sourceFilePath);
+      accumulator.set(role, group);
+      return accumulator;
+    }, new Map<DocumentVersionFileRole, string[]>());
+
+    context.db.transaction(() => {
+      const insert = context.db.prepare(
+        `
+          INSERT INTO DocumentVersionFiles (
+            DocumentVersionId,
+            Role,
+            FileName,
+            FilePath,
+            ContentHash,
+            FileSize,
+            ModifiedDate,
+            CreatedDate
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      );
+      const createdDate = nowIso();
+
+      for (const [role, filePaths] of filesByRole.entries()) {
+        const importedFiles = this.fileStorageService.importManagedFiles(
+          context.rootPath,
+          context.settings,
+          document.DocumentFolderPath,
+          version.VersionLabel,
+          role,
+          filePaths
+        );
+
+        for (const file of importedFiles) {
+          insert.run(
+            version.Id,
+            role,
+            file.fileName,
+            file.relativePath,
+            file.contentHash,
+            file.fileSize,
+            file.modifiedDate,
+            createdDate
+          );
+        }
+      }
+
+      context.db
+        .prepare('DELETE FROM IgnoredUnmanagedPaths WHERE DocumentVersionId = ? AND RelativePath = ?')
+        .run(version.Id, this.fileStorageService.normalizeRelativePath(relativePath));
+      this.activityLogService.log(context.db, {
+        eventType: 'document.unmanaged.imported',
+        message: `Imported unmanaged path "${relativePath}" into version ${version.VersionLabel}.`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
+      });
+    })();
+
+    rmSync(targetAbsolutePath, { recursive: true, force: true });
+    return this.syncVersionFiles(rootPath, version.Id);
+  }
+
+  ignoreUnmanagedPath(
+    rootPath: string,
+    documentVersionId: number,
+    relativePath: string
+  ): DocumentVersion {
+    const context = this.workspaceManager.getContext(rootPath);
+    const version = this.getVersionRow(context.db, documentVersionId);
+
+    context.db
+      .prepare(
+        `
+          INSERT OR IGNORE INTO IgnoredUnmanagedPaths (DocumentVersionId, RelativePath, CreatedDate)
+          VALUES (?, ?, ?)
+        `
+      )
+      .run(version.Id, this.fileStorageService.normalizeRelativePath(relativePath), nowIso());
+
+    return this.syncVersionFiles(rootPath, version.Id);
   }
 
   updateDocument(rootPath: string, input: UpdateDocumentInput): DocumentDetail {
@@ -681,6 +1145,11 @@ export class DocumentService {
             );
           }
         }
+        this.activityLogService.log(context.db, {
+          eventType: 'document.updated',
+          message: `Updated document "${nextTitle}".`,
+          documentRecordId: input.documentRecordId
+        });
       })();
     } catch (error) {
       if (shouldMoveFolder) {
@@ -725,6 +1194,12 @@ export class DocumentService {
         )
         .run(input.status, releasedDate, approvedBy, revisionDescription, latestVersion.Id);
       context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(nowIso(), input.documentRecordId);
+      this.activityLogService.log(context.db, {
+        eventType: 'document.version.updated',
+        message: `Updated version ${latestVersion.VersionLabel} to ${input.status}.`,
+        documentRecordId: input.documentRecordId,
+        documentVersionId: latestVersion.Id
+      });
     })();
 
     return this.getDetail(rootPath, input.documentRecordId);
@@ -768,6 +1243,11 @@ export class DocumentService {
       version.VersionLabel
     );
     void shell.openPath(folderPath);
+  }
+
+  openStoredPath(rootPath: string, relativePath: string): void {
+    const context = this.workspaceManager.getContext(rootPath);
+    void shell.openPath(this.fileStorageService.resolveStoredFilePath(context.rootPath, relativePath, true));
   }
 
   private syncDocumentVersions(
@@ -822,6 +1302,15 @@ export class DocumentService {
       version.VersionLabel
     );
     const scanResult = this.fileStorageService.scanVersionFolder(context.rootPath, versionFolderPath);
+    const ignoredPaths = new Set(
+      (context.db
+        .prepare(
+          'SELECT RelativePath FROM IgnoredUnmanagedPaths WHERE DocumentVersionId = @documentVersionId'
+        )
+        .all({ documentVersionId: version.Id }) as Array<{ RelativePath: string }>).map((row) =>
+        this.fileStorageService.normalizeRelativePath(row.RelativePath)
+      )
+    );
     const existingRows = this.getVersionFileRows(context.db, version.Id);
     const existingByPath = new Map<string, VersionFileRow>(
       existingRows.map((row) => [this.fileStorageService.normalizeRelativePath(row.FilePath), row])
@@ -882,7 +1371,9 @@ export class DocumentService {
       updates.some(({ row, file }) => this.hasFileMetadataChanges(row, file));
 
     if (!hasChanges) {
-      return scanResult.unmanagedPaths;
+      return scanResult.unmanagedPaths.filter(
+        (relativePath) => !ignoredPaths.has(this.fileStorageService.normalizeRelativePath(relativePath))
+      );
     }
 
     context.db.transaction(() => {
@@ -945,7 +1436,9 @@ export class DocumentService {
       );
     })();
 
-    return scanResult.unmanagedPaths;
+    return scanResult.unmanagedPaths.filter(
+      (relativePath) => !ignoredPaths.has(this.fileStorageService.normalizeRelativePath(relativePath))
+    );
   }
 
   private getDetailFromDatabase(
@@ -1252,6 +1745,105 @@ export class DocumentService {
       row.ContentHash !== file.contentHash ||
       row.FileSize !== file.fileSize ||
       row.ModifiedDate !== file.modifiedDate
+    );
+  }
+
+  private getNextReviewDate(
+    releasedDate: string | null,
+    revisionIntervalMonths: number | null
+  ): string | null {
+    if (!releasedDate || !revisionIntervalMonths) {
+      return null;
+    }
+
+    const date = new Date(releasedDate);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    date.setUTCMonth(date.getUTCMonth() + revisionIntervalMonths);
+    return date.toISOString();
+  }
+
+  private isDateInPast(value: string): boolean {
+    return new Date(value).getTime() < Date.now();
+  }
+
+  private getDocumentHealthFlags(input: {
+    latestVersionLabel: string | null;
+    latestVersionFileCount: number;
+    unmanagedPathCount: number;
+    modifiedDate: string;
+    isOverdue: boolean;
+  }): DocumentHealthFlag[] {
+    const flags: DocumentHealthFlag[] = [];
+
+    if (!input.latestVersionLabel) {
+      flags.push('unversionedShell');
+    }
+
+    if (input.latestVersionLabel && input.latestVersionFileCount === 0) {
+      flags.push('missingFiles');
+    }
+
+    if (input.unmanagedPathCount > 0) {
+      flags.push('unmanagedPaths');
+    }
+
+    if (input.isOverdue) {
+      flags.push('overdueReview');
+    }
+
+    const staleCutoff = new Date();
+    staleCutoff.setUTCDate(staleCutoff.getUTCDate() - 180);
+    if (new Date(input.modifiedDate).getTime() < staleCutoff.getTime()) {
+      flags.push('staleDocument');
+    }
+
+    return flags;
+  }
+
+  private suggestRoleForFile(fileName: string): DocumentVersionFileRole {
+    const normalized = fileName.toLowerCase();
+    const extension = path.extname(normalized);
+
+    if (normalized.includes('concept') && extension === '.pdf') {
+      return 'concept-pdf';
+    }
+
+    if ((normalized.includes('final') || normalized.includes('released')) && extension === '.pdf') {
+      return 'final-pdf';
+    }
+
+    if (extension === '.pdf') {
+      return 'concept-pdf';
+    }
+
+    if (['.doc', '.docx', '.odt', '.rtf', '.txt', '.md'].includes(extension)) {
+      return 'working';
+    }
+
+    return 'other';
+  }
+
+  private hashAbsoluteFile(absolutePath: string): string {
+    const hash = createHash('sha256');
+    hash.update(readFileSync(absolutePath));
+    return hash.digest('hex');
+  }
+
+  private collectFilesFromPath(absolutePath: string): string[] {
+    const stats = statSync(absolutePath);
+    if (stats.isFile()) {
+      return [absolutePath];
+    }
+
+    if (!stats.isDirectory()) {
+      return [];
+    }
+
+    return readdirSync(absolutePath).flatMap((entry) =>
+      this.collectFilesFromPath(path.join(absolutePath, entry))
     );
   }
 

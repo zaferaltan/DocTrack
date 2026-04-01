@@ -3,16 +3,26 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import type { WorkspaceContext, WorkspaceManager } from '@main/database/workspaceManager';
+import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { nowIso } from '@main/utils/date';
-import { DOCUMENT_STATUSES } from '@shared/types';
+import { DOCUMENT_HEALTH_FLAGS, DOCUMENT_STATUSES } from '@shared/types';
 import type {
+  CreateBackupResult,
+  DashboardInsight,
+  DocumentListItem,
   DocumentType,
+  IntegrityCheckResult,
   OpenWorkspaceResult,
+  RestoreBackupInput,
+  RestoreBackupPreview,
+  WorkspaceBackupSummary,
   WorkspaceCreateInput,
+  WorkspaceDashboardSummary,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
 import {
@@ -40,7 +50,9 @@ export class WorkspaceService {
     private readonly fileStorageService: FileStorageService,
     private readonly workspaceCatalogService: WorkspaceCatalogService,
     private readonly catalogService: AppCatalogService,
-    private readonly documentIdGenerator: DocumentIdGeneratorService
+    private readonly documentIdGenerator: DocumentIdGeneratorService,
+    private readonly activityLogService: ActivityLogService,
+    private readonly workspaceBackupService: WorkspaceBackupService
   ) {}
 
   create(input: WorkspaceCreateInput): OpenWorkspaceResult {
@@ -58,6 +70,11 @@ export class WorkspaceService {
       name: context.workspace.name
     });
 
+    this.activityLogService.log(this.workspaceManager.getContext(context.rootPath).db, {
+      eventType: 'workspace.created',
+      message: `Workspace "${context.workspace.name}" was created.`
+    });
+
     return this.getSummary(context.rootPath);
   }
 
@@ -66,6 +83,10 @@ export class WorkspaceService {
     this.catalogService.touchRecentWorkspace({
       rootPath: context.rootPath,
       name: context.workspace.name
+    });
+    this.activityLogService.log(context.db, {
+      eventType: 'workspace.opened',
+      message: `Workspace "${context.workspace.name}" was opened.`
     });
     return this.getSummary(rootPath);
   }
@@ -88,6 +109,7 @@ export class WorkspaceService {
 
   getSummary(rootPath: string, warnings: string[] = []): OpenWorkspaceResult {
     const context = this.workspaceManager.getContext(rootPath);
+    const documents = this.documentService.list(rootPath);
     const typeRows = context.db
       .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes ORDER BY NumberPrefix ASC')
       .all() as Array<{ Id: number; Name: string; NumberPrefix: string }>;
@@ -97,7 +119,8 @@ export class WorkspaceService {
       summary: {
         workspace: context.workspace,
         settings: context.settings,
-        documents: this.documentService.list(rootPath),
+        documents,
+        dashboard: this.buildDashboardSummary(context, documents),
         documentTypes: this.mapTypeRows(typeRows),
         projects: this.workspaceCatalogService.listProjects(rootPath),
         confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
@@ -140,7 +163,64 @@ export class WorkspaceService {
     this.persistWorkspaceSettings(context, nextSettings);
     context.settings = nextSettings;
     this.ensureDocumentTypeDirectories(context);
+    this.activityLogService.log(context.db, {
+      eventType: 'workspace.settings.updated',
+      message: `Workspace settings were updated for "${context.workspace.name}".`
+    });
     return this.getSummary(rootPath, warnings);
+  }
+
+  getDashboard(rootPath: string): WorkspaceDashboardSummary {
+    const context = this.workspaceManager.getContext(rootPath);
+    return this.buildDashboardSummary(context, this.documentService.list(rootPath));
+  }
+
+  listBackups(rootPath: string): WorkspaceBackupSummary[] {
+    return this.workspaceBackupService.list(rootPath);
+  }
+
+  createBackup(rootPath: string): CreateBackupResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const result = this.workspaceBackupService.createBackup(rootPath);
+    this.activityLogService.log(context.db, {
+      eventType: 'workspace.backup.created',
+      message: `Created a ${result.backup.reason} snapshot.`,
+    });
+    return result;
+  }
+
+  getRestorePreview(
+    rootPath: string,
+    backupId: string,
+    destinationParentPath: string,
+    destinationFolderName?: string
+  ): RestoreBackupPreview {
+    return this.workspaceBackupService.getRestorePreview(
+      rootPath,
+      backupId,
+      destinationParentPath,
+      destinationFolderName
+    );
+  }
+
+  restoreBackup(rootPath: string, input: RestoreBackupInput): OpenWorkspaceResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const restoredRootPath = this.workspaceBackupService.restoreBackup(
+      rootPath,
+      input.backupId,
+      input.destinationParentPath,
+      input.destinationFolderName
+    );
+    const summary = this.open(restoredRootPath);
+    this.activityLogService.log(context.db, {
+      eventType: 'workspace.backup.restored',
+      message: `Restored snapshot "${input.backupId}" into "${restoredRootPath}".`
+    });
+    return summary;
+  }
+
+  integrityCheck(rootPath: string): IntegrityCheckResult {
+    return this.workspaceBackupService.integrityCheck(rootPath);
   }
 
   private mapTypeRows(rows: Array<{ Id: number; Name: string; NumberPrefix: string }>): DocumentType[] {
@@ -190,6 +270,100 @@ export class WorkspaceService {
         settings.companyLogoPath,
         settings.autoMarkPreviousVersionObsolete ? 1 : 0
       );
+  }
+
+  private buildDashboardSummary(
+    context: WorkspaceContext,
+    documents: DocumentListItem[]
+  ): WorkspaceDashboardSummary {
+    const statusCounts = new Map<string, number>();
+    statusCounts.set('Not started', 0);
+    for (const status of DOCUMENT_STATUSES) {
+      statusCounts.set(status, 0);
+    }
+
+    for (const document of documents) {
+      const key = document.status ?? 'Not started';
+      statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1);
+    }
+
+    const countsByType = [...documents.reduce((accumulator, document) => {
+      accumulator.set(document.typeName, (accumulator.get(document.typeName) ?? 0) + 1);
+      return accumulator;
+    }, new Map<string, number>()).entries()]
+      .map(([label, count]) => ({
+        id: label,
+        label,
+        count
+      }))
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+
+    const countsByProject = [...documents.reduce((accumulator, document) => {
+      const key = String(document.projectId ?? '');
+      const item = accumulator.get(key) ?? {
+        id: key || 'no-project',
+        label: document.projectName ?? 'No project',
+        count: 0,
+        projectId: document.projectId ?? null
+      };
+      item.count += 1;
+      accumulator.set(key, item);
+      return accumulator;
+    }, new Map<string, { id: string; label: string; count: number; projectId: number | null }>()).values()]
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+
+    const healthInsights: DashboardInsight[] = DOCUMENT_HEALTH_FLAGS.map((flag) => ({
+      id: flag,
+      label: this.getHealthFlagLabel(flag),
+      count: documents.filter((document) => document.healthFlags.includes(flag)).length,
+      tone: (
+        flag === 'overdueReview' || flag === 'missingFiles'
+          ? 'danger'
+          : flag === 'unmanagedPaths'
+            ? 'warning'
+            : 'default'
+      ) as DashboardInsight['tone'],
+      healthFlag: flag
+    })).filter((item) => item.count > 0);
+
+    return {
+      generatedDate: nowIso(),
+      totalDocuments: documents.length,
+      countsByStatus: [...statusCounts.entries()].map(([status, count]) => ({
+        id: status.toLowerCase().replace(/\s+/g, '-'),
+        label: status,
+        count,
+        tone: (
+          status === 'Released'
+            ? 'success'
+            : status === 'Draft' || status === 'In Review'
+              ? 'warning'
+              : status === 'Obsolete'
+                ? 'danger'
+                : 'default'
+        ) as DashboardInsight['tone'],
+        status: status as 'Not started' | (typeof DOCUMENT_STATUSES)[number]
+      })),
+      countsByType,
+      countsByProject,
+      healthInsights,
+      recentActivity: this.activityLogService.listRecent(context.db)
+    };
+  }
+
+  private getHealthFlagLabel(flag: (typeof DOCUMENT_HEALTH_FLAGS)[number]): string {
+    switch (flag) {
+      case 'overdueReview':
+        return 'Overdue review';
+      case 'missingFiles':
+        return 'Missing files';
+      case 'unversionedShell':
+        return 'Unversioned shells';
+      case 'unmanagedPaths':
+        return 'Unmanaged paths';
+      case 'staleDocument':
+        return 'Stale documents';
+    }
   }
 
   private areWorkspaceSettingsEqual(left: WorkspaceSettings, right: WorkspaceSettings): boolean {

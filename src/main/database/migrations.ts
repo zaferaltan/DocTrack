@@ -5,6 +5,7 @@ import documentMetadataMigration from '../../../migrations/003_document_metadata
 import versionManagementMigration from '../../../migrations/004_version_management.sql?raw';
 import documentIdFormatMigration from '../../../migrations/005_document_id_format.sql?raw';
 import workspaceBrandingMigration from '../../../migrations/006_workspace_branding.sql?raw';
+import activityLogMigration from '../../../migrations/007_activity_log.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
@@ -31,6 +32,10 @@ const MIGRATIONS = [
   {
     id: '006_workspace_branding',
     sql: workspaceBrandingMigration
+  },
+  {
+    id: '007_activity_log',
+    sql: activityLogMigration
   }
 ] as const;
 
@@ -62,6 +67,24 @@ export const applyMigrations = (db: Database.Database): void => {
     db.exec(migration.sql);
     insertMigration.run(migration.id, nowIso());
   }
+};
+
+export const getPendingMigrationIds = (db: Database.Database): string[] => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS __Migrations (
+      Id TEXT PRIMARY KEY,
+      AppliedDate TEXT NOT NULL
+    );
+  `);
+
+  const appliedRows = db.prepare('SELECT Id FROM __Migrations ORDER BY Id').all() as Array<{
+    Id: string;
+  }>;
+  const appliedMigrationIds = new Set(appliedRows.map((row) => row.Id));
+
+  return MIGRATIONS.filter((migration) => !appliedMigrationIds.has(migration.id)).map(
+    (migration) => migration.id
+  );
 };
 
 export const hasWorkspaceSignature = (db: Database.Database): boolean => {

@@ -3,11 +3,13 @@ import { app, BrowserWindow, type BrowserWindow as BrowserWindowType } from 'ele
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
 import { registerIpcHandlers } from '@main/ipc';
+import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentExportService } from '@main/services/documentExportService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 
@@ -49,11 +51,14 @@ app.whenReady().then(async () => {
   const workspaceManager = new WorkspaceManager();
   const fileStorageService = new FileStorageService();
   const documentIdGenerator = new DocumentIdGeneratorService();
+  const activityLogService = new ActivityLogService();
+  const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
   const documentExportService = new DocumentExportService();
   const documentService = new DocumentService(
     workspaceManager,
     documentIdGenerator,
-    fileStorageService
+    fileStorageService,
+    activityLogService
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
   const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
@@ -63,7 +68,9 @@ app.whenReady().then(async () => {
     fileStorageService,
     workspaceCatalogService,
     catalogService,
-    documentIdGenerator
+    documentIdGenerator,
+    activityLogService,
+    workspaceBackupService
   );
 
   registerIpcHandlers({

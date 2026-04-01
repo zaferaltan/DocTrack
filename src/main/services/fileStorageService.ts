@@ -299,6 +299,43 @@ export class FileStorageService {
     this.cleanupEmptyRoleDirectory(path.dirname(absolutePath));
   }
 
+  deleteVersionFolder(
+    rootPath: string,
+    documentFolderPath: string,
+    versionLabel: string
+  ): void {
+    const versionFolderAbsolutePath = this.getVersionFolderAbsolutePath(
+      rootPath,
+      documentFolderPath,
+      versionLabel
+    );
+
+    if (existsSync(versionFolderAbsolutePath)) {
+      rmSync(versionFolderAbsolutePath, { recursive: true, force: true });
+    }
+
+    this.cleanupEmptyDirectories(
+      path.dirname(versionFolderAbsolutePath),
+      this.getWorkspaceDocumentsDirectory(rootPath)
+    );
+  }
+
+  deleteDocumentFolder(rootPath: string, documentFolderPath: string): void {
+    const documentFolderAbsolutePath = this.getDocumentFolderAbsolutePath(
+      rootPath,
+      documentFolderPath
+    );
+
+    if (existsSync(documentFolderAbsolutePath)) {
+      rmSync(documentFolderAbsolutePath, { recursive: true, force: true });
+    }
+
+    this.cleanupEmptyDirectories(
+      path.dirname(documentFolderAbsolutePath),
+      this.getWorkspaceDocumentsDirectory(rootPath)
+    );
+  }
+
   resolveStoredFilePath(rootPath: string, relativePath: string, allowMissing = false): string {
     const normalized = this.normalizeRelativePath(relativePath);
     const resolvedPath = path.resolve(rootPath, normalized);

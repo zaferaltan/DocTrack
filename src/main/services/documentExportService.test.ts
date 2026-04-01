@@ -49,7 +49,12 @@ const buildRequest = (overrides: Partial<DocumentExportRequest> = {}): DocumentE
       projectName: null,
       company: 'Acme',
       department: 'Quality',
-      revisionIntervalMonths: 12
+      revisionIntervalMonths: 12,
+      nextReviewDate: '2027-03-31T09:00:00.000Z',
+      isOverdue: false,
+      healthFlags: [],
+      latestVersionFileCount: 1,
+      lastActivityDate: '2026-03-31T09:00:00.000Z'
     }
   ],
   filters: {

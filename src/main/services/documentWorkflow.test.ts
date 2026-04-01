@@ -4,10 +4,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
+import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
@@ -38,7 +40,14 @@ describe('document workflow integration', () => {
     const fileStorageService = new FileStorageService();
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
-    documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
+    const activityLogService = new ActivityLogService();
+    const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
+    documentService = new DocumentService(
+      workspaceManager,
+      documentIdGenerator,
+      fileStorageService,
+      activityLogService
+    );
     documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
     workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
     workspaceService = new WorkspaceService(
@@ -47,7 +56,9 @@ describe('document workflow integration', () => {
       fileStorageService,
       workspaceCatalogService,
       catalogService,
-      documentIdGenerator
+      documentIdGenerator,
+      activityLogService,
+      workspaceBackupService
     );
 
     workspaceRootPath = path.join(tempRoot, 'Quality');
@@ -276,6 +287,77 @@ describe('document workflow integration', () => {
     const afterDelete = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
 
     expect(afterDelete.files.map((file) => file.role)).toEqual(['concept-pdf']);
+  });
+
+  it('deletes a version and removes its physical version folder', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Delete Version Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+
+    const sourceFile = path.join(tempRoot, 'incoming', 'delete-version.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'delete me', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [sourceFile]
+    });
+
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+    expect(existsSync(versionFolderAbsolutePath)).toBe(true);
+
+    const afterDelete = documentService.deleteVersion(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id
+    });
+
+    expect(afterDelete.versions).toHaveLength(0);
+    expect(existsSync(versionFolderAbsolutePath)).toBe(false);
+  });
+
+  it('deletes a document and removes its physical document folder', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Delete Document Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+
+    const sourceFile = path.join(tempRoot, 'incoming', 'delete-document.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'delete doc', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [sourceFile]
+    });
+
+    const documentFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/')
+    );
+    expect(existsSync(documentFolderAbsolutePath)).toBe(true);
+
+    documentService.deleteDocument(workspaceRootPath, {
+      documentRecordId: created.id
+    });
+
+    expect(documentService.list(workspaceRootPath)).toHaveLength(0);
+    expect(existsSync(documentFolderAbsolutePath)).toBe(false);
   });
 
   it('migrates managed files between flat and role-subfolder layouts', () => {
@@ -521,5 +603,97 @@ describe('document workflow integration', () => {
 
     expect(afterSecondVersion.versions[0]?.status).toBe('Draft');
     expect(afterSecondVersion.versions[1]?.status).toBe('Released');
+  });
+
+  it('derives health metadata, previews text files, and compares adjacent versions', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Revision Controlled Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3',
+      revisionIntervalMonths: 1
+    });
+    const versionOne = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial release'
+    });
+    const firstSourceFile = path.join(tempRoot, 'incoming', 'procedure-notes.txt');
+    mkdirSync(path.dirname(firstSourceFile), { recursive: true });
+    writeFileSync(firstSourceFile, 'Initial procedure text preview', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versionOne.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [firstSourceFile]
+    });
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Released',
+      releasedDate: '2026-01-01',
+      approvedBy: 'Jordan Singh',
+      revisionDescription: 'Approved release'
+    });
+    const versionTwo = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Follow-up revision'
+    });
+    const secondSourceFile = path.join(tempRoot, 'incoming', 'procedure-follow-up.txt');
+    writeFileSync(secondSourceFile, 'Updated follow-up text preview', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versionTwo.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [secondSourceFile]
+    });
+
+    const list = documentService.list(workspaceRootPath);
+    const listedDocument = list.find((item) => item.id === created.id);
+    expect(listedDocument?.nextReviewDate).not.toBeNull();
+    expect(listedDocument?.isOverdue).toBe(true);
+    expect(listedDocument?.healthFlags).toContain('overdueReview');
+
+    const preview = documentService.previewVersionFile(
+      workspaceRootPath,
+      versionTwo.versions[1]!.files[0]!.id
+    );
+    expect(preview.kind).toBe('text');
+    expect(preview.textContent).toContain('Initial procedure text preview');
+
+    const comparison = documentService.compareVersions(
+      workspaceRootPath,
+      versionTwo.versions[0]!.id,
+      versionTwo.versions[1]!.id
+    );
+    expect(comparison.currentVersionLabel).toBe('002');
+    expect(comparison.previousVersionLabel).toBe('001');
+    expect(comparison.deltas.map((delta) => delta.changeType).sort()).toEqual(['added', 'removed']);
+  });
+
+  it('can ignore unmanaged paths after they are discovered in a version folder', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Filesystem Reconciliation Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+    mkdirSync(path.join(versionFolderAbsolutePath, 'custom'), { recursive: true });
+    writeFileSync(path.join(versionFolderAbsolutePath, 'custom', 'notes.txt'), 'ignored', 'utf8');
+
+    const afterSync = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+    expect(afterSync.unmanagedPaths).toContain('Documents/Procedure/02202600001/001/custom');
+
+    const afterIgnore = documentService.ignoreUnmanagedPath(
+      workspaceRootPath,
+      versioned.versions[0]!.id,
+      'Documents/Procedure/02202600001/001/custom'
+    );
+    expect(afterIgnore.unmanagedPaths).toHaveLength(0);
   });
 });

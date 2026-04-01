@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC_CHANNELS, type DocTrackApi } from '@shared/ipc';
 
 const api: DocTrackApi = {
@@ -10,15 +10,33 @@ const api: DocTrackApi = {
     listRecent: () => ipcRenderer.invoke(IPC_CHANNELS.workspaceListRecent),
     dismissRecent: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceDismissRecent, rootPath),
     getSummary: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, rootPath),
+    getDashboard: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetDashboard, rootPath),
     updateSettings: (rootPath, input) =>
-      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input)
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input),
+    listBackups: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListBackups, rootPath),
+    createBackup: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceCreateBackup, rootPath),
+    getRestorePreview: (rootPath, backupId, destinationParentPath, destinationFolderName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.workspaceGetRestorePreview,
+        rootPath,
+        backupId,
+        destinationParentPath,
+        destinationFolderName
+      ),
+    restoreBackup: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceRestoreBackup, rootPath, input),
+    integrityCheck: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceIntegrityCheck, rootPath)
   },
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName) =>
       ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceCreatePath, workspaceName),
     pickWorkspaceOpenPath: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceOpenPath),
     pickWorkspaceLogoFile: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickWorkspaceLogoFile),
-    pickDocumentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickDocumentFiles)
+    pickDocumentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.dialogPickDocumentFiles),
+    resolveDroppedFilePaths: async (files) =>
+      Array.from(files)
+        .map((file) => webUtils.getPathForFile(file))
+        .filter((value): value is string => value.trim().length > 0)
   },
   documents: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentsList, filePath),
@@ -28,6 +46,9 @@ const api: DocTrackApi = {
     update: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.documentsUpdate, filePath, input),
     createVersion: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsCreateVersion, filePath, input),
+    delete: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.documentsDelete, filePath, input),
+    deleteVersion: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsDeleteVersion, filePath, input),
     updateLatestVersion: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateLatestVersion, filePath, input),
     addVersionFiles: (filePath, input) =>
@@ -46,7 +67,39 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentsOpenDocumentFolder, filePath, documentRecordId),
     openVersionFolder: (filePath, documentVersionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFolder, filePath, documentVersionId),
-    export: (filePath, request) => ipcRenderer.invoke(IPC_CHANNELS.documentsExport, filePath, request)
+    openStoredPath: (filePath, relativePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsOpenStoredPath, filePath, relativePath),
+    export: (filePath, request) => ipcRenderer.invoke(IPC_CHANNELS.documentsExport, filePath, request),
+    previewVersionFile: (filePath, fileId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsPreviewVersionFile, filePath, fileId),
+    compareVersions: (filePath, currentVersionId, previousVersionId) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documentsCompareVersions,
+        filePath,
+        currentVersionId,
+        previousVersionId
+      ),
+    planVersionFileImport: (filePath, documentVersionId, sourceFilePaths) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documentsPlanVersionFileImport,
+        filePath,
+        documentVersionId,
+        sourceFilePaths
+      ),
+    reconcileUnmanagedPath: (filePath, documentVersionId, relativePath) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documentsReconcileUnmanagedPath,
+        filePath,
+        documentVersionId,
+        relativePath
+      ),
+    ignoreUnmanagedPath: (filePath, documentVersionId, relativePath) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documentsIgnoreUnmanagedPath,
+        filePath,
+        documentVersionId,
+        relativePath
+      )
   },
   documentTypes: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesList, filePath),

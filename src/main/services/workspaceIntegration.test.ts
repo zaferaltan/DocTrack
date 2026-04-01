@@ -5,10 +5,12 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
+import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 import {
@@ -40,7 +42,14 @@ describe('workspace integration', () => {
     const fileStorageService = new FileStorageService();
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
-    documentService = new DocumentService(workspaceManager, documentIdGenerator, fileStorageService);
+    const activityLogService = new ActivityLogService();
+    const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
+    documentService = new DocumentService(
+      workspaceManager,
+      documentIdGenerator,
+      fileStorageService,
+      activityLogService
+    );
     new DocumentTypeService(workspaceManager, fileStorageService);
     const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
     workspaceService = new WorkspaceService(
@@ -49,7 +58,9 @@ describe('workspace integration', () => {
       fileStorageService,
       workspaceCatalogService,
       catalogService,
-      documentIdGenerator
+      documentIdGenerator,
+      activityLogService,
+      workspaceBackupService
     );
   });
 
@@ -312,5 +323,58 @@ describe('workspace integration', () => {
     expect(result.summary.settings.documentIdFormatTemplate).toBe(
       '<docType>-<language>-<year>-<sequence:3>'
     );
+  });
+
+  it('creates workspace snapshots and reports integrity issues for missing managed files', () => {
+    const created = workspaceService.create({
+      name: 'Recoverable',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+    const shellDocument = documentService.create(workspaceRootPath, {
+      title: 'Recoverable Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: shellDocument.id,
+      revisionDescription: 'Initial version'
+    });
+    const sourceFile = path.join(tempRoot, 'incoming', 'recoverable.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'recoverable working file', 'utf8');
+    const detailWithFile = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [sourceFile]
+    });
+
+    const backup = workspaceService.createBackup(workspaceRootPath);
+    const listedBackups = workspaceService.listBackups(workspaceRootPath);
+    const restorePreview = workspaceService.getRestorePreview(
+      workspaceRootPath,
+      backup.backup.id,
+      tempRoot,
+      'Recoverable Restored'
+    );
+
+    expect(listedBackups).toHaveLength(1);
+    expect(restorePreview.destinationExists).toBe(false);
+    expect(backup.backup.documentCount).toBe(1);
+
+    rmSync(
+      path.join(workspaceRootPath, ...detailWithFile.files[0]!.filePath.split('/')),
+      { force: true }
+    );
+    const integrity = workspaceService.integrityCheck(workspaceRootPath);
+    expect(integrity.issueCount).toBeGreaterThan(0);
+    expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(true);
   });
 });

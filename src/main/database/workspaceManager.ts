@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
   applyMigrations,
   configureDatabaseConnection,
+  getPendingMigrationIds,
   hasWorkspaceSignature
 } from '@main/database/migrations';
 import { nowIso } from '@main/utils/date';
@@ -21,6 +22,8 @@ import {
   normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
+
+const BACKUPS_DIRECTORY_NAME = 'Backups';
 
 const INVALID_WORKSPACE_NAME = /[<>:"/\\|?*\u0000-\u001f]/;
 const WINDOWS_RESERVED_WORKSPACE_NAMES = new Set([
@@ -169,6 +172,11 @@ export class WorkspaceManager {
 
       if (!hasWorkspaceSignature(db)) {
         throw new Error('The selected folder is not a valid DocTrack workspace.');
+      }
+
+      const pendingMigrationIds = getPendingMigrationIds(db);
+      if (pendingMigrationIds.length > 0) {
+        this.createSafetySnapshot(resolvedRootPath, pendingMigrationIds);
       }
 
       applyMigrations(db);
@@ -359,6 +367,48 @@ export class WorkspaceManager {
 
   private getWorkspaceDatabaseFilePath(rootPath: string): string {
     return path.join(rootPath, WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
+  }
+
+  private createSafetySnapshot(rootPath: string, pendingMigrationIds: string[]): void {
+    const createdDate = nowIso();
+    const backupId = `${createdDate.replace(/[:.]/g, '').replace(/-/g, '')}-pre-migration`;
+    const backupRootPath = path.join(rootPath, BACKUPS_DIRECTORY_NAME, backupId);
+    const databaseSourcePath = this.getWorkspaceDatabaseDirectoryPath(rootPath);
+    const documentsSourcePath = this.getWorkspaceDocumentsDirectoryPath(rootPath);
+    const manifestPath = path.join(backupRootPath, 'manifest.json');
+
+    mkdirSync(backupRootPath, { recursive: true });
+    cpSync(databaseSourcePath, path.join(backupRootPath, WORKSPACE_DATABASE_DIRECTORY_NAME), {
+      recursive: true
+    });
+    cpSync(documentsSourcePath, path.join(backupRootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME), {
+      recursive: true
+    });
+
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          id: backupId,
+          label: 'Safety Snapshot',
+          createdDate,
+          backupPath: backupRootPath,
+          manifestPath,
+          workspaceName: path.basename(rootPath),
+          documentCount: 0,
+          versionCount: 0,
+          fileCount: 0,
+          sizeBytes: 0,
+          reason: 'safety',
+          databaseDirectoryName: WORKSPACE_DATABASE_DIRECTORY_NAME,
+          documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+          pendingMigrationIds
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
   }
 
   private assertValidWorkspaceName(workspaceName: string): void {

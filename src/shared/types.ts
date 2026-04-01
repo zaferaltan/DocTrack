@@ -7,8 +7,16 @@ import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'] as const;
+export const DOCUMENT_HEALTH_FLAGS = [
+  'overdueReview',
+  'missingFiles',
+  'unversionedShell',
+  'unmanagedPaths',
+  'staleDocument'
+] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
+export type DocumentHealthFlag = (typeof DOCUMENT_HEALTH_FLAGS)[number];
 
 export interface WorkspaceInfo {
   id: number;
@@ -63,6 +71,49 @@ export interface DocumentListItem {
   company: string;
   department: string;
   revisionIntervalMonths: number | null;
+  nextReviewDate: string | null;
+  isOverdue: boolean;
+  healthFlags: DocumentHealthFlag[];
+  latestVersionFileCount: number;
+  lastActivityDate: string;
+}
+
+export interface RecentActivityItem {
+  id: number;
+  eventType: string;
+  message: string;
+  createdDate: string;
+  documentRecordId: number | null;
+  documentVersionId: number | null;
+}
+
+export interface DashboardInsight {
+  id: string;
+  label: string;
+  count: number;
+  tone: 'default' | 'success' | 'warning' | 'danger';
+  status?: DocumentStatus | 'Not started';
+  projectId?: number | null;
+  healthFlag?: DocumentHealthFlag;
+}
+
+export interface WorkspaceDashboardSummary {
+  generatedDate: string;
+  totalDocuments: number;
+  countsByStatus: DashboardInsight[];
+  countsByType: Array<{
+    id: string;
+    label: string;
+    count: number;
+  }>;
+  countsByProject: Array<{
+    id: string;
+    label: string;
+    count: number;
+    projectId: number | null;
+  }>;
+  healthInsights: DashboardInsight[];
+  recentActivity: RecentActivityItem[];
 }
 
 export const DOCUMENT_EXPORT_FORMATS = ['csv', 'pdf'] as const;
@@ -126,6 +177,66 @@ export interface DocumentVersionFile {
   createdDate: string;
 }
 
+export const FILE_PREVIEW_KINDS = ['pdf', 'image', 'text', 'csv', 'unsupported'] as const;
+
+export type FilePreviewKind = (typeof FILE_PREVIEW_KINDS)[number];
+
+export interface FilePreviewDescriptor {
+  fileId: number;
+  fileName: string;
+  filePath: string;
+  absolutePath: string;
+  kind: FilePreviewKind;
+}
+
+export interface FilePreviewResult extends FilePreviewDescriptor {
+  isSupported: boolean;
+  previewUrl: string | null;
+  textContent: string | null;
+  warning: string | null;
+}
+
+export const VERSION_FILE_DELTA_TYPES = [
+  'added',
+  'removed',
+  'renamed',
+  'role-changed',
+  'content-changed'
+] as const;
+
+export type VersionFileDeltaType = (typeof VERSION_FILE_DELTA_TYPES)[number];
+
+export interface VersionFileDelta {
+  changeType: VersionFileDeltaType;
+  summary: string;
+  before: DocumentVersionFile | null;
+  after: DocumentVersionFile | null;
+}
+
+export interface VersionComparisonResult {
+  currentVersionId: number;
+  previousVersionId: number;
+  currentVersionLabel: string;
+  previousVersionLabel: string;
+  deltas: VersionFileDelta[];
+  unchangedCount: number;
+}
+
+export interface VersionFileImportCandidate {
+  sourceFilePath: string;
+  fileName: string;
+  suggestedRole: DocumentVersionFileRole;
+  duplicateWarnings: string[];
+}
+
+export interface VersionFileImportPlan {
+  versionId: number;
+  suggestedRole: DocumentVersionFileRole;
+  hasBlockingDuplicates: boolean;
+  warnings: string[];
+  candidates: VersionFileImportCandidate[];
+}
+
 export interface DocumentVersion {
   id: number;
   documentId: number;
@@ -181,6 +292,14 @@ export interface CreateVersionInput {
   documentRecordId: number;
   revisionDescription: string;
   bumpType?: VersionBumpType;
+}
+
+export interface DeleteDocumentInput {
+  documentRecordId: number;
+}
+
+export interface DeleteDocumentVersionInput {
+  documentVersionId: number;
 }
 
 export interface UpdateDocumentInput {
@@ -244,6 +363,7 @@ export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
   documents: DocumentListItem[];
+  dashboard: WorkspaceDashboardSummary;
   documentTypes: DocumentType[];
   projects: Project[];
   confidentialityClasses: ConfidentialityClass[];
@@ -279,6 +399,57 @@ export interface RecentWorkspace {
   rootPath: string;
   name: string;
   lastOpenedDate: string;
+}
+
+export interface WorkspaceBackupSummary {
+  id: string;
+  label: string;
+  createdDate: string;
+  backupPath: string;
+  manifestPath: string;
+  workspaceName: string;
+  documentCount: number;
+  versionCount: number;
+  fileCount: number;
+  sizeBytes: number;
+  reason: 'manual' | 'safety';
+}
+
+export interface CreateBackupResult {
+  backup: WorkspaceBackupSummary;
+}
+
+export interface RestoreBackupPreview {
+  backup: WorkspaceBackupSummary;
+  suggestedWorkspaceName: string;
+  destinationRootPath: string;
+  destinationExists: boolean;
+}
+
+export interface RestoreBackupInput {
+  backupId: string;
+  destinationParentPath: string;
+  destinationFolderName?: string;
+}
+
+export interface IntegrityCheckIssue {
+  code:
+    | 'missing-database'
+    | 'missing-document-folder'
+    | 'missing-version-folder'
+    | 'missing-managed-file'
+    | 'unreadable-path';
+  severity: 'warning' | 'error';
+  path: string;
+  message: string;
+  documentRecordId?: number;
+  documentVersionId?: number;
+}
+
+export interface IntegrityCheckResult {
+  checkedDate: string;
+  issueCount: number;
+  issues: IntegrityCheckIssue[];
 }
 
 export interface ExampleSeedOptions {

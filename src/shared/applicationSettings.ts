@@ -11,6 +11,7 @@ export const APPLICATION_LAUNCH_BEHAVIORS = [
 ] as const;
 export const DOCUMENT_DETAIL_VIEW_MODES = ["sidebar", "modal", "page"] as const;
 export const WORKSPACE_VIEWS = [
+  "dashboard",
   "documents",
   "documentTypes",
   "projects",
@@ -141,6 +142,11 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
+  {
+    value: "dashboard",
+    label: "Dashboard",
+    description: "Open workspaces on a dashboard with health, activity, and summary insights.",
+  },
   {
     value: "documents",
     label: "Documents",

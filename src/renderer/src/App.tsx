@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import {
+  AlertTriangle,
   ArrowUpDown,
   ChevronDown,
   ChevronLeft,
@@ -32,6 +33,7 @@ import {
   Sun,
   SunMoon,
   Table2,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -117,6 +119,7 @@ import type {
   ConfidentialityClass,
   CreateDocumentInput,
   CreateVersionInput,
+  DocumentHealthFlag,
   DocumentDetail,
   DocumentExportGrouping,
   DocumentExportPdfColorMode,
@@ -126,9 +129,14 @@ import type {
   DocumentVersion,
   DocumentVersionFile,
   DocumentType,
+  FilePreviewResult,
+  IntegrityCheckResult,
   Project,
+  RestoreBackupPreview,
   UpdateDocumentInput,
   UpdateLatestVersionInput,
+  VersionComparisonResult,
+  WorkspaceBackupSummary,
   WorkspaceLanguage,
   WorkspaceSettingsUpdateInput,
 } from "@shared/types";
@@ -282,7 +290,10 @@ interface FilesDialogState {
   open: boolean;
   versionId?: number;
   addRole: DocumentVersionFileRole;
+  pendingSourceFilePaths: string[];
+  pendingDuplicateWarnings: string[];
   isSubmitting: boolean;
+  submitLabel: string;
 }
 
 interface LatestVersionDialogState {
@@ -342,6 +353,55 @@ interface DocumentExportDialogState {
   scope: DocumentExportScope;
   groupBy: DocumentExportGrouping;
   pdfColorMode: DocumentExportPdfColorMode;
+  isSubmitting: boolean;
+}
+
+interface BackupDialogState {
+  open: boolean;
+  backups: WorkspaceBackupSummary[];
+  integrityCheck: IntegrityCheckResult | null;
+  selectedBackupId: string;
+  restorePreview: RestoreBackupPreview | null;
+  isLoading: boolean;
+  isSubmitting: boolean;
+}
+
+interface FilePreviewDialogState {
+  open: boolean;
+  preview: FilePreviewResult | null;
+  isLoading: boolean;
+}
+
+interface VersionComparisonDialogState {
+  open: boolean;
+  result: VersionComparisonResult | null;
+  isLoading: boolean;
+}
+
+interface RenameFileDialogState {
+  open: boolean;
+  file?: DocumentVersionFile;
+  nextFileName: string;
+  isSubmitting: boolean;
+}
+
+interface DashboardDrilldownState {
+  workspacePath: string;
+  status?: DocumentStatus | "Not started";
+  projectFilter?: string;
+  healthFlag?: DocumentHealthFlag;
+  token: number;
+}
+
+interface DeleteRecordsDialogState {
+  open: boolean;
+  mode: "document" | "version";
+  documentRecordId?: number;
+  documentVersionId?: number;
+  documentTitle: string;
+  versionLabel: string;
+  filePaths: string[];
+  unmanagedPaths: string[];
   isSubmitting: boolean;
 }
 
@@ -409,7 +469,10 @@ const defaultFilesDialogState: FilesDialogState = {
   open: false,
   versionId: undefined,
   addRole: "working",
+  pendingSourceFilePaths: [],
+  pendingDuplicateWarnings: [],
   isSubmitting: false,
+  submitLabel: "",
 };
 
 const defaultLatestVersionDialogState: LatestVersionDialogState = {
@@ -462,6 +525,47 @@ const defaultDocumentExportDialogState: DocumentExportDialogState = {
   scope: "current-table",
   groupBy: "documentType",
   pdfColorMode: "color",
+  isSubmitting: false,
+};
+
+const defaultBackupDialogState: BackupDialogState = {
+  open: false,
+  backups: [],
+  integrityCheck: null,
+  selectedBackupId: "",
+  restorePreview: null,
+  isLoading: false,
+  isSubmitting: false,
+};
+
+const defaultFilePreviewDialogState: FilePreviewDialogState = {
+  open: false,
+  preview: null,
+  isLoading: false,
+};
+
+const defaultVersionComparisonDialogState: VersionComparisonDialogState = {
+  open: false,
+  result: null,
+  isLoading: false,
+};
+
+const defaultRenameFileDialogState: RenameFileDialogState = {
+  open: false,
+  file: undefined,
+  nextFileName: "",
+  isSubmitting: false,
+};
+
+const defaultDeleteRecordsDialogState: DeleteRecordsDialogState = {
+  open: false,
+  mode: "document",
+  documentRecordId: undefined,
+  documentVersionId: undefined,
+  documentTitle: "",
+  versionLabel: "",
+  filePaths: [],
+  unmanagedPaths: [],
   isSubmitting: false,
 };
 
@@ -628,6 +732,20 @@ const getDocumentExportScopeLabel = (scope: DocumentExportScope): string =>
 
 const getPathFileName = (value: string): string =>
   value.split(/[/\\]/).pop() ?? value;
+
+const getFilePathsFromFileList = (files: FileList | File[]): string[] =>
+  Array.from(files)
+    .map((file) => file.path ?? "")
+    .filter((value): value is string => value.trim().length > 0);
+
+const resolveDroppedFilePaths = async (files: FileList | File[]): Promise<string[]> => {
+  const directPaths = getFilePathsFromFileList(files);
+  if (directPaths.length > 0) {
+    return directPaths;
+  }
+
+  return window.docTrack.dialogs.resolveDroppedFilePaths(Array.from(files));
+};
 
 const cloneApplicationSettings = (
   settings: ApplicationSettings,
@@ -808,6 +926,21 @@ function App() {
   const [languageDialog, setLanguageDialog] = useState(
     defaultLanguageDialogState,
   );
+  const [backupDialog, setBackupDialog] = useState(defaultBackupDialogState);
+  const [filePreviewDialog, setFilePreviewDialog] = useState(
+    defaultFilePreviewDialogState,
+  );
+  const [versionComparisonDialog, setVersionComparisonDialog] = useState(
+    defaultVersionComparisonDialogState,
+  );
+  const [renameFileDialog, setRenameFileDialog] = useState(
+    defaultRenameFileDialogState,
+  );
+  const [deleteRecordsDialog, setDeleteRecordsDialog] = useState(
+    defaultDeleteRecordsDialogState,
+  );
+  const [dashboardDrilldown, setDashboardDrilldown] =
+    useState<DashboardDrilldownState | null>(null);
   const [selectedDocumentDetail, setSelectedDocumentDetail] =
     useState<DocumentDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -1805,7 +1938,10 @@ function App() {
         open: true,
         versionId: latestVersion.id,
         addRole: "working",
+        pendingSourceFilePaths: [],
+        pendingDuplicateWarnings: [],
         isSubmitting: false,
+        submitLabel: "",
       });
     } catch (error) {
       notifyError(error, "Unable to load version files.");
@@ -1818,7 +1954,11 @@ function App() {
     }
 
     try {
-      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        submitLabel: "Refreshing files...",
+      }));
       await window.docTrack.documents.syncVersionFiles(
         activeWorkspacePath,
         documentVersionId,
@@ -1830,7 +1970,57 @@ function App() {
     } catch (error) {
       notifyError(error, "Unable to refresh version files.");
     } finally {
-      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        submitLabel: "",
+      }));
+    }
+  };
+
+  const stageFilesForVersion = async (
+    documentVersionId: number,
+    sourceFilePaths: string[],
+  ) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    if (sourceFilePaths.length === 0) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        submitLabel: "Checking selected files...",
+      }));
+      const importPlan = await window.docTrack.documents.planVersionFileImport(
+        activeWorkspacePath,
+        documentVersionId,
+        sourceFilePaths,
+      );
+
+      setFilesDialog((state) => ({
+        ...state,
+        versionId: documentVersionId,
+        addRole:
+          importPlan.candidates.length > 0
+            ? importPlan.suggestedRole
+            : state.addRole,
+        pendingSourceFilePaths: sourceFilePaths,
+        pendingDuplicateWarnings: importPlan.warnings,
+        submitLabel: "",
+      }));
+    } catch (error) {
+      notifyError(error, "Unable to stage files for upload.");
+    } finally {
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        submitLabel: "",
+      }));
     }
   };
 
@@ -1844,21 +2034,62 @@ function App() {
       return;
     }
 
+    await stageFilesForVersion(documentVersionId, sourceFilePaths);
+  };
+
+  const handleUploadStagedFiles = async (documentVersionId: number) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    if (filesDialog.pendingSourceFilePaths.length === 0) {
+      return;
+    }
+
+    if (filesDialog.pendingDuplicateWarnings.length > 0) {
+      setNotification({
+        tone: "error",
+        message:
+          filesDialog.pendingDuplicateWarnings[0] ??
+          "Resolve the staged file warnings before uploading.",
+      });
+      return;
+    }
+
     try {
-      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        submitLabel: "Uploading files...",
+      }));
       await window.docTrack.documents.addVersionFiles(activeWorkspacePath, {
         documentVersionId,
         role: filesDialog.addRole,
-        sourceFilePaths,
+        sourceFilePaths: filesDialog.pendingSourceFilePaths,
       });
       await refreshSelectedDocument(
         activeWorkspacePath,
         selectedDocumentDetail.id,
       );
+      setFilesDialog((state) => ({
+        ...state,
+        versionId: documentVersionId,
+        pendingSourceFilePaths: [],
+        pendingDuplicateWarnings: [],
+        submitLabel: "",
+      }));
+      setNotification({
+        tone: "success",
+        message: "Files uploaded successfully.",
+      });
     } catch (error) {
-      notifyError(error, "Unable to add files to this version.");
+      notifyError(error, "Unable to upload the selected files.");
     } finally {
-      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+      setFilesDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        submitLabel: "",
+      }));
     }
   };
 
@@ -1867,23 +2098,44 @@ function App() {
       return;
     }
 
-    const nextFileName = window.prompt("Rename file", file.fileName)?.trim();
-    if (!nextFileName || nextFileName === file.fileName) {
+    setRenameFileDialog({
+      open: true,
+      file,
+      nextFileName: file.fileName,
+      isSubmitting: false,
+    });
+  };
+
+  const handleConfirmRenameVersionFile = async () => {
+    if (
+      !activeWorkspacePath ||
+      !selectedDocumentDetail ||
+      !renameFileDialog.file
+    ) {
+      return;
+    }
+
+    const nextFileName = renameFileDialog.nextFileName.trim();
+    if (!nextFileName || nextFileName === renameFileDialog.file.fileName) {
+      setRenameFileDialog(defaultRenameFileDialogState);
       return;
     }
 
     try {
+      setRenameFileDialog((state) => ({ ...state, isSubmitting: true }));
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
       await window.docTrack.documents.renameVersionFile(activeWorkspacePath, {
-        fileId: file.id,
+        fileId: renameFileDialog.file.id,
         nextFileName,
       });
       await refreshSelectedDocument(
         activeWorkspacePath,
         selectedDocumentDetail.id,
       );
+      setRenameFileDialog(defaultRenameFileDialogState);
     } catch (error) {
       notifyError(error, "Unable to rename the selected file.");
+      setRenameFileDialog((state) => ({ ...state, isSubmitting: false }));
     } finally {
       setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
@@ -1945,6 +2197,384 @@ function App() {
     }
   };
 
+  const handlePreviewVersionFile = async (fileId: number) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      setFilePreviewDialog({
+        open: true,
+        preview: null,
+        isLoading: true,
+      });
+      const preview = await window.docTrack.documents.previewVersionFile(
+        activeWorkspacePath,
+        fileId,
+      );
+      setFilePreviewDialog({
+        open: true,
+        preview,
+        isLoading: false,
+      });
+    } catch (error) {
+      setFilePreviewDialog(defaultFilePreviewDialogState);
+      notifyError(error, "Unable to load the file preview.");
+    }
+  };
+
+  const handleCompareVersion = async (documentVersionId: number) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    const currentIndex = selectedDocumentDetail.versions.findIndex(
+      (version) => version.id === documentVersionId,
+    );
+    const previousVersion =
+      currentIndex >= 0
+        ? selectedDocumentDetail.versions[currentIndex + 1]
+        : undefined;
+
+    if (!previousVersion) {
+      setNotification({
+        tone: "error",
+        message: "This version does not have an adjacent older version to compare.",
+      });
+      return;
+    }
+
+    try {
+      setVersionComparisonDialog({
+        open: true,
+        result: null,
+        isLoading: true,
+      });
+      const result = await window.docTrack.documents.compareVersions(
+        activeWorkspacePath,
+        documentVersionId,
+        previousVersion.id,
+      );
+      setVersionComparisonDialog({
+        open: true,
+        result,
+        isLoading: false,
+      });
+    } catch (error) {
+      setVersionComparisonDialog(defaultVersionComparisonDialogState);
+      notifyError(error, "Unable to compare the selected versions.");
+    }
+  };
+
+  const refreshBackupDialog = async (rootPath: string) => {
+    setBackupDialog((state) => ({ ...state, isLoading: true }));
+    try {
+      const [backups, integrityCheck] = await Promise.all([
+        window.docTrack.workspace.listBackups(rootPath),
+        window.docTrack.workspace.integrityCheck(rootPath),
+      ]);
+      setBackupDialog((state) => ({
+        ...state,
+        open: true,
+        backups,
+        integrityCheck,
+        selectedBackupId: state.selectedBackupId || backups[0]?.id || "",
+        restorePreview: null,
+        isLoading: false,
+        isSubmitting: false,
+      }));
+    } catch (error) {
+      setBackupDialog(defaultBackupDialogState);
+      notifyError(error, "Unable to load backup and integrity information.");
+    }
+  };
+
+  const openBackupDialog = () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    void refreshBackupDialog(activeWorkspacePath);
+  };
+
+  const handleCreateBackup = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      setBackupDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.workspace.createBackup(activeWorkspacePath);
+      await refreshBackupDialog(activeWorkspacePath);
+      setNotification({
+        tone: "success",
+        message: "Workspace snapshot created.",
+      });
+    } catch (error) {
+      notifyError(error, "Unable to create a workspace snapshot.");
+      setBackupDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handlePreviewRestore = async (backupId: string) => {
+    if (!activeWorkspacePath || !activeWorkspace) {
+      return;
+    }
+
+    const destinationParentPath =
+      await window.docTrack.dialogs.pickWorkspaceCreatePath(
+        `${activeWorkspace.workspace.name} Restored`,
+      );
+    if (!destinationParentPath) {
+      return;
+    }
+
+    try {
+      setBackupDialog((state) => ({ ...state, isSubmitting: true }));
+      const preview = await window.docTrack.workspace.getRestorePreview(
+        activeWorkspacePath,
+        backupId,
+        destinationParentPath,
+      );
+      setBackupDialog((state) => ({
+        ...state,
+        selectedBackupId: backupId,
+        restorePreview: preview,
+        isSubmitting: false,
+      }));
+    } catch (error) {
+      setBackupDialog((state) => ({ ...state, isSubmitting: false }));
+      notifyError(error, "Unable to build the restore preview.");
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (
+      !activeWorkspacePath ||
+      !backupDialog.restorePreview ||
+      !backupDialog.selectedBackupId
+    ) {
+      return;
+    }
+
+    if (backupDialog.restorePreview.destinationExists) {
+      setNotification({
+        tone: "error",
+        message: "The selected restore destination already exists.",
+      });
+      return;
+    }
+
+    try {
+      setBackupDialog((state) => ({ ...state, isSubmitting: true }));
+      const restored = await window.docTrack.workspace.restoreBackup(
+        activeWorkspacePath,
+        {
+          backupId: backupDialog.selectedBackupId,
+          destinationParentPath: backupDialog.restorePreview.destinationRootPath.replace(
+            /[\\/][^\\/]+$/,
+            "",
+          ),
+          destinationFolderName:
+            backupDialog.restorePreview.suggestedWorkspaceName,
+        },
+      );
+      setBackupDialog(defaultBackupDialogState);
+      await openWorkspace(restored.workspace.rootPath);
+      setNotification({
+        tone: "success",
+        message: `Snapshot restored to "${restored.workspace.name}".`,
+      });
+    } catch (error) {
+      setBackupDialog((state) => ({ ...state, isSubmitting: false }));
+      notifyError(error, "Unable to restore the selected backup.");
+    }
+  };
+
+  const handleIgnoreUnmanagedPath = async (
+    documentVersionId: number,
+    relativePath: string,
+  ) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.ignoreUnmanagedPath(
+        activeWorkspacePath,
+        documentVersionId,
+        relativePath,
+      );
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
+    } catch (error) {
+      notifyError(error, "Unable to ignore this unmanaged path.");
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleReconcileUnmanagedPath = async (
+    documentVersionId: number,
+    relativePath: string,
+  ) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    try {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.documents.reconcileUnmanagedPath(
+        activeWorkspacePath,
+        documentVersionId,
+        relativePath,
+      );
+      await refreshSelectedDocument(
+        activeWorkspacePath,
+        selectedDocumentDetail.id,
+      );
+    } catch (error) {
+      notifyError(error, "Unable to reconcile this unmanaged path.");
+    } finally {
+      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const openDeleteDocumentDialog = async (documentRecordId?: number) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      const detail =
+        documentRecordId &&
+        selectedDocumentDetail?.id !== documentRecordId
+          ? await loadDocumentDetail(activeWorkspacePath, documentRecordId)
+          : selectedDocumentDetail;
+
+      if (!detail) {
+        return;
+      }
+
+      setDeleteRecordsDialog({
+        open: true,
+        mode: "document",
+        documentRecordId: detail.id,
+        documentVersionId: undefined,
+        documentTitle: detail.title,
+        versionLabel: "",
+        filePaths: detail.versions.flatMap((version) =>
+          version.files.map((file) => file.filePath),
+        ),
+        unmanagedPaths: detail.versions.flatMap((version) =>
+          version.unmanagedPaths,
+        ),
+        isSubmitting: false,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to prepare the document deletion preview.");
+    }
+  };
+
+  const openDeleteVersionDialog = async (documentVersionId: number) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      const detail = selectedDocumentDetail
+        ? selectedDocumentDetail
+        : await loadDocumentDetail(
+            activeWorkspacePath,
+            activeWorkspace?.selectedDocumentRecordId ?? 0,
+          );
+      const version = detail?.versions.find((item) => item.id === documentVersionId);
+
+      if (!detail || !version) {
+        return;
+      }
+
+      setDeleteRecordsDialog({
+        open: true,
+        mode: "version",
+        documentRecordId: detail.id,
+        documentVersionId: version.id,
+        documentTitle: detail.title,
+        versionLabel: version.versionLabel,
+        filePaths: version.files.map((file) => file.filePath),
+        unmanagedPaths: version.unmanagedPaths,
+        isSubmitting: false,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to prepare the version deletion preview.");
+    }
+  };
+
+  const handleConfirmDeleteRecords = async () => {
+    if (!activeWorkspacePath || !deleteRecordsDialog.documentRecordId) {
+      return;
+    }
+
+    try {
+      setDeleteRecordsDialog((state) => ({ ...state, isSubmitting: true }));
+      const deletedDocumentId = deleteRecordsDialog.documentRecordId;
+      const deletedVersionId = deleteRecordsDialog.documentVersionId;
+      const deletedVersionLabel = deleteRecordsDialog.versionLabel;
+      const deletedMode = deleteRecordsDialog.mode;
+
+      if (deletedMode === "document") {
+        await window.docTrack.documents.delete(activeWorkspacePath, {
+          documentRecordId: deletedDocumentId,
+        });
+        if (selectedDocumentDetail?.id === deletedDocumentId) {
+          setSelectedDocumentDetail(null);
+          clearSelectedDocument();
+        }
+        setFilesDialogVersion(null);
+        setFilesDialog(defaultFilesDialogState);
+        await refreshWorkspace(activeWorkspacePath);
+      } else {
+        if (!deletedVersionId) {
+          throw new Error("Missing version id for deletion.");
+        }
+
+        await window.docTrack.documents.deleteVersion(activeWorkspacePath, {
+          documentVersionId: deletedVersionId,
+        });
+        const refreshedDetail = await refreshSelectedDocument(
+          activeWorkspacePath,
+          deletedDocumentId,
+        );
+        if (filesDialog.versionId === deletedVersionId) {
+          setFilesDialogVersion(null);
+          setFilesDialog(defaultFilesDialogState);
+        } else if (filesDialog.open && filesDialog.versionId) {
+          const nextFilesVersion =
+            refreshedDetail?.versions.find(
+              (version) => version.id === filesDialog.versionId,
+            ) ?? null;
+          setFilesDialogVersion(nextFilesVersion);
+        }
+        await refreshWorkspace(activeWorkspacePath);
+      }
+
+      setDeleteRecordsDialog(defaultDeleteRecordsDialogState);
+      setNotification({
+        tone: "success",
+        message:
+          deletedMode === "document"
+            ? "Document deleted."
+            : `Version ${deletedVersionLabel} deleted.`,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to delete the selected record.");
+      setDeleteRecordsDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
   let activeWorkspaceContent: React.ReactNode = null;
 
   if (!activeWorkspace) {
@@ -1962,6 +2592,24 @@ function App() {
           void dismissRecentWorkspace(rootPath).catch((error: Error) => {
             notifyError(error, "Unable to remove the recent workspace.");
           });
+        }}
+      />
+    );
+  } else if (activeWorkspace.selectedView === "dashboard") {
+    activeWorkspaceContent = (
+      <DashboardView
+        workspace={activeWorkspace}
+        onOpenDocuments={(drilldown) => {
+          setDashboardDrilldown({
+            workspacePath: activeWorkspace.workspace.rootPath,
+            token: Date.now(),
+            ...drilldown,
+          });
+          setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
+        }}
+        onOpenDocument={(documentRecordId) => {
+          setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
+          setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId);
         }}
       />
     );
@@ -2075,13 +2723,34 @@ function App() {
             open: true,
             versionId: documentVersionId,
             addRole: "working",
+            pendingSourceFilePaths: [],
+            pendingDuplicateWarnings: [],
             isSubmitting: false,
+            submitLabel: "",
           });
+        }}
+        onRequestDeleteDocument={(documentRecordId) => {
+          void openDeleteDocumentDialog(documentRecordId);
+        }}
+        onRequestDeleteVersion={(documentVersionId) => {
+          void openDeleteVersionDialog(documentVersionId);
         }}
         onUpdateSidebarWidth={(nextWidth) =>
           saveApplicationSettingsPartial({
             documentDetailSidebarWidth: nextWidth,
           })
+        }
+        dashboardDrilldown={
+          dashboardDrilldown?.workspacePath === activeWorkspace.workspace.rootPath
+            ? dashboardDrilldown
+            : null
+        }
+        onDashboardDrilldownConsumed={() =>
+          setDashboardDrilldown((current) =>
+            current?.workspacePath === activeWorkspace.workspace.rootPath
+              ? null
+              : current,
+          )
         }
       />
     );
@@ -2409,6 +3078,16 @@ function App() {
               Workspace Views
             </div>
             <SidebarButton
+              icon={Sparkles}
+              label="Dashboard"
+              active={activeWorkspace?.selectedView === "dashboard"}
+              disabled={!activeWorkspace}
+              onClick={() =>
+                activeWorkspacePath &&
+                setWorkspaceView(activeWorkspacePath, "dashboard")
+              }
+            />
+            <SidebarButton
               icon={Table2}
               label="Documents"
               active={activeWorkspace?.selectedView === "documents"}
@@ -2416,16 +3095,6 @@ function App() {
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "documents")
-              }
-            />
-            <SidebarButton
-              icon={LayoutPanelLeft}
-              label="Document Types"
-              active={activeWorkspace?.selectedView === "documentTypes"}
-              disabled={!activeWorkspace}
-              onClick={() =>
-                activeWorkspacePath &&
-                setWorkspaceView(activeWorkspacePath, "documentTypes")
               }
             />
             {workspaceSupportsProjects ? (
@@ -2440,6 +3109,16 @@ function App() {
                 }
               />
             ) : null}
+            <SidebarButton
+              icon={LayoutPanelLeft}
+              label="Document Types"
+              active={activeWorkspace?.selectedView === "documentTypes"}
+              disabled={!activeWorkspace}
+              onClick={() =>
+                activeWorkspacePath &&
+                setWorkspaceView(activeWorkspacePath, "documentTypes")
+              }
+            />
             {workspaceSupportsConfidentialityClasses ? (
               <SidebarButton
                 icon={Settings2}
@@ -2482,6 +3161,13 @@ function App() {
               active={workspaceSettingsDialog.open}
               disabled={!activeWorkspace}
               onClick={openWorkspaceSettingsDialog}
+            />
+            <SidebarButton
+              icon={History}
+              label="Backups & Recovery"
+              active={backupDialog.open}
+              disabled={!activeWorkspace}
+              onClick={openBackupDialog}
             />
           </div>
         </aside>
@@ -2671,6 +3357,82 @@ function App() {
         onRenameFile={handleRenameVersionFile}
         onDeleteFile={handleDeleteVersionFile}
         onChangeRole={handleChangeVersionFileRole}
+        onPreviewFile={handlePreviewVersionFile}
+        onCompareVersion={handleCompareVersion}
+        onDropFiles={stageFilesForVersion}
+        onUploadStagedFiles={handleUploadStagedFiles}
+        onOpenStoredPath={(relativePath) => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          void window.docTrack.documents
+            .openStoredPath(activeWorkspacePath, relativePath)
+            .catch((error: Error) => {
+              notifyError(error, "Unable to open the selected path.");
+            });
+        }}
+        onIgnoreUnmanagedPath={handleIgnoreUnmanagedPath}
+        onReconcileUnmanagedPath={handleReconcileUnmanagedPath}
+      />
+
+      <DeleteRecordsDialog
+        state={deleteRecordsDialog}
+        onOpenChange={(open) =>
+          setDeleteRecordsDialog(
+            open
+              ? { ...deleteRecordsDialog, open }
+              : defaultDeleteRecordsDialogState,
+          )
+        }
+        onConfirm={handleConfirmDeleteRecords}
+      />
+
+      <RenameFileDialog
+        open={renameFileDialog.open}
+        onOpenChange={(open) =>
+          setRenameFileDialog(
+            open ? { ...renameFileDialog, open } : defaultRenameFileDialogState,
+          )
+        }
+        state={renameFileDialog}
+        onStateChange={setRenameFileDialog}
+        onSubmit={handleConfirmRenameVersionFile}
+      />
+
+      <BackupDialog
+        state={backupDialog}
+        onOpenChange={(open) =>
+          setBackupDialog(
+            open ? { ...backupDialog, open } : defaultBackupDialogState,
+          )
+        }
+        onCreateBackup={handleCreateBackup}
+        onPreviewRestore={handlePreviewRestore}
+        onRestore={handleRestoreBackup}
+        onRefresh={() =>
+          activeWorkspacePath && void refreshBackupDialog(activeWorkspacePath)
+        }
+      />
+
+      <FilePreviewDialog
+        state={filePreviewDialog}
+        onOpenChange={(open) =>
+          setFilePreviewDialog(
+            open ? { ...filePreviewDialog, open } : defaultFilePreviewDialogState,
+          )
+        }
+      />
+
+      <VersionComparisonDialog
+        state={versionComparisonDialog}
+        onOpenChange={(open) =>
+          setVersionComparisonDialog(
+            open
+              ? { ...versionComparisonDialog, open }
+              : defaultVersionComparisonDialogState,
+          )
+        }
       />
     </div>
   );
@@ -3387,6 +4149,229 @@ function WelcomeView({
   );
 }
 
+function DashboardView({
+  workspace,
+  onOpenDocuments,
+  onOpenDocument,
+}: {
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
+  onOpenDocuments: (drilldown: {
+    status?: DocumentStatus | "Not started";
+    projectFilter?: string;
+    healthFlag?: DocumentHealthFlag;
+  }) => void;
+  onOpenDocument: (documentRecordId: number) => void;
+}) {
+  const overdueDocuments = workspace.documents
+    .filter((document) => document.isOverdue)
+    .slice(0, 5);
+  const missingFileDocuments = workspace.documents
+    .filter((document) => document.healthFlags.includes("missingFiles"))
+    .slice(0, 5);
+
+  return (
+    <div className="grid h-full gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold">
+                {workspace.workspace.name}
+              </div>
+              <div className="mt-1 text-[13px] text-muted-foreground">
+                Dashboard refreshed {formatDateTime(workspace.dashboard.generatedDate)}
+              </div>
+            </div>
+            <Badge variant="outline">
+              {workspace.dashboard.totalDocuments} documents
+            </Badge>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {workspace.dashboard.countsByStatus.map((item) => (
+              <button
+                key={item.id}
+                className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
+                onClick={() =>
+                  onOpenDocuments({
+                    status: item.status,
+                  })
+                }
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="mt-2 text-2xl font-semibold">{item.count}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Document Health</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Review the highest-signal issues in this workspace.
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {workspace.dashboard.healthInsights.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                  No document health issues detected right now.
+                </div>
+              ) : (
+                workspace.dashboard.healthInsights.map((item) => (
+                  <button
+                    key={item.id}
+                    className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                    onClick={() =>
+                      onOpenDocuments({
+                        healthFlag: item.healthFlag,
+                      })
+                    }
+                  >
+                    <div>
+                      <div className="text-sm font-semibold">{item.label}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Open the filtered documents table
+                      </div>
+                    </div>
+                    <Badge
+                      variant={
+                        item.tone === "danger"
+                          ? "warning"
+                          : item.tone === "warning"
+                            ? "default"
+                            : "outline"
+                      }
+                    >
+                      {item.count}
+                    </Badge>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <div className="text-sm font-semibold">Groupings</div>
+            <div className="mt-1 text-[13px] text-muted-foreground">
+              Open focused document slices by type or project.
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {workspace.dashboard.countsByType.slice(0, 4).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5"
+                >
+                  <span className="text-[13px]">{item.label}</span>
+                  <Badge variant="outline">{item.count}</Badge>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {workspace.dashboard.countsByProject.slice(0, 4).map((item) => (
+                <button
+                  key={item.id}
+                  className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
+                  onClick={() =>
+                    onOpenDocuments({
+                      projectFilter:
+                        item.projectId === null ? "" : String(item.projectId),
+                    })
+                  }
+                >
+                  <span className="text-[13px]">{item.label}</span>
+                  <Badge variant="outline">{item.count}</Badge>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Recent Activity</div>
+              <div className="mt-1 text-[13px] text-muted-foreground">
+                Latest tracked changes from the workspace history.
+              </div>
+            </div>
+            <History className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-4 space-y-2">
+            {workspace.dashboard.recentActivity.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                No recent activity has been recorded yet.
+              </div>
+            ) : (
+              workspace.dashboard.recentActivity.map((item) => (
+                <button
+                  key={item.id}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                  onClick={() =>
+                    item.documentRecordId && onOpenDocument(item.documentRecordId)
+                  }
+                >
+                  <div className="text-[13px] font-medium">{item.message}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatDateTime(item.createdDate)}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="text-sm font-semibold">Needs Attention</div>
+          <div className="mt-1 text-[13px] text-muted-foreground">
+            Jump directly into the most urgent documents.
+          </div>
+          <div className="mt-4 space-y-2">
+            {overdueDocuments.map((document) => (
+              <button
+                key={`overdue-${document.id}`}
+                className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                onClick={() => onOpenDocument(document.id)}
+              >
+                <div className="text-[13px] font-semibold">{document.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Overdue since {formatDateShort(document.nextReviewDate ?? document.modifiedDate)}
+                </div>
+              </button>
+            ))}
+            {missingFileDocuments.map((document) => (
+              <button
+                key={`missing-${document.id}`}
+                className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                onClick={() => onOpenDocument(document.id)}
+              >
+                <div className="text-[13px] font-semibold">{document.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Latest version has no tracked files
+                </div>
+              </button>
+            ))}
+            {overdueDocuments.length === 0 && missingFileDocuments.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                No urgent document health items right now.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function DocumentsView({
   workspace,
   applicationSettings,
@@ -3407,7 +4392,11 @@ function DocumentsView({
   onRequestLatestVersionEdit,
   onShowDocumentFolder,
   onShowVersionFiles,
+  onRequestDeleteDocument,
+  onRequestDeleteVersion,
   onUpdateSidebarWidth,
+  dashboardDrilldown,
+  onDashboardDrilldownConsumed,
 }: {
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   applicationSettings: ApplicationSettings;
@@ -3431,7 +4420,11 @@ function DocumentsView({
   onRequestLatestVersionEdit: (documentRecordId?: number) => void;
   onShowDocumentFolder: () => void;
   onShowVersionFiles: (documentVersionId: number) => void;
+  onRequestDeleteDocument: (documentRecordId?: number) => void;
+  onRequestDeleteVersion: (documentVersionId: number) => void;
   onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
+  dashboardDrilldown: DashboardDrilldownState | null;
+  onDashboardDrilldownConsumed: () => void;
 }) {
   const fallbackSortingColumn = visibleTableColumns.includes("modifiedDate")
     ? "modifiedDate"
@@ -3443,10 +4436,13 @@ function DocumentsView({
       desc: fallbackSortingColumn === "modifiedDate",
     },
   ]);
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | "All">(
+  const [statusFilter, setStatusFilter] = useState<
+    DocumentStatus | "All" | "Not started"
+  >("All");
+  const [projectFilter, setProjectFilter] = useState<string>("All");
+  const [healthFilter, setHealthFilter] = useState<DocumentHealthFlag | "All">(
     "All",
   );
-  const [projectFilter, setProjectFilter] = useState<string>("All");
   const [exportDialog, setExportDialog] = useState(
     defaultDocumentExportDialogState,
   );
@@ -3474,7 +4470,7 @@ function DocumentsView({
       : "px-6 py-12 text-center text-muted-foreground";
 
   const statusOptions = useMemo(
-    () => ["All", ...workspace.statuses] as const,
+    () => ["All", "Not started", ...workspace.statuses] as const,
     [workspace.statuses],
   );
   const exportGroupingOptions = useMemo(
@@ -3518,6 +4514,32 @@ function DocumentsView({
   }, [exportGroupingOptions]);
 
   useEffect(() => {
+    if (!dashboardDrilldown) {
+      return;
+    }
+
+    if (dashboardDrilldown.status) {
+      setStatusFilter(dashboardDrilldown.status);
+    } else {
+      setStatusFilter("All");
+    }
+
+    if (dashboardDrilldown.projectFilter !== undefined) {
+      setProjectFilter(dashboardDrilldown.projectFilter);
+    } else {
+      setProjectFilter("All");
+    }
+
+    if (dashboardDrilldown.healthFlag) {
+      setHealthFilter(dashboardDrilldown.healthFlag);
+    } else {
+      setHealthFilter("All");
+    }
+
+    onDashboardDrilldownConsumed();
+  }, [dashboardDrilldown, onDashboardDrilldownConsumed]);
+
+  useEffect(() => {
     const appWidth = window.innerWidth;
     const minWidth =
       (appWidth * DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT) / 100;
@@ -3552,14 +4574,27 @@ function DocumentsView({
     () =>
       workspace.documents.filter((document) => {
         const matchesStatus =
-          statusFilter === "All" || document.status === statusFilter;
+          statusFilter === "All"
+            ? true
+            : statusFilter === "Not started"
+              ? document.status === null
+              : document.status === statusFilter;
         const matchesProject =
           !projectFeatureEnabled ||
           projectFilter === "All" ||
           String(document.projectId ?? "") === projectFilter;
-        return matchesStatus && matchesProject;
+        const matchesHealth =
+          healthFilter === "All" ||
+          document.healthFlags.includes(healthFilter);
+        return matchesStatus && matchesProject && matchesHealth;
       }),
-    [projectFeatureEnabled, projectFilter, statusFilter, workspace.documents],
+    [
+      healthFilter,
+      projectFeatureEnabled,
+      projectFilter,
+      statusFilter,
+      workspace.documents,
+    ],
   );
 
   const getSortValue = (
@@ -3946,6 +4981,8 @@ function DocumentsView({
       onRequestNewVersion={onRequestNewVersion}
       onShowDocumentFolder={onShowDocumentFolder}
       onShowVersionFiles={onShowVersionFiles}
+      onRequestDeleteDocument={onRequestDeleteDocument}
+      onRequestDeleteVersion={onRequestDeleteVersion}
       isMacOs={isMacOs}
     />
   );
@@ -4121,6 +5158,22 @@ function DocumentsView({
                 </Select>
               </Field>
             ) : null}
+
+            <Field label="Health">
+              <Select
+                value={healthFilter}
+                onChange={(event) =>
+                  setHealthFilter(event.target.value as DocumentHealthFlag | "All")
+                }
+              >
+                <option value="All">All health states</option>
+                <option value="overdueReview">Overdue review</option>
+                <option value="missingFiles">Missing files</option>
+                <option value="unversionedShell">Unversioned shells</option>
+                <option value="unmanagedPaths">Unmanaged paths</option>
+                <option value="staleDocument">Stale documents</option>
+              </Select>
+            </Field>
           </div>
 
           <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
@@ -4525,6 +5578,8 @@ function DocumentDetailSurface({
   onRequestNewVersion,
   onShowDocumentFolder,
   onShowVersionFiles,
+  onRequestDeleteDocument,
+  onRequestDeleteVersion,
   isMacOs,
 }: {
   layout: "sidebar" | "modal" | "page";
@@ -4537,6 +5592,8 @@ function DocumentDetailSurface({
   onRequestNewVersion: () => void;
   onShowDocumentFolder: () => void;
   onShowVersionFiles: (documentVersionId: number) => void;
+  onRequestDeleteDocument: (documentRecordId?: number) => void;
+  onRequestDeleteVersion: (documentVersionId: number) => void;
   isMacOs: boolean;
 }) {
   const latestVersion = documentDetail?.versions[0] ?? null;
@@ -4660,6 +5717,13 @@ function DocumentDetailSurface({
               <FolderOpen className="h-4 w-4" />
               Show Folder
             </Button>
+            <Button
+              variant="destructive"
+              onClick={() => onRequestDeleteDocument(documentDetail.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Document
+            </Button>
             <Button onClick={onRequestNewVersion}>
               <FilePlus2 className="h-4 w-4" />
               {documentDetail.versions.length === 0
@@ -4768,6 +5832,14 @@ function DocumentDetailSurface({
                           >
                             <FolderOpen className="h-4 w-4" />
                             Show Files
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onRequestDeleteVersion(version.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete Version
                           </Button>
                         </div>
 
@@ -6898,6 +7970,13 @@ function VersionFilesDialog({
   onRenameFile,
   onDeleteFile,
   onChangeRole,
+  onPreviewFile,
+  onCompareVersion,
+  onDropFiles,
+  onUploadStagedFiles,
+  onOpenStoredPath,
+  onIgnoreUnmanagedPath,
+  onReconcileUnmanagedPath,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -6915,7 +7994,25 @@ function VersionFilesDialog({
     file: DocumentVersionFile,
     role: DocumentVersionFileRole,
   ) => Promise<void>;
+  onPreviewFile: (fileId: number) => Promise<void>;
+  onCompareVersion: (documentVersionId: number) => Promise<void>;
+  onDropFiles: (
+    documentVersionId: number,
+    sourceFilePaths: string[],
+  ) => Promise<void>;
+  onUploadStagedFiles: (documentVersionId: number) => Promise<void>;
+  onOpenStoredPath: (relativePath: string) => void;
+  onIgnoreUnmanagedPath: (
+    documentVersionId: number,
+    relativePath: string,
+  ) => Promise<void>;
+  onReconcileUnmanagedPath: (
+    documentVersionId: number,
+    relativePath: string,
+  ) => Promise<void>;
 }) {
+  const [isDropTargetActive, setIsDropTargetActive] = useState(false);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[760px]">
@@ -6944,6 +8041,15 @@ function VersionFilesDialog({
                   <Button
                     variant="outline"
                     size="sm"
+                    disabled={!version.files.length}
+                    onClick={() => void onCompareVersion(version.id)}
+                  >
+                    <ArrowUpDown className="h-4 w-4" />
+                    Compare
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => void onRefresh(version.id)}
                   >
                     <RefreshCcw className="h-4 w-4" />
@@ -6962,36 +8068,167 @@ function VersionFilesDialog({
             </div>
 
             <div className="rounded-xl border border-border bg-background p-3">
-              <div className="flex flex-wrap items-end gap-3">
-                <Field label="New File Role">
-                  <Select
-                    value={state.addRole}
-                    onChange={(event) =>
+              <div
+                className={cn(
+                  "rounded-xl border border-dashed border-transparent p-1 transition",
+                  isDropTargetActive && "border-primary bg-primary/5",
+                )}
+                onDragOver={(event) => {
+                  if (!canEdit) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = "copy";
+                  setIsDropTargetActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setIsDropTargetActive(false);
+                }}
+                onDrop={(event) => {
+                  if (!canEdit) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setIsDropTargetActive(false);
+                  void (async () => {
+                    try {
                       onStateChange((current) => ({
                         ...current,
-                        addRole: event.target.value as DocumentVersionFileRole,
+                        isSubmitting: true,
+                        submitLabel: "Reading dropped files...",
+                      }));
+
+                      const sourceFilePaths = await resolveDroppedFilePaths(
+                        event.dataTransfer.files,
+                      );
+                      if (sourceFilePaths.length === 0) {
+                        onStateChange((current) => ({
+                          ...current,
+                          isSubmitting: false,
+                          submitLabel: "",
+                        }));
+                        return;
+                      }
+
+                      await onDropFiles(version.id, sourceFilePaths);
+                    } catch {
+                      onStateChange((current) => ({
+                        ...current,
+                        isSubmitting: false,
+                        submitLabel: "",
+                      }));
+                    }
+                  })();
+                }}
+              >
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field label="New File Role">
+                    <Select
+                      value={state.addRole}
+                      onChange={(event) =>
+                        onStateChange((current) => ({
+                          ...current,
+                          addRole: event.target.value as DocumentVersionFileRole,
+                        }))
+                      }
+                    >
+                      {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                        <option key={role} value={role}>
+                          {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Button
+                    variant="outline"
+                    disabled={!canEdit || state.isSubmitting}
+                    onClick={() => void onAddFiles(version.id)}
+                  >
+                    {state.isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    Select Files
+                  </Button>
+                  <Button
+                    disabled={
+                      !canEdit ||
+                      state.isSubmitting ||
+                      state.pendingSourceFilePaths.length === 0
+                    }
+                    onClick={() => void onUploadStagedFiles(version.id)}
+                  >
+                    {state.isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    Upload Files
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!canEdit || state.pendingSourceFilePaths.length === 0}
+                    onClick={() =>
+                      onStateChange((current) => ({
+                        ...current,
+                        pendingSourceFilePaths: [],
+                        pendingDuplicateWarnings: [],
                       }))
                     }
                   >
-                    {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
-                      <option key={role} value={role}>
-                        {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Button
-                  disabled={!canEdit || state.isSubmitting}
-                  onClick={() => void onAddFiles(version.id)}
-                >
-                  {state.isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4" />
-                  )}
-                  Add Files
-                </Button>
+                    Clear
+                  </Button>
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  Drag files into this panel or use Select Files to stage them.
+                  DocTrack will show the pending list first, then upload only
+                  after you confirm.
+                </div>
               </div>
+              {state.isSubmitting ? (
+                <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {state.submitLabel || "Working..."}
+                  </div>
+                </div>
+              ) : null}
+              {state.pendingSourceFilePaths.length > 0 ? (
+                <div className="mt-3 rounded-xl border border-border bg-card p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Staged Files
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {state.pendingSourceFilePaths.map((filePath) => (
+                      <div
+                        key={filePath}
+                        className="rounded-lg border border-border bg-background px-3 py-2"
+                      >
+                        <div className="break-all text-xs text-primary">
+                          {filePath}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {state.pendingDuplicateWarnings.length > 0 ? (
+                <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                  <div className="font-semibold">Upload blocked</div>
+                  <div className="mt-2 space-y-1">
+                    {state.pendingDuplicateWarnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {!canEdit ? (
                 <div className="mt-3 text-xs text-muted-foreground">
                   Older versions are read-only. Use the latest version to add,
@@ -7001,8 +8238,59 @@ function VersionFilesDialog({
             </div>
 
             {version.unmanagedPaths.length > 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                Unmanaged paths: {version.unmanagedPaths.join(", ")}
+              <div className="rounded-xl border border-dashed border-border bg-card p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Unmanaged Paths
+                </div>
+                <div className="mt-3 space-y-2">
+                  {version.unmanagedPaths.map((relativePath) => (
+                    <div
+                      key={relativePath}
+                      className="rounded-xl border border-border bg-background p-3"
+                    >
+                      <div className="font-mono text-xs text-primary">
+                        {relativePath}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onOpenStoredPath(relativePath)}
+                        >
+                          <FolderOpen className="h-4 w-4" />
+                          Open Path
+                        </Button>
+                        {canEdit ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void onReconcileUnmanagedPath(
+                                version.id,
+                                relativePath,
+                              )
+                            }
+                          >
+                            <Upload className="h-4 w-4" />
+                            Import Into Managed Files
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            void onIgnoreUnmanagedPath(
+                              version.id,
+                              relativePath,
+                            )
+                          }
+                        >
+                          Ignore
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -7056,6 +8344,14 @@ function VersionFilesDialog({
                         >
                           Open
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void onPreviewFile(file.id)}
+                        >
+                          <Search className="h-4 w-4" />
+                          Preview
+                        </Button>
                         {canEdit ? (
                           <Button
                             variant="ghost"
@@ -7090,6 +8386,524 @@ function VersionFilesDialog({
             Select a version to view its files.
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteRecordsDialog({
+  state,
+  onOpenChange,
+  onConfirm,
+}: {
+  state: DeleteRecordsDialogState;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const isDocument = state.mode === "document";
+  const title = isDocument
+    ? "Delete Document"
+    : `Delete Version ${state.versionLabel}`;
+  const description = isDocument
+    ? `This will permanently delete "${state.documentTitle}" and all managed files for every version.`
+    : `This will permanently delete version ${state.versionLabel} from "${state.documentTitle}" and its managed files.`;
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-destructive">
+                  Physical files will be deleted
+                </div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  DocTrack will remove the selected record and delete the files
+                  listed below from the workspace.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-[360px] space-y-4 overflow-y-auto pr-1">
+            <section className="rounded-xl border border-border bg-background p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Managed Files
+              </div>
+              {state.filePaths.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {state.filePaths.map((filePath) => (
+                    <div
+                      key={filePath}
+                      className="rounded-lg border border-border bg-card px-3 py-2"
+                    >
+                      <div className="break-all text-xs text-primary">
+                        {filePath}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 text-[13px] text-muted-foreground">
+                  No managed files were found for this selection.
+                </div>
+              )}
+            </section>
+
+            {state.unmanagedPaths.length > 0 ? (
+              <section className="rounded-xl border border-border bg-background p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Unmanaged Paths In Scope
+                </div>
+                <div className="mt-3 space-y-2">
+                  {state.unmanagedPaths.map((relativePath) => (
+                    <div
+                      key={relativePath}
+                      className="rounded-lg border border-border bg-card px-3 py-2"
+                    >
+                      <div className="break-all text-xs text-primary">
+                        {relativePath}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={state.isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => void onConfirm()}
+            disabled={state.isSubmitting}
+          >
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            {isDocument ? "Delete Document" : "Delete Version"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RenameFileDialog({
+  open,
+  onOpenChange,
+  state,
+  onStateChange,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  state: RenameFileDialogState;
+  onStateChange: React.Dispatch<React.SetStateAction<RenameFileDialogState>>;
+  onSubmit: () => Promise<void>;
+}) {
+  const nextFileName = state.nextFileName.trim();
+  const isUnchanged = nextFileName === (state.file?.fileName ?? "");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[540px]">
+        <DialogHeader>
+          <DialogTitle>Rename File</DialogTitle>
+          <DialogDescription>
+            Renaming here also renames the managed file on disk.
+          </DialogDescription>
+        </DialogHeader>
+
+        {state.file ? (
+          <div className="grid gap-4">
+            <div className="rounded-xl border border-border bg-background p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Current File
+              </div>
+              <div className="mt-2 text-sm font-medium">{state.file.fileName}</div>
+              <div className="mt-2 break-all text-xs text-primary">
+                {state.file.filePath}
+              </div>
+            </div>
+
+            <Field label="New File Name">
+              <Input
+                autoFocus
+                value={state.nextFileName}
+                onChange={(event) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    nextFileName: event.target.value,
+                  }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !state.isSubmitting && nextFileName) {
+                    event.preventDefault();
+                    void onSubmit();
+                  }
+                }}
+              />
+            </Field>
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={state.isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={state.isSubmitting || !nextFileName || isUnchanged}
+            onClick={() => void onSubmit()}
+          >
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Pencil className="h-4 w-4" />
+            )}
+            Rename File
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BackupDialog({
+  state,
+  onOpenChange,
+  onCreateBackup,
+  onPreviewRestore,
+  onRestore,
+  onRefresh,
+}: {
+  state: BackupDialogState;
+  onOpenChange: (open: boolean) => void;
+  onCreateBackup: () => Promise<void>;
+  onPreviewRestore: (backupId: string) => Promise<void>;
+  onRestore: () => Promise<void>;
+  onRefresh: () => void;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,960px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Backups & Recovery</DialogTitle>
+          <DialogDescription>
+            Create manual snapshots, review integrity warnings, and restore a
+            backup into a new folder.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold">Snapshots</div>
+                  <div className="mt-1 text-[13px] text-muted-foreground">
+                    Workspace-scoped manual and safety snapshots.
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={onRefresh}>
+                    <RefreshCcw className="h-4 w-4" />
+                    Refresh
+                  </Button>
+                  <Button size="sm" onClick={() => void onCreateBackup()}>
+                    {state.isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <History className="h-4 w-4" />
+                    )}
+                    Create Snapshot
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {state.isLoading ? (
+                  <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    Loading snapshot details...
+                  </div>
+                ) : state.backups.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    No workspace snapshots yet.
+                  </div>
+                ) : (
+                  state.backups.map((backup) => (
+                    <div
+                      key={backup.id}
+                      className={cn(
+                        "rounded-xl border p-3",
+                        backup.id === state.selectedBackupId
+                          ? "border-border bg-card"
+                          : "border-border bg-background",
+                      )}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {backup.label}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {formatDateTime(backup.createdDate)} •{" "}
+                            {backup.reason === "manual"
+                              ? "Manual snapshot"
+                              : "Safety snapshot"}
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {backup.documentCount} docs • {backup.versionCount} versions •{" "}
+                            {formatFileSize(backup.sizeBytes)}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void onPreviewRestore(backup.id)}
+                        >
+                          Preview Restore
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="text-sm font-semibold">Integrity Check</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Broken links and missing paths inside the current workspace.
+                </div>
+                <div className="mt-4 space-y-2">
+                  {state.integrityCheck?.issues.length ? (
+                    state.integrityCheck.issues.map((issue) => (
+                      <div
+                        key={`${issue.code}-${issue.path}`}
+                        className="rounded-xl border border-border bg-card p-3"
+                      >
+                        <div className="text-[13px] font-semibold">
+                          {issue.message}
+                        </div>
+                        <div className="mt-1 font-mono text-xs text-muted-foreground">
+                          {issue.path}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                      No integrity issues detected.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                <div className="text-sm font-semibold">Restore Preview</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Restores always create a new workspace folder. In-place
+                  overwrite is intentionally disabled.
+                </div>
+
+                {state.restorePreview ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-xl border border-border bg-card p-3">
+                      <div className="text-sm font-semibold">
+                        {state.restorePreview.backup.label}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Target: {state.restorePreview.destinationRootPath}
+                      </div>
+                      {state.restorePreview.destinationExists ? (
+                        <div className="mt-2 text-xs text-[#C4554D] dark:text-[#FFB7B2]">
+                          The target folder already exists and must be changed.
+                        </div>
+                      ) : null}
+                    </div>
+                    <Button
+                      disabled={state.isSubmitting || state.restorePreview.destinationExists}
+                      onClick={() => void onRestore()}
+                    >
+                      {state.isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <History className="h-4 w-4" />
+                      )}
+                      Restore Into New Folder
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    Choose a snapshot and preview a destination to enable
+                    restore.
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FilePreviewDialog({
+  state,
+  onOpenChange,
+}: {
+  state: FilePreviewDialogState;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,980px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>File Preview</DialogTitle>
+          <DialogDescription>
+            Preview supported local files without leaving DocTrack.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-auto rounded-xl border border-border bg-background p-4">
+          {state.isLoading ? (
+            <div className="flex h-[420px] items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading preview...
+            </div>
+          ) : state.preview?.kind === "pdf" && state.preview.previewUrl ? (
+            <iframe
+              className="h-[70vh] w-full rounded-lg border border-border bg-card"
+              src={state.preview.previewUrl}
+              title={state.preview.fileName}
+            />
+          ) : state.preview?.kind === "image" && state.preview.previewUrl ? (
+            <img
+              alt={state.preview.fileName}
+              className="mx-auto max-h-[70vh] rounded-lg border border-border bg-card object-contain"
+              src={state.preview.previewUrl}
+            />
+          ) : state.preview?.textContent ? (
+            <pre className="whitespace-pre-wrap rounded-lg border border-border bg-card p-4 text-xs">
+              {state.preview.textContent}
+            </pre>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+              {state.preview?.warning ?? "No preview available."}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VersionComparisonDialog({
+  state,
+  onOpenChange,
+}: {
+  state: VersionComparisonDialogState;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,860px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Version Comparison</DialogTitle>
+          <DialogDescription>
+            Compare adjacent versions by tracked files, paths, roles, and
+            content hashes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-auto rounded-xl border border-border bg-background p-4">
+          {state.isLoading ? (
+            <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading comparison...
+            </div>
+          ) : state.result ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="text-sm font-semibold">
+                  {state.result.previousVersionLabel} → {state.result.currentVersionLabel}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {state.result.deltas.length} changes • {state.result.unchangedCount} unchanged
+                </div>
+              </div>
+
+              {state.result.deltas.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                  No file-level differences detected between these versions.
+                </div>
+              ) : (
+                state.result.deltas.map((delta, index) => (
+                  <div
+                    key={`${delta.changeType}-${index}`}
+                    className="rounded-xl border border-border bg-card p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold">
+                        {delta.summary}
+                      </div>
+                      <Badge variant="outline">{delta.changeType}</Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Previous
+                        </div>
+                        <div className="mt-2 text-xs">
+                          {delta.before?.filePath ?? "—"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Current
+                        </div>
+                        <div className="mt-2 text-xs">
+                          {delta.after?.filePath ?? "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+              Choose a version to compare.
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

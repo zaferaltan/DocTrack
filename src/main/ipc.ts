@@ -34,8 +34,33 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (_event, rootPath: string) =>
     services.workspaceService.getSummary(rootPath)
   );
+  ipcMain.handle(IPC_CHANNELS.workspaceGetDashboard, (_event, rootPath: string) =>
+    services.workspaceService.getDashboard(rootPath)
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, input) =>
     services.workspaceService.updateSettings(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceListBackups, (_event, rootPath: string) =>
+    services.workspaceService.listBackups(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceCreateBackup, (_event, rootPath: string) =>
+    services.workspaceService.createBackup(rootPath)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workspaceGetRestorePreview,
+    (_event, rootPath: string, backupId: string, destinationParentPath: string, destinationFolderName?: string) =>
+      services.workspaceService.getRestorePreview(
+        rootPath,
+        backupId,
+        destinationParentPath,
+        destinationFolderName
+      )
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceRestoreBackup, (_event, rootPath: string, input) =>
+    services.workspaceService.restoreBackup(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceIntegrityCheck, (_event, rootPath: string) =>
+    services.workspaceService.integrityCheck(rootPath)
   );
 
   ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceCreatePath, async (_event, workspaceName?: string) => {
@@ -95,6 +120,12 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (_event, rootPath: string, input) =>
     services.documentService.createVersion(rootPath, input)
   );
+  ipcMain.handle(IPC_CHANNELS.documentsDelete, (_event, rootPath: string, input) =>
+    services.documentService.deleteDocument(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsDeleteVersion, (_event, rootPath: string, input) =>
+    services.documentService.deleteVersion(rootPath, input)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsUpdateLatestVersion, (_event, rootPath: string, input) =>
     services.documentService.updateLatestVersion(rootPath, input)
   );
@@ -122,8 +153,34 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFolder, (_event, rootPath: string, documentVersionId: number) =>
     services.documentService.openVersionFolder(rootPath, documentVersionId)
   );
+  ipcMain.handle(IPC_CHANNELS.documentsOpenStoredPath, (_event, rootPath: string, relativePath: string) =>
+    services.documentService.openStoredPath(rootPath, relativePath)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsExport, (_event, rootPath: string, request) =>
     services.documentExportService.export(rootPath, request)
+  );
+  ipcMain.handle(IPC_CHANNELS.documentsPreviewVersionFile, (_event, rootPath: string, fileId: number) =>
+    services.documentService.previewVersionFile(rootPath, fileId)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsCompareVersions,
+    (_event, rootPath: string, currentVersionId: number, previousVersionId: number) =>
+      services.documentService.compareVersions(rootPath, currentVersionId, previousVersionId)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsPlanVersionFileImport,
+    (_event, rootPath: string, documentVersionId: number, sourceFilePaths: string[]) =>
+      services.documentService.planVersionFileImport(rootPath, documentVersionId, sourceFilePaths)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsReconcileUnmanagedPath,
+    (_event, rootPath: string, documentVersionId: number, relativePath: string) =>
+      services.documentService.reconcileUnmanagedPath(rootPath, documentVersionId, relativePath)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsIgnoreUnmanagedPath,
+    (_event, rootPath: string, documentVersionId: number, relativePath: string) =>
+      services.documentService.ignoreUnmanagedPath(rootPath, documentVersionId, relativePath)
   );
 
   ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, rootPath: string) =>

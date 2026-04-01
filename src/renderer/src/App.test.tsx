@@ -21,6 +21,18 @@ const workspaceInfo: WorkspaceInfo = {
   isOpen: true
 };
 
+const defaultDashboard = {
+  generatedDate: '2026-03-31T12:00:00.000Z',
+  totalDocuments: 1,
+  countsByStatus: [
+    { id: 'draft', label: 'Draft', count: 1, tone: 'warning' as const, status: 'Draft' as const }
+  ],
+  countsByType: [{ id: 'Procedure', label: 'Procedure', count: 1 }],
+  countsByProject: [{ id: 'no-project', label: 'No project', count: 1, projectId: null }],
+  healthInsights: [],
+  recentActivity: []
+};
+
 const openWorkspaceResult: OpenWorkspaceResult = {
   workspace: workspaceInfo,
   summary: {
@@ -50,9 +62,15 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         projectName: null,
         company: 'Acme',
         department: 'Quality',
-        revisionIntervalMonths: 12
+        revisionIntervalMonths: 12,
+        nextReviewDate: '2027-03-28T10:00:00.000Z',
+        isOverdue: false,
+        healthFlags: [],
+        latestVersionFileCount: 1,
+        lastActivityDate: '2026-03-28T10:00:00.000Z'
       }
     ],
+    dashboard: defaultDashboard,
     documentTypes: [
       {
         id: 1,
@@ -176,20 +194,65 @@ const buildDocTrackMock = (
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(workspaceResult),
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
+      ,
+      getDashboard: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard),
+      listBackups: vi.fn().mockResolvedValue([]),
+      createBackup: vi.fn().mockResolvedValue({
+        backup: {
+          id: 'backup-1',
+          label: 'Manual Snapshot',
+          createdDate: '2026-03-31T12:00:00.000Z',
+          backupPath: '/Workspaces/Quality/Backups/backup-1',
+          manifestPath: '/Workspaces/Quality/Backups/backup-1/manifest.json',
+          workspaceName: 'Quality',
+          documentCount: 1,
+          versionCount: 1,
+          fileCount: 1,
+          sizeBytes: 1024,
+          reason: 'manual'
+        }
+      }),
+      getRestorePreview: vi.fn().mockResolvedValue({
+        backup: {
+          id: 'backup-1',
+          label: 'Manual Snapshot',
+          createdDate: '2026-03-31T12:00:00.000Z',
+          backupPath: '/Workspaces/Quality/Backups/backup-1',
+          manifestPath: '/Workspaces/Quality/Backups/backup-1/manifest.json',
+          workspaceName: 'Quality',
+          documentCount: 1,
+          versionCount: 1,
+          fileCount: 1,
+          sizeBytes: 1024,
+          reason: 'manual'
+        },
+        suggestedWorkspaceName: 'Quality Restored',
+        destinationRootPath: '/Workspaces/Quality Restored',
+        destinationExists: false
+      }),
+      restoreBackup: vi.fn().mockResolvedValue(workspaceResult),
+      integrityCheck: vi.fn().mockResolvedValue({
+        checkedDate: '2026-03-31T12:00:00.000Z',
+        issueCount: 0,
+        issues: []
+      })
     },
     dialogs: {
       pickWorkspaceCreatePath: vi.fn().mockResolvedValue(null),
       pickWorkspaceOpenPath: vi.fn().mockResolvedValue(null),
       pickWorkspaceLogoFile: vi.fn().mockResolvedValue(null),
-      pickDocumentFiles: vi.fn().mockResolvedValue([])
+      pickDocumentFiles: vi.fn().mockResolvedValue([]),
+      resolveDroppedFilePaths: vi.fn().mockResolvedValue([])
     },
     documents: {
       list: vi.fn().mockResolvedValue(workspaceResult.summary.documents),
       detail: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined),
       createVersion: vi.fn(),
       updateLatestVersion: vi.fn(),
+      deleteVersion: vi.fn(),
       addVersionFiles: vi.fn(),
       renameVersionFile: vi.fn(),
       deleteVersionFile: vi.fn(),
@@ -198,10 +261,39 @@ const buildDocTrackMock = (
       openVersionFile: vi.fn().mockResolvedValue(undefined),
       openDocumentFolder: vi.fn().mockResolvedValue(undefined),
       openVersionFolder: vi.fn().mockResolvedValue(undefined),
+      openStoredPath: vi.fn().mockResolvedValue(undefined),
       export: vi.fn().mockResolvedValue({
         canceled: false,
         filePath: '/Exports/quality-documents-2026-03-31.csv'
-      })
+      }),
+      previewVersionFile: vi.fn().mockResolvedValue({
+        fileId: 1,
+        fileName: 'procedure.pdf',
+        filePath: 'Documents/Procedure/02202600001/001/procedure.pdf',
+        absolutePath: '/Workspaces/Quality/Documents/Procedure/02202600001/001/procedure.pdf',
+        kind: 'pdf',
+        isSupported: true,
+        previewUrl: 'file:///procedure.pdf',
+        textContent: null,
+        warning: null
+      }),
+      compareVersions: vi.fn().mockResolvedValue({
+        currentVersionId: 201,
+        previousVersionId: 200,
+        currentVersionLabel: '002',
+        previousVersionLabel: '001',
+        deltas: [],
+        unchangedCount: 0
+      }),
+      planVersionFileImport: vi.fn().mockResolvedValue({
+        versionId: 201,
+        suggestedRole: 'working',
+        hasBlockingDuplicates: false,
+        warnings: [],
+        candidates: []
+      }),
+      reconcileUnmanagedPath: vi.fn(),
+      ignoreUnmanagedPath: vi.fn()
     },
     documentTypes: {
       list: vi.fn().mockResolvedValue(workspaceResult.summary.documentTypes),
@@ -281,6 +373,16 @@ const getButton = (label: string, root: ParentNode = document.body): HTMLButtonE
 
 const getDialog = (): HTMLElement => {
   const dialog = document.body.querySelector('[role="dialog"]');
+  if (!(dialog instanceof HTMLElement)) {
+    throw new Error('Unable to find an open dialog.');
+  }
+
+  return dialog;
+};
+
+const getLastDialog = (): HTMLElement => {
+  const dialogs = [...document.body.querySelectorAll('[role="dialog"]')];
+  const dialog = dialogs.at(-1);
   if (!(dialog instanceof HTMLElement)) {
     throw new Error('Unable to find an open dialog.');
   }
@@ -758,7 +860,12 @@ describe('App', () => {
       projectName: null,
       company: 'Acme',
       department: 'Operations',
-      revisionIntervalMonths: 6
+      revisionIntervalMonths: 6,
+      nextReviewDate: '2026-09-29T10:00:00.000Z',
+      isOverdue: false,
+      healthFlags: [],
+      latestVersionFileCount: 1,
+      lastActivityDate: '2026-03-29T10:00:00.000Z'
     });
 
     const docTrack = buildDocTrackMock(
@@ -834,7 +941,12 @@ describe('App', () => {
       projectName: null,
       company: 'Acme',
       department: 'Operations',
-      revisionIntervalMonths: 6
+      revisionIntervalMonths: 6,
+      nextReviewDate: '2026-09-29T10:00:00.000Z',
+      isOverdue: false,
+      healthFlags: [],
+      latestVersionFileCount: 1,
+      lastActivityDate: '2026-03-29T10:00:00.000Z'
     });
 
     const docTrack = buildDocTrackMock(
@@ -1124,8 +1236,247 @@ describe('App', () => {
 
     expect(docTrack.appSettings.update).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        documentDetailSidebarWidth: 800
+        documentDetailSidebarWidth: 900
       })
+    );
+
+    await view.unmount();
+  });
+
+  it('stages selected files before uploading them to a version', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+    docTrack.dialogs.pickDocumentFiles = vi
+      .fn()
+      .mockResolvedValue(['/incoming/procedure.docx']);
+    let resolveImportPlan: (value: {
+      versionId: number;
+      suggestedRole: 'concept-pdf';
+      hasBlockingDuplicates: false;
+      warnings: string[];
+      candidates: Array<{
+        sourceFilePath: string;
+        fileName: string;
+        role: 'concept-pdf';
+        isDuplicate: false;
+      }>;
+    }) => void = () => undefined;
+    docTrack.documents.planVersionFileImport = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveImportPlan = resolve;
+        })
+    );
+    docTrack.documents.addVersionFiles = vi.fn().mockResolvedValue(buildDocumentDetail().versions[0]);
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await click(getButton('Show Files'));
+
+    const dialog = getDialog();
+    await click(getButton('Select Files', dialog));
+
+    expect(normalizeText(dialog.textContent)).toContain('Checking selected files...');
+
+    resolveImportPlan({
+      versionId: 201,
+      suggestedRole: 'concept-pdf',
+      hasBlockingDuplicates: false,
+      warnings: [],
+      candidates: [
+        {
+          sourceFilePath: '/incoming/procedure.docx',
+          fileName: 'procedure.docx',
+          role: 'concept-pdf',
+          isDuplicate: false
+        }
+      ]
+    });
+    await flushPromises();
+
+    expect(docTrack.documents.planVersionFileImport).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      201,
+      ['/incoming/procedure.docx']
+    );
+    expect(docTrack.documents.addVersionFiles).not.toHaveBeenCalled();
+    expect(normalizeText(dialog.textContent)).toContain('/incoming/procedure.docx');
+
+    await click(getButton('Upload Files', dialog));
+
+    expect(docTrack.documents.addVersionFiles).toHaveBeenCalledWith(workspaceInfo.rootPath, {
+      documentVersionId: 201,
+      role: 'concept-pdf',
+      sourceFilePaths: ['/incoming/procedure.docx']
+    });
+
+    await view.unmount();
+  });
+
+  it('confirms document deletion and shows the physical files that will be removed', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(
+      buildDocumentDetail({
+        versions: [
+          {
+            ...buildDocumentDetail().versions[0]!,
+            files: [
+              {
+                id: 301,
+                documentVersionId: 201,
+                role: 'working',
+                fileName: 'procedure.docx',
+                filePath: 'Documents/Procedure/02202600001/001/procedure.docx',
+                contentHash: 'hash-1',
+                fileSize: 128,
+                createdDate: '2026-03-28T10:00:00.000Z',
+                modifiedDate: '2026-03-28T10:00:00.000Z'
+              }
+            ],
+            unmanagedPaths: ['Documents/Procedure/02202600001/001/custom']
+          }
+        ]
+      })
+    );
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await click(getButton('Delete Document'));
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Physical files will be deleted');
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Documents/Procedure/02202600001/001/procedure.docx'
+    );
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Documents/Procedure/02202600001/001/custom'
+    );
+
+    await click(getButton('Delete Document', dialog));
+
+    expect(docTrack.documents.delete).toHaveBeenCalledWith(workspaceInfo.rootPath, {
+      documentRecordId: 101
+    });
+
+    await view.unmount();
+  });
+
+  it('confirms version deletion and uses the selected version id', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(
+      buildDocumentDetail({
+        versions: [
+          {
+            ...buildDocumentDetail().versions[0]!,
+            files: [
+              {
+                id: 301,
+                documentVersionId: 201,
+                role: 'working',
+                fileName: 'procedure.docx',
+                filePath: 'Documents/Procedure/02202600001/001/procedure.docx',
+                contentHash: 'hash-1',
+                fileSize: 128,
+                createdDate: '2026-03-28T10:00:00.000Z',
+                modifiedDate: '2026-03-28T10:00:00.000Z'
+              }
+            ]
+          }
+        ]
+      })
+    );
+    docTrack.documents.deleteVersion = vi
+      .fn()
+      .mockResolvedValue(buildDocumentDetail({ versions: [] }));
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await click(getButton('Delete Version'));
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Documents/Procedure/02202600001/001/procedure.docx'
+    );
+
+    await click(getButton('Delete Version', dialog));
+
+    expect(docTrack.documents.deleteVersion).toHaveBeenCalledWith(workspaceInfo.rootPath, {
+      documentVersionId: 201
+    });
+
+    await view.unmount();
+  });
+
+  it('renames a managed file through the rename dialog', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(
+      buildDocumentDetail({
+        versions: [
+          {
+            ...buildDocumentDetail().versions[0]!,
+            files: [
+              {
+                id: 301,
+                documentVersionId: 201,
+                role: 'working',
+                fileName: 'procedure.docx',
+                filePath: 'Documents/Procedure/02202600001/001/procedure.docx',
+                contentHash: 'hash-1',
+                fileSize: 128,
+                createdDate: '2026-03-28T10:00:00.000Z',
+                modifiedDate: '2026-03-28T10:00:00.000Z'
+              }
+            ]
+          }
+        ]
+      })
+    );
+    docTrack.documents.renameVersionFile = vi
+      .fn()
+      .mockResolvedValue(buildDocumentDetail().versions[0]);
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await click(getButton('Show Files'));
+    await click(getButton('Rename', getDialog()));
+
+    const dialog = getLastDialog();
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Renaming here also renames the managed file on disk.'
+    );
+
+    await changeInput(
+      getLabeledControl(dialog, 'New File Name', 'input') as HTMLInputElement,
+      'procedure-renamed.docx'
+    );
+    await click(getButton('Rename File', dialog));
+
+    expect(docTrack.documents.renameVersionFile).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      {
+        fileId: 301,
+        nextFileName: 'procedure-renamed.docx'
+      }
     );
 
     await view.unmount();

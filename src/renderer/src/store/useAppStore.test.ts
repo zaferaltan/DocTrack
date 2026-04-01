@@ -17,12 +17,23 @@ const workspaceInfo: WorkspaceInfo = {
   isOpen: true
 };
 
+const defaultDashboard = {
+  generatedDate: '2026-03-31T12:00:00.000Z',
+  totalDocuments: 0,
+  countsByStatus: [],
+  countsByType: [],
+  countsByProject: [],
+  healthInsights: [],
+  recentActivity: []
+};
+
 const openWorkspaceResult: OpenWorkspaceResult = {
   workspace: workspaceInfo,
   summary: {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
     documents: [],
+    dashboard: defaultDashboard,
     documentTypes: [
       {
         id: 1,
@@ -47,21 +58,30 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       listRecent: vi.fn().mockResolvedValue([]),
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
-      updateSettings: vi.fn()
+      getDashboard: vi.fn().mockResolvedValue(defaultDashboard),
+      updateSettings: vi.fn(),
+      listBackups: vi.fn().mockResolvedValue([]),
+      createBackup: vi.fn(),
+      getRestorePreview: vi.fn(),
+      restoreBackup: vi.fn(),
+      integrityCheck: vi.fn()
     },
     dialogs: {
       pickWorkspaceCreatePath: vi.fn(),
       pickWorkspaceOpenPath: vi.fn(),
       pickWorkspaceLogoFile: vi.fn(),
-      pickDocumentFiles: vi.fn()
+      pickDocumentFiles: vi.fn(),
+      resolveDroppedFilePaths: vi.fn()
     },
     documents: {
       list: vi.fn(),
       detail: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
       createVersion: vi.fn(),
       updateLatestVersion: vi.fn(),
+      deleteVersion: vi.fn(),
       addVersionFiles: vi.fn(),
       renameVersionFile: vi.fn(),
       deleteVersionFile: vi.fn(),
@@ -70,7 +90,13 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       openVersionFile: vi.fn(),
       openDocumentFolder: vi.fn(),
       openVersionFolder: vi.fn(),
-      export: vi.fn()
+      openStoredPath: vi.fn(),
+      export: vi.fn(),
+      previewVersionFile: vi.fn(),
+      compareVersions: vi.fn(),
+      planVersionFileImport: vi.fn(),
+      reconcileUnmanagedPath: vi.fn(),
+      ignoreUnmanagedPath: vi.fn()
     },
     documentTypes: {
       list: vi.fn(),

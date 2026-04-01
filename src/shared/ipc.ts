@@ -2,14 +2,19 @@ import type { ApplicationSettings } from '@shared/applicationSettings';
 import type {
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
+  CreateBackupResult,
   ConfidentialityClass,
   ConfidentialityClassInput,
   CreateDocumentInput,
+  DeleteDocumentInput,
+  DeleteDocumentVersionInput,
   CreateVersionInput,
   DeleteDocumentVersionFileInput,
   DocumentDetail,
   DocumentExportRequest,
   DocumentExportResult,
+  FilePreviewResult,
+  IntegrityCheckResult,
   DocumentListItem,
   DocumentVersion,
   DocumentVersionFile,
@@ -20,6 +25,12 @@ import type {
   ProjectInput,
   RecentWorkspace,
   RenameDocumentVersionFileInput,
+  RestoreBackupInput,
+  RestoreBackupPreview,
+  VersionComparisonResult,
+  VersionFileImportPlan,
+  WorkspaceBackupSummary,
+  WorkspaceDashboardSummary,
   UpdateDocumentInput,
   UpdateLatestVersionInput,
   WorkspaceLanguage,
@@ -38,7 +49,13 @@ export const IPC_CHANNELS = {
   workspaceListRecent: 'workspace:listRecent',
   workspaceDismissRecent: 'workspace:dismissRecent',
   workspaceGetSummary: 'workspace:getSummary',
+  workspaceGetDashboard: 'workspace:getDashboard',
   workspaceUpdateSettings: 'workspace:updateSettings',
+  workspaceListBackups: 'workspace:listBackups',
+  workspaceCreateBackup: 'workspace:createBackup',
+  workspaceGetRestorePreview: 'workspace:getRestorePreview',
+  workspaceRestoreBackup: 'workspace:restoreBackup',
+  workspaceIntegrityCheck: 'workspace:integrityCheck',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
   dialogPickWorkspaceOpenPath: 'dialog:pickWorkspaceOpenPath',
   dialogPickWorkspaceLogoFile: 'dialog:pickWorkspaceLogoFile',
@@ -48,6 +65,8 @@ export const IPC_CHANNELS = {
   documentsCreate: 'documents:create',
   documentsUpdate: 'documents:update',
   documentsCreateVersion: 'documents:createVersion',
+  documentsDelete: 'documents:delete',
+  documentsDeleteVersion: 'documents:deleteVersion',
   documentsUpdateLatestVersion: 'documents:updateLatestVersion',
   documentsAddVersionFiles: 'documents:addVersionFiles',
   documentsRenameVersionFile: 'documents:renameVersionFile',
@@ -57,7 +76,13 @@ export const IPC_CHANNELS = {
   documentsOpenVersionFile: 'documents:openVersionFile',
   documentsOpenDocumentFolder: 'documents:openDocumentFolder',
   documentsOpenVersionFolder: 'documents:openVersionFolder',
+  documentsOpenStoredPath: 'documents:openStoredPath',
   documentsExport: 'documents:export',
+  documentsPreviewVersionFile: 'documents:previewVersionFile',
+  documentsCompareVersions: 'documents:compareVersions',
+  documentsPlanVersionFileImport: 'documents:planVersionFileImport',
+  documentsReconcileUnmanagedPath: 'documents:reconcileUnmanagedPath',
+  documentsIgnoreUnmanagedPath: 'documents:ignoreUnmanagedPath',
   documentTypesList: 'documentTypes:list',
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
@@ -87,13 +112,25 @@ export interface DocTrackApi {
     listRecent: () => Promise<RecentWorkspace[]>;
     dismissRecent: (rootPath: string) => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
+    getDashboard: (rootPath: string) => Promise<WorkspaceDashboardSummary>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
+    listBackups: (rootPath: string) => Promise<WorkspaceBackupSummary[]>;
+    createBackup: (rootPath: string) => Promise<CreateBackupResult>;
+    getRestorePreview: (
+      rootPath: string,
+      backupId: string,
+      destinationParentPath: string,
+      destinationFolderName?: string
+    ) => Promise<RestoreBackupPreview>;
+    restoreBackup: (rootPath: string, input: RestoreBackupInput) => Promise<OpenWorkspaceResult>;
+    integrityCheck: (rootPath: string) => Promise<IntegrityCheckResult>;
   };
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName?: string) => Promise<string | null>;
     pickWorkspaceOpenPath: () => Promise<string | null>;
     pickWorkspaceLogoFile: () => Promise<string | null>;
     pickDocumentFiles: () => Promise<string[]>;
+    resolveDroppedFilePaths: (files: File[]) => Promise<string[]>;
   };
   documents: {
     list: (rootPath: string) => Promise<DocumentListItem[]>;
@@ -101,6 +138,8 @@ export interface DocTrackApi {
     create: (rootPath: string, input: CreateDocumentInput) => Promise<DocumentDetail>;
     update: (rootPath: string, input: UpdateDocumentInput) => Promise<DocumentDetail>;
     createVersion: (rootPath: string, input: CreateVersionInput) => Promise<DocumentDetail>;
+    delete: (rootPath: string, input: DeleteDocumentInput) => Promise<void>;
+    deleteVersion: (rootPath: string, input: DeleteDocumentVersionInput) => Promise<DocumentDetail>;
     updateLatestVersion: (rootPath: string, input: UpdateLatestVersionInput) => Promise<DocumentDetail>;
     addVersionFiles: (rootPath: string, input: AddDocumentVersionFilesInput) => Promise<DocumentVersion>;
     renameVersionFile: (
@@ -119,7 +158,29 @@ export interface DocTrackApi {
     openVersionFile: (rootPath: string, fileId: number) => Promise<void>;
     openDocumentFolder: (rootPath: string, documentRecordId: number) => Promise<void>;
     openVersionFolder: (rootPath: string, documentVersionId: number) => Promise<void>;
+    openStoredPath: (rootPath: string, relativePath: string) => Promise<void>;
     export: (rootPath: string, request: DocumentExportRequest) => Promise<DocumentExportResult>;
+    previewVersionFile: (rootPath: string, fileId: number) => Promise<FilePreviewResult>;
+    compareVersions: (
+      rootPath: string,
+      currentVersionId: number,
+      previousVersionId: number
+    ) => Promise<VersionComparisonResult>;
+    planVersionFileImport: (
+      rootPath: string,
+      documentVersionId: number,
+      sourceFilePaths: string[]
+    ) => Promise<VersionFileImportPlan>;
+    reconcileUnmanagedPath: (
+      rootPath: string,
+      documentVersionId: number,
+      relativePath: string
+    ) => Promise<DocumentVersion>;
+    ignoreUnmanagedPath: (
+      rootPath: string,
+      documentVersionId: number,
+      relativePath: string
+    ) => Promise<DocumentVersion>;
   };
   documentTypes: {
     list: (rootPath: string) => Promise<DocumentType[]>;
