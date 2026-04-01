@@ -10,6 +10,7 @@ import { FileStorageService } from '@main/services/fileStorageService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
+import type { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
 import { nowIso } from '@main/utils/date';
 import { DOCUMENT_HEALTH_FLAGS, DOCUMENT_STATUSES } from '@shared/types';
 import type {
@@ -54,7 +55,11 @@ export class WorkspaceService {
     private readonly catalogService: AppCatalogService,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly activityLogService: ActivityLogService,
-    private readonly workspaceBackupService: WorkspaceBackupService
+    private readonly workspaceBackupService: WorkspaceBackupService,
+    private readonly workspaceFilesystemWatcherService?: Pick<
+      WorkspaceFilesystemWatcherService,
+      'ensureWatching' | 'closeWatching'
+    >
   ) {}
 
   create(input: WorkspaceCreateInput): OpenWorkspaceResult {
@@ -76,12 +81,14 @@ export class WorkspaceService {
       eventType: 'workspace.created',
       message: `Workspace "${context.workspace.name}" was created.`
     });
+    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath);
 
     return this.getSummary(context.rootPath);
   }
 
   open(rootPath: string): OpenWorkspaceResult {
     const context = this.workspaceManager.openWorkspace(rootPath);
+    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath);
     this.catalogService.touchRecentWorkspace({
       rootPath: context.rootPath,
       name: context.workspace.name
@@ -90,10 +97,11 @@ export class WorkspaceService {
       eventType: 'workspace.opened',
       message: `Workspace "${context.workspace.name}" was opened.`
     });
-    return this.getSummary(rootPath);
+    return this.getSummary(rootPath, this.getIntegrityWarnings(rootPath));
   }
 
   close(rootPath: string) {
+    this.workspaceFilesystemWatcherService?.closeWatching(rootPath);
     return this.workspaceManager.closeWorkspace(rootPath);
   }
 
@@ -224,6 +232,11 @@ export class WorkspaceService {
 
   integrityCheck(rootPath: string): IntegrityCheckResult {
     return this.workspaceBackupService.integrityCheck(rootPath);
+  }
+
+  private getIntegrityWarnings(rootPath: string): string[] {
+    const integrity = this.workspaceBackupService.integrityCheck(rootPath);
+    return integrity.issues.slice(0, 10).map((issue) => issue.message);
   }
 
   private mapTypeRows(rows: Array<{ Id: number; Name: string; NumberPrefix: string }>): DocumentType[] {
@@ -359,7 +372,7 @@ export class WorkspaceService {
       case 'overdueReview':
         return 'Overdue review';
       case 'missingFiles':
-        return 'Missing files';
+        return 'Missing tracked files';
       case 'unversionedShell':
         return 'Unversioned shells';
       case 'unmanagedPaths':
@@ -404,13 +417,36 @@ export class WorkspaceService {
       .prepare('SELECT Id FROM DocumentVersions ORDER BY Id ASC')
       .all() as Array<{ Id: number }>;
     const warnings: string[] = [];
+    const currentTrackedFilePathById = new Map<number, string>();
 
     for (const versionRow of versionRows) {
-      const version = this.documentService.syncVersionFiles(context.rootPath, versionRow.Id);
+      const version = this.documentService.getVersionFilesystemPreview(context.rootPath, versionRow.Id);
       if (version.unmanagedPaths.length > 0) {
         warnings.push(
           `Version ${version.versionLabel} contains unmanaged paths: ${version.unmanagedPaths.join(', ')}`
         );
+      }
+
+      if (version.filesystemState === 'ambiguous') {
+        throw new Error(
+          `Version ${version.versionLabel} has ambiguous filesystem drift. Resolve it before changing the workspace storage layout.`
+        );
+      }
+
+      for (const change of version.filesystemChanges) {
+        if (change.kind === 'missingTracked') {
+          throw new Error(
+            `Version ${version.versionLabel} has missing tracked files. Resolve the filesystem drift before changing the workspace storage layout.`
+          );
+        }
+
+        if (
+          (change.kind === 'renamed' || change.kind === 'roleMoved' || change.kind === 'modified') &&
+          change.trackedFileId &&
+          change.discoveredPath
+        ) {
+          currentTrackedFilePathById.set(change.trackedFileId, change.discoveredPath);
+        }
       }
     }
 
@@ -493,8 +529,9 @@ export class WorkspaceService {
         throw new Error('A version file is missing its document record.');
       }
 
+      const effectiveCurrentFilePath = currentTrackedFilePathById.get(fileRow.Id) ?? fileRow.FilePath;
       const rewrittenCurrentFilePath = this.rewriteRelativePathPrefix(
-        fileRow.FilePath,
+        effectiveCurrentFilePath,
         documentMove.currentFolderPath,
         documentMove.nextFolderPath
       );

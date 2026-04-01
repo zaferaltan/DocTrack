@@ -15,6 +15,7 @@ import type {
   DocumentDetail,
   DocumentExportRequest,
   DocumentExportResult,
+  ApplyVersionFilesystemReconciliationInput,
   FilePreviewResult,
   IntegrityCheckResult,
   DocumentListItem,
@@ -33,6 +34,7 @@ import type {
   UpdateDocumentVersionInput,
   VersionComparisonResult,
   VersionFileImportPlan,
+  WorkspaceFilesystemDriftEvent,
   WorkspaceBackupSummary,
   WorkspaceDashboardSummary,
   UpdateDocumentInput,
@@ -78,6 +80,8 @@ export const IPC_CHANNELS = {
   documentsDeleteVersionFile: 'documents:deleteVersionFile',
   documentsChangeVersionFileRole: 'documents:changeVersionFileRole',
   documentsSyncVersionFiles: 'documents:syncVersionFiles',
+  documentsGetVersionFilesystemPreview: 'documents:getVersionFilesystemPreview',
+  documentsApplyVersionFilesystemReconciliation: 'documents:applyVersionFilesystemReconciliation',
   documentsOpenVersionFile: 'documents:openVersionFile',
   documentsOpenDocumentFolder: 'documents:openDocumentFolder',
   documentsOpenVersionFolder: 'documents:openVersionFolder',
@@ -88,6 +92,7 @@ export const IPC_CHANNELS = {
   documentsPlanVersionFileImport: 'documents:planVersionFileImport',
   documentsReconcileUnmanagedPath: 'documents:reconcileUnmanagedPath',
   documentsIgnoreUnmanagedPath: 'documents:ignoreUnmanagedPath',
+  workspaceFilesystemDrift: 'workspace:filesystemDrift',
   documentTypesList: 'documentTypes:list',
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
@@ -133,6 +138,9 @@ export interface DocTrackApi {
     ) => Promise<RestoreBackupPreview>;
     restoreBackup: (rootPath: string, input: RestoreBackupInput) => Promise<OpenWorkspaceResult>;
     integrityCheck: (rootPath: string) => Promise<IntegrityCheckResult>;
+    onFilesystemDrift: (
+      listener: (event: WorkspaceFilesystemDriftEvent) => void
+    ) => () => void;
   };
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName?: string) => Promise<string | null>;
@@ -165,6 +173,15 @@ export interface DocTrackApi {
       input: ChangeDocumentVersionFileRoleInput
     ) => Promise<DocumentVersion>;
     syncVersionFiles: (rootPath: string, documentVersionId: number) => Promise<DocumentVersion>;
+    getVersionFilesystemPreview: (
+      rootPath: string,
+      documentVersionId: number
+    ) => Promise<DocumentVersion>;
+    applyVersionFilesystemReconciliation: (
+      rootPath: string,
+      documentVersionId: number,
+      input: ApplyVersionFilesystemReconciliationInput
+    ) => Promise<DocumentVersion>;
     openVersionFile: (rootPath: string, fileId: number) => Promise<void>;
     openDocumentFolder: (rootPath: string, documentRecordId: number) => Promise<void>;
     openVersionFolder: (rootPath: string, documentVersionId: number) => Promise<void>;

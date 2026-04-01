@@ -191,6 +191,31 @@ export interface DocumentVersionFile {
   createdDate: string;
 }
 
+export const VERSION_FILESYSTEM_STATES = ['clean', 'dirty', 'ambiguous'] as const;
+
+export type VersionFilesystemState = (typeof VERSION_FILESYSTEM_STATES)[number];
+
+export const VERSION_FILESYSTEM_CHANGE_KINDS = [
+  'missingTracked',
+  'newUnmanaged',
+  'renamed',
+  'roleMoved',
+  'modified',
+  'collision',
+  'nestedUnmanaged'
+] as const;
+
+export type VersionFilesystemChangeKind = (typeof VERSION_FILESYSTEM_CHANGE_KINDS)[number];
+
+export interface VersionFilesystemChange {
+  kind: VersionFilesystemChangeKind;
+  trackedFileId?: number;
+  trackedPath?: string;
+  discoveredPath?: string;
+  suggestedRole?: DocumentVersionFileRole;
+  message: string;
+}
+
 export const FILE_PREVIEW_KINDS = ['pdf', 'image', 'text', 'csv', 'unsupported'] as const;
 
 export type FilePreviewKind = (typeof FILE_PREVIEW_KINDS)[number];
@@ -265,6 +290,8 @@ export interface DocumentVersion {
   revisionDescription: string;
   files: DocumentVersionFile[];
   unmanagedPaths: string[];
+  filesystemState: VersionFilesystemState;
+  filesystemChanges: VersionFilesystemChange[];
 }
 
 export interface DocumentDetail {
@@ -397,6 +424,10 @@ export interface ChangeDocumentVersionFileRoleInput {
   role: DocumentVersionFileRole;
 }
 
+export interface ApplyVersionFilesystemReconciliationInput {
+  changeIndexes?: number[];
+}
+
 export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
@@ -489,6 +520,12 @@ export interface IntegrityCheckResult {
   checkedDate: string;
   issueCount: number;
   issues: IntegrityCheckIssue[];
+}
+
+export interface WorkspaceFilesystemDriftEvent {
+  rootPath: string;
+  paths: string[];
+  changedAt: string;
 }
 
 export interface ExampleSeedOptions {

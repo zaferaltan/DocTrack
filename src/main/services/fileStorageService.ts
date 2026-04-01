@@ -1,5 +1,6 @@
 import {
   copyFileSync,
+  lstatSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -46,7 +47,13 @@ export interface VersionFolderScanResult {
 
 export type TemplateStoredFile = ManagedFileInfo;
 
+interface FilesystemEventGuard {
+  suppressEvents(rootPath: string, durationMs?: number): void;
+}
+
 export class FileStorageService {
+  constructor(private readonly filesystemEventGuard?: FilesystemEventGuard) {}
+
   getWorkspaceDocumentsDirectory(rootPath: string): string {
     return path.join(rootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
   }
@@ -57,6 +64,7 @@ export class FileStorageService {
 
   ensureTemplatesDirectory(rootPath: string): string {
     const directoryPath = this.getWorkspaceTemplatesDirectory(rootPath);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(directoryPath, { recursive: true });
     return directoryPath;
   }
@@ -67,6 +75,7 @@ export class FileStorageService {
 
   ensureDocumentTypeDirectory(rootPath: string, documentTypeName: string): string {
     const directoryPath = this.getDocumentTypeDirectory(rootPath, documentTypeName);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(directoryPath, { recursive: true });
     return directoryPath;
   }
@@ -87,6 +96,7 @@ export class FileStorageService {
 
   ensureTemplateFolder(rootPath: string, templateId: string): string {
     const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(templateFolderAbsolutePath, { recursive: true });
     return templateFolderAbsolutePath;
   }
@@ -107,6 +117,7 @@ export class FileStorageService {
       return [];
     }
 
+    this.suppressFilesystemEvents(rootPath);
     this.ensureTemplateFolder(rootPath, templateId);
 
     return sourceFilePaths.map((sourceFilePath) => {
@@ -149,6 +160,7 @@ export class FileStorageService {
     const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
 
     if (existsSync(templateFolderAbsolutePath)) {
+      this.suppressFilesystemEvents(rootPath);
       rmSync(templateFolderAbsolutePath, { recursive: true, force: true });
     }
   }
@@ -168,6 +180,7 @@ export class FileStorageService {
 
   ensureDocumentFolder(rootPath: string, documentFolderPath: string): string {
     const documentFolderAbsolutePath = this.getDocumentFolderAbsolutePath(rootPath, documentFolderPath);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(documentFolderAbsolutePath, { recursive: true });
     return documentFolderAbsolutePath;
   }
@@ -195,6 +208,7 @@ export class FileStorageService {
     versionLabel: string
   ): string {
     const versionFolderPath = this.getVersionFolderAbsolutePath(rootPath, documentFolderPath, versionLabel);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(versionFolderPath, { recursive: true });
 
     if (settings.fileOrganizationMode === 'role-subfolders') {
@@ -234,6 +248,7 @@ export class FileStorageService {
       return [];
     }
 
+    this.suppressFilesystemEvents(rootPath);
     this.ensureVersionFolder(rootPath, settings, documentFolderPath, versionLabel);
 
     return sourceFilePaths.map((sourceFilePath) => {
@@ -270,6 +285,7 @@ export class FileStorageService {
     fileName: string,
     content: string
   ): ManagedFileInfo {
+    this.suppressFilesystemEvents(rootPath);
     this.ensureVersionFolder(rootPath, settings, documentFolderPath, versionLabel);
     const relativePath = this.getStoredRelativePath(
       settings,
@@ -301,7 +317,21 @@ export class FileStorageService {
   scanVersionFolder(rootPath: string, versionFolderPath: string): VersionFolderScanResult {
     const normalizedVersionFolderPath = this.normalizeRelativePath(versionFolderPath);
     const versionFolderAbsolutePath = this.resolveStoredFilePath(rootPath, normalizedVersionFolderPath, true);
-    mkdirSync(versionFolderAbsolutePath, { recursive: true });
+
+    if (!existsSync(versionFolderAbsolutePath)) {
+      return {
+        files: [],
+        unmanagedPaths: []
+      };
+    }
+
+    const versionFolderStats = lstatSync(versionFolderAbsolutePath);
+    if (versionFolderStats.isSymbolicLink() || !versionFolderStats.isDirectory()) {
+      return {
+        files: [],
+        unmanagedPaths: [normalizedVersionFolderPath]
+      };
+    }
 
     const files: DiscoveredVersionFile[] = [];
     const unmanagedPaths: string[] = [];
@@ -312,6 +342,12 @@ export class FileStorageService {
         path.posix.join(normalizedVersionFolderPath, entry.name)
       );
       const entryAbsolutePath = path.join(versionFolderAbsolutePath, entry.name);
+      const entryStats = lstatSync(entryAbsolutePath);
+
+      if (entryStats.isSymbolicLink()) {
+        unmanagedPaths.push(entryRelativePath);
+        continue;
+      }
 
       if (entry.isFile()) {
         files.push(this.createDiscoveredFile(rootPath, entryRelativePath, 'other'));
@@ -325,6 +361,7 @@ export class FileStorageService {
 
       if (!isRecognizedRoleDirectoryName(entry.name)) {
         unmanagedPaths.push(entryRelativePath);
+        unmanagedPaths.push(...this.listImmediateUnmanagedChildren(entryAbsolutePath, entryRelativePath));
         continue;
       }
 
@@ -333,6 +370,13 @@ export class FileStorageService {
         const roleRelativePath = this.normalizeRelativePath(
           path.posix.join(entryRelativePath, roleEntry.name)
         );
+        const roleEntryAbsolutePath = path.join(entryAbsolutePath, roleEntry.name);
+        const roleEntryStats = lstatSync(roleEntryAbsolutePath);
+
+        if (roleEntryStats.isSymbolicLink()) {
+          unmanagedPaths.push(roleRelativePath);
+          continue;
+        }
 
         if (roleEntry.isFile()) {
           files.push(this.createDiscoveredFile(rootPath, roleRelativePath, entry.name));
@@ -349,9 +393,22 @@ export class FileStorageService {
     };
   }
 
+  private listImmediateUnmanagedChildren(directoryAbsolutePath: string, directoryRelativePath: string): string[] {
+    const nestedPaths: string[] = [];
+
+    for (const entry of readdirSync(directoryAbsolutePath, { withFileTypes: true })) {
+      nestedPaths.push(
+        this.normalizeRelativePath(path.posix.join(directoryRelativePath, entry.name))
+      );
+    }
+
+    return nestedPaths;
+  }
+
   renameManagedFile(rootPath: string, currentRelativePath: string, nextRelativePath: string): ManagedFileInfo {
     const currentAbsolutePath = this.resolveStoredFilePath(rootPath, currentRelativePath);
     const nextAbsolutePath = this.resolveStoredFilePath(rootPath, nextRelativePath, true);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
 
     if (existsSync(nextAbsolutePath)) {
@@ -366,6 +423,7 @@ export class FileStorageService {
   moveManagedFile(rootPath: string, currentRelativePath: string, nextRelativePath: string): ManagedFileInfo {
     const currentAbsolutePath = this.resolveStoredFilePath(rootPath, currentRelativePath);
     const nextAbsolutePath = this.resolveStoredFilePath(rootPath, nextRelativePath, true);
+    this.suppressFilesystemEvents(rootPath);
     mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
 
     if (
@@ -384,6 +442,7 @@ export class FileStorageService {
     const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
 
     if (existsSync(absolutePath)) {
+      this.suppressFilesystemEvents(rootPath);
       rmSync(absolutePath, { force: true });
     }
 
@@ -402,6 +461,7 @@ export class FileStorageService {
     );
 
     if (existsSync(versionFolderAbsolutePath)) {
+      this.suppressFilesystemEvents(rootPath);
       rmSync(versionFolderAbsolutePath, { recursive: true, force: true });
     }
 
@@ -418,6 +478,7 @@ export class FileStorageService {
     );
 
     if (existsSync(documentFolderAbsolutePath)) {
+      this.suppressFilesystemEvents(rootPath);
       rmSync(documentFolderAbsolutePath, { recursive: true, force: true });
     }
 
@@ -429,7 +490,24 @@ export class FileStorageService {
 
   resolveStoredFilePath(rootPath: string, relativePath: string, allowMissing = false): string {
     const normalized = this.normalizeRelativePath(relativePath);
+    if (!normalized || path.isAbsolute(relativePath)) {
+      throw new Error('Managed paths must be workspace-relative paths.');
+    }
+
+    const resolvedRootPath = path.resolve(rootPath);
     const resolvedPath = path.resolve(rootPath, normalized);
+    const relativeToRoot = path.relative(resolvedRootPath, resolvedPath);
+
+    if (
+      relativeToRoot === '' ||
+      relativeToRoot === '.' ||
+      relativeToRoot.startsWith('..') ||
+      path.isAbsolute(relativeToRoot)
+    ) {
+      throw new Error('Managed paths must stay inside the workspace folder.');
+    }
+
+    this.assertPathChainIsSafe(resolvedRootPath, resolvedPath, allowMissing);
 
     if (allowMissing || existsSync(resolvedPath)) {
       return resolvedPath;
@@ -458,6 +536,7 @@ export class FileStorageService {
     }
 
     mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
+    this.suppressFilesystemEvents(rootPath);
     renameSync(currentAbsolutePath, nextAbsolutePath);
     this.cleanupEmptyDirectories(path.dirname(currentAbsolutePath), this.getWorkspaceDocumentsDirectory(rootPath));
   }
@@ -480,6 +559,10 @@ export class FileStorageService {
 
   normalizeRelativePath(relativePath: string): string {
     return relativePath.split(/[\\/]/).join('/').replace(/^[/\\]+|[/\\]+$/g, '');
+  }
+
+  private suppressFilesystemEvents(rootPath: string): void {
+    this.filesystemEventGuard?.suppressEvents(rootPath);
   }
 
   private createDiscoveredFile(
@@ -524,6 +607,37 @@ export class FileStorageService {
 
       rmSync(currentPath, { recursive: true, force: true });
       currentPath = path.dirname(currentPath);
+    }
+  }
+
+  private assertPathChainIsSafe(rootPath: string, resolvedPath: string, allowMissing: boolean): void {
+    let currentPath = rootPath;
+    const normalizedTarget = path.resolve(resolvedPath);
+    const normalizedRoot = path.resolve(rootPath);
+
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      throw new Error('Managed paths must stay inside the workspace folder.');
+    }
+
+    const relativeToRoot = path.relative(normalizedRoot, normalizedTarget);
+    if (!relativeToRoot) {
+      throw new Error('Managed paths must point to a file or folder inside the workspace.');
+    }
+
+    for (const segment of relativeToRoot.split(path.sep)) {
+      currentPath = path.join(currentPath, segment);
+      if (!existsSync(currentPath)) {
+        if (allowMissing) {
+          return;
+        }
+
+        break;
+      }
+
+      const stats = lstatSync(currentPath);
+      if (stats.isSymbolicLink()) {
+        throw new Error('Managed paths cannot use symbolic links or junctions.');
+      }
     }
   }
 }

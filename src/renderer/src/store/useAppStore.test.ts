@@ -65,7 +65,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       createBackup: vi.fn(),
       getRestorePreview: vi.fn(),
       restoreBackup: vi.fn(),
-      integrityCheck: vi.fn()
+      integrityCheck: vi.fn(),
+      onFilesystemDrift: vi.fn().mockImplementation(() => () => undefined)
     },
     dialogs: {
       pickWorkspaceCreatePath: vi.fn(),
@@ -89,6 +90,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       deleteVersionFile: vi.fn(),
       changeVersionFileRole: vi.fn(),
       syncVersionFiles: vi.fn(),
+      getVersionFilesystemPreview: vi.fn(),
+      applyVersionFilesystemReconciliation: vi.fn(),
       openVersionFile: vi.fn(),
       openDocumentFolder: vi.fn(),
       openVersionFolder: vi.fn(),

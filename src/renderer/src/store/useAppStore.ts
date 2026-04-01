@@ -137,6 +137,10 @@ export const createAppStore = () =>
     openWorkspace: async (rootPath) => {
       const result = await window.docTrack.workspace.open(rootPath);
       const recentWorkspaces = await window.docTrack.workspace.listRecent();
+      const warningSuffix =
+        result.warnings && result.warnings.length > 0
+          ? ` ${result.warnings.length} integrity warning${result.warnings.length === 1 ? '' : 's'} detected.`
+          : '';
       set((state) => ({
         openWorkspaces: {
           ...state.openWorkspaces,
@@ -150,7 +154,7 @@ export const createAppStore = () =>
         recentWorkspaces,
         notification: {
           tone: 'success',
-          message: `Opened workspace "${result.workspace.name}".`
+          message: `Opened workspace "${result.workspace.name}".${warningSuffix}`
         }
       }));
     },

@@ -141,6 +141,7 @@ import type {
   UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
   VersionComparisonResult,
+  VersionFilesystemChange,
   WorkspaceBackupSummary,
   WorkspaceLanguage,
   WorkspaceSettingsUpdateInput,
@@ -300,6 +301,7 @@ interface VersionDialogState {
 interface FilesDialogState {
   open: boolean;
   versionId?: number;
+  reviewVersionIds: number[];
   addRole: DocumentVersionFileRole;
   pendingSourceFilePaths: string[];
   pendingDuplicateWarnings: string[];
@@ -515,6 +517,7 @@ const defaultVersionDialogState: VersionDialogState = {
 const defaultFilesDialogState: FilesDialogState = {
   open: false,
   versionId: undefined,
+  reviewVersionIds: [],
   addRole: "working",
   pendingSourceFilePaths: [],
   pendingDuplicateWarnings: [],
@@ -1045,6 +1048,9 @@ function App() {
   const activeWorkspace = activeWorkspacePath
     ? openWorkspaces[activeWorkspacePath]
     : undefined;
+  const activeWorkspaceFilesystemAttention = activeWorkspace
+    ? getWorkspaceFilesystemAttentionCounts(activeWorkspace)
+    : null;
   const activeWorkspaceAvailableColumns =
     activeWorkspace?.settings.visibleDocumentColumns ??
     DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
@@ -1058,6 +1064,13 @@ function App() {
     selectedDocumentDetail?.versions.find(
       (version) => version.id === filesDialog.versionId,
     ) ?? filesDialogVersion;
+  const activeFilesAffectedVersions =
+    selectedDocumentDetail?.versions.filter((version) =>
+      versionNeedsFilesystemReview(version),
+    ) ??
+    (filesDialogVersion && versionNeedsFilesystemReview(filesDialogVersion)
+      ? [filesDialogVersion]
+      : []);
   const previewThemeMode = applicationSettingsDialog.open
     ? applicationSettingsDialog.settings.themeMode
     : applicationSettings.themeMode;
@@ -1110,6 +1123,30 @@ function App() {
       });
     },
   );
+  const handleWorkspaceFilesystemDrift = useEffectEvent(
+    async (rootPath: string): Promise<void> => {
+      if (!openWorkspaces[rootPath]) {
+        return;
+      }
+
+      try {
+        await refreshWorkspace(rootPath);
+        if (
+          rootPath === activeWorkspacePath &&
+          activeWorkspace?.selectedDocumentRecordId
+        ) {
+          await loadDocumentDetail(rootPath, activeWorkspace.selectedDocumentRecordId);
+        }
+
+        setNotification({
+          tone: "success",
+          message: `Filesystem changes were detected in "${openWorkspaces[rootPath]?.workspace.name ?? "workspace"}". Review pending file drift before reconciling.`,
+        });
+      } catch (error) {
+        notifyError(error, "Unable to refresh workspace state after filesystem changes.");
+      }
+    },
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -1138,6 +1175,14 @@ function App() {
       isMounted = false;
     };
   }, [bootstrap]);
+
+  useEffect(() => {
+    const unsubscribe = window.docTrack.workspace.onFilesystemDrift((event) => {
+      void handleWorkspaceFilesystemDrift(event.rootPath);
+    });
+
+    return unsubscribe;
+  }, [handleWorkspaceFilesystemDrift]);
 
   useEffect(() => {
     applyTheme(previewThemeMode);
@@ -2187,7 +2232,50 @@ function App() {
     }
   };
 
-  const handleShowFilesForDocument = async (documentRecordId: number) => {
+  const openFilesDialogForDetail = (
+    detail: DocumentDetail,
+    options?: {
+      preferredVersionId?: number;
+      preferAffectedVersion?: boolean;
+    },
+  ) => {
+    const affectedVersions = detail.versions.filter((version) =>
+      versionNeedsFilesystemReview(version),
+    );
+    const selectedVersion =
+      detail.versions.find(
+        (version) => version.id === options?.preferredVersionId,
+      ) ??
+      (options?.preferAffectedVersion ? affectedVersions[0] : undefined) ??
+      detail.versions[0];
+
+    if (!selectedVersion) {
+      setNotification({
+        tone: "error",
+        message: "Create a version before showing version files.",
+      });
+      return;
+    }
+
+    setSelectedDocument(activeWorkspacePath!, detail.id);
+    setSelectedDocumentDetail(detail);
+    setFilesDialogVersion(selectedVersion);
+    setFilesDialog({
+      open: true,
+      versionId: selectedVersion.id,
+      reviewVersionIds: affectedVersions.map((version) => version.id),
+      addRole: "working",
+      pendingSourceFilePaths: [],
+      pendingDuplicateWarnings: [],
+      isSubmitting: false,
+      submitLabel: "",
+    });
+  };
+
+  const handleShowFilesForDocument = async (
+    documentRecordId: number,
+    options?: { preferAffectedVersion?: boolean },
+  ) => {
     if (!activeWorkspacePath) {
       return;
     }
@@ -2197,25 +2285,12 @@ function App() {
         selectedDocumentDetail?.id === documentRecordId
           ? selectedDocumentDetail
           : await fetchDocumentDetail(activeWorkspacePath, documentRecordId);
-      const latestVersion = detail?.versions[0];
-
-      if (!latestVersion) {
-        setNotification({
-          tone: "error",
-          message: "Create a version before showing version files.",
-        });
+      if (!detail) {
         return;
       }
 
-      setFilesDialogVersion(latestVersion);
-      setFilesDialog({
-        open: true,
-        versionId: latestVersion.id,
-        addRole: "working",
-        pendingSourceFilePaths: [],
-        pendingDuplicateWarnings: [],
-        isSubmitting: false,
-        submitLabel: "",
+      openFilesDialogForDetail(detail, {
+        preferAffectedVersion: options?.preferAffectedVersion,
       });
     } catch (error) {
       notifyError(error, "Unable to load version files.");
@@ -2231,9 +2306,9 @@ function App() {
       setFilesDialog((state) => ({
         ...state,
         isSubmitting: true,
-        submitLabel: "Refreshing files...",
+        submitLabel: "Refreshing disk preview...",
       }));
-      await window.docTrack.documents.syncVersionFiles(
+      await window.docTrack.documents.getVersionFilesystemPreview(
         activeWorkspacePath,
         documentVersionId,
       );
@@ -2728,6 +2803,57 @@ function App() {
     }
   };
 
+  const handleApplyFilesystemChange = async (
+    documentVersionId: number,
+    changeIndex: number,
+    change: VersionFilesystemChange,
+  ) => {
+    if (!activeWorkspacePath || !selectedDocumentDetail) {
+      return;
+    }
+
+    const performApply = async () => {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      try {
+        await window.docTrack.documents.applyVersionFilesystemReconciliation(
+          activeWorkspacePath,
+          documentVersionId,
+          {
+            changeIndexes: [changeIndex],
+          },
+        );
+        await refreshSelectedDocument(
+          activeWorkspacePath,
+          selectedDocumentDetail.id,
+        );
+      } finally {
+        setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+      }
+    };
+
+    if (
+      change.kind === "missingTracked" &&
+      applicationSettings.confirmDestructiveActions
+    ) {
+      openConfirmationDialog({
+        title: "Remove Missing File Record",
+        description:
+          "This removes the tracked file record after confirming the file is gone on disk. A safety snapshot is created first.",
+        confirmLabel: "Remove Record",
+        tone: "destructive",
+        detailLines: [change.trackedPath ?? "Unknown tracked path"],
+        onConfirm: performApply,
+      });
+      return;
+    }
+
+    try {
+      await performApply();
+    } catch (error) {
+      notifyError(error, "Unable to apply the selected filesystem change.");
+    }
+  };
+
   const openDeleteDocumentDialog = async (documentRecordId?: number) => {
     if (!activeWorkspacePath) {
       return;
@@ -3019,19 +3145,12 @@ function App() {
             });
         }}
         onShowVersionFiles={(documentVersionId) => {
-          const version =
-            selectedDocumentDetail?.versions.find(
-              (item) => item.id === documentVersionId,
-            ) ?? null;
-          setFilesDialogVersion(version);
-          setFilesDialog({
-            open: true,
-            versionId: documentVersionId,
-            addRole: "working",
-            pendingSourceFilePaths: [],
-            pendingDuplicateWarnings: [],
-            isSubmitting: false,
-            submitLabel: "",
+          if (!selectedDocumentDetail) {
+            return;
+          }
+
+          openFilesDialogForDetail(selectedDocumentDetail, {
+            preferredVersionId: documentVersionId,
           });
         }}
         onRequestDeleteDocument={(documentRecordId) => {
@@ -3358,55 +3477,86 @@ function App() {
               folder.
             </div>
           ) : (
-            workspaceTabs.map((workspaceTab) => (
-              <div
-                key={workspaceTab.workspace.rootPath}
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  "group flex items-center gap-2 rounded-xl border px-3 text-left transition",
-                  applicationSettings.workspaceTabDensity === "compact"
-                    ? "min-w-[160px] py-1.5"
-                    : "min-w-[190px] py-2.5",
-                  activeWorkspacePath === workspaceTab.workspace.rootPath
-                    ? "border-border bg-secondary text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:bg-accent",
-                )}
-                onClick={() => {
-                  startTransition(() => {
-                    setActiveWorkspace(workspaceTab.workspace.rootPath);
-                  });
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
+            workspaceTabs.map((workspaceTab) => {
+              const filesystemAttention =
+                getWorkspaceFilesystemAttentionCounts(workspaceTab);
+              const hasFilesystemAttention =
+                filesystemAttention.totalAttentionCount > 0;
+
+              return (
+                <div
+                  key={workspaceTab.workspace.rootPath}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    "group flex items-center gap-2 rounded-xl border px-3 text-left transition",
+                    applicationSettings.workspaceTabDensity === "compact"
+                      ? "min-w-[160px] py-1.5"
+                      : "min-w-[190px] py-2.5",
+                    activeWorkspacePath === workspaceTab.workspace.rootPath
+                      ? hasFilesystemAttention
+                        ? "border-destructive/55 bg-destructive/10 text-foreground"
+                        : "border-border bg-secondary text-foreground"
+                      : hasFilesystemAttention
+                        ? "border-destructive/35 bg-destructive/5 text-foreground hover:bg-destructive/10"
+                        : "border-border bg-background text-muted-foreground hover:bg-accent",
+                  )}
+                  onClick={() => {
                     startTransition(() => {
                       setActiveWorkspace(workspaceTab.workspace.rootPath);
                     });
-                  }
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold">
-                    {workspaceTab.workspace.name}
-                  </div>
-                  {applicationSettings.workspaceTabDensity === "comfortable" ? (
-                    <div className="truncate text-xs text-muted-foreground">
-                      {workspaceTab.documents.length} docs
-                    </div>
-                  ) : null}
-                </div>
-                <button
-                  className="rounded-md p-1 text-muted-foreground transition hover:bg-card hover:text-foreground"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void closeWorkspace(workspaceTab.workspace.rootPath);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      startTransition(() => {
+                        setActiveWorkspace(workspaceTab.workspace.rootPath);
+                      });
+                    }
                   }}
                 >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ))
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate text-[13px] font-semibold">
+                        {workspaceTab.workspace.name}
+                      </div>
+                      {hasFilesystemAttention ? (
+                        <Badge
+                          variant="destructive"
+                          className="shrink-0 gap-1 px-1.5 py-0.5"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          {filesystemAttention.totalAttentionCount}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {applicationSettings.workspaceTabDensity === "comfortable" ? (
+                      <div
+                        className={cn(
+                          "truncate text-xs",
+                          hasFilesystemAttention
+                            ? "text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {hasFilesystemAttention
+                          ? `${filesystemAttention.totalAttentionCount} action item${filesystemAttention.totalAttentionCount === 1 ? "" : "s"} to fix`
+                          : `${workspaceTab.documents.length} docs`}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    className="rounded-md p-1 text-muted-foreground transition hover:bg-card hover:text-foreground"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void closeWorkspace(workspaceTab.workspace.rootPath);
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </header>
@@ -3430,6 +3580,7 @@ function App() {
               label="Dashboard"
               active={activeWorkspace?.selectedView === "dashboard"}
               disabled={!activeWorkspace}
+              attentionCount={activeWorkspaceFilesystemAttention?.totalAttentionCount}
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "dashboard")
@@ -3710,11 +3861,19 @@ function App() {
         state={filesDialog}
         onStateChange={setFilesDialog}
         version={activeFilesVersion}
-        canEdit={Boolean(
-          selectedDocumentDetail &&
-          activeFilesVersion &&
-          selectedDocumentDetail.versions[0]?.id === activeFilesVersion.id,
-        )}
+        affectedVersions={activeFilesAffectedVersions}
+        canEdit={Boolean(selectedDocumentDetail && activeFilesVersion)}
+        onSelectVersion={(documentVersionId) => {
+          const version =
+            selectedDocumentDetail?.versions.find(
+              (item) => item.id === documentVersionId,
+            ) ?? null;
+          setFilesDialogVersion(version);
+          setFilesDialog((current) => ({
+            ...current,
+            versionId: documentVersionId,
+          }));
+        }}
         onRefresh={handleRefreshVersionFiles}
         onAddFiles={handleAddFilesToVersion}
         onOpenFile={(fileId) => {
@@ -3759,6 +3918,7 @@ function App() {
         }}
         onIgnoreUnmanagedPath={handleIgnoreUnmanagedPath}
         onReconcileUnmanagedPath={handleReconcileUnmanagedPath}
+        onApplyFilesystemChange={handleApplyFilesystemChange}
       />
 
       <DeleteRecordsDialog
@@ -4418,28 +4578,44 @@ function SidebarButton({
   label,
   active,
   disabled,
+  attentionCount,
   onClick,
 }: {
   icon: typeof Table2;
   label: string;
   active?: boolean;
   disabled?: boolean;
+  attentionCount?: number;
   onClick: () => void;
 }) {
+  const hasAttention = Boolean(attentionCount && attentionCount > 0);
+
   return (
     <button
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
         active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? hasAttention
+            ? "bg-destructive/10 text-destructive"
+            : "bg-accent text-foreground"
+          : hasAttention
+            ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
         disabled && "cursor-not-allowed opacity-50",
       )}
       disabled={disabled}
       onClick={onClick}
     >
       <Icon className="h-4 w-4" />
-      {label}
+      <span className="min-w-0 flex-1 text-left">{label}</span>
+      {hasAttention ? (
+        <span className="inline-flex items-center gap-1 text-destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <Badge variant="destructive" className="px-1.5 py-0.5">
+            {attentionCount}
+          </Badge>
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -4571,9 +4747,8 @@ function DashboardView({
   const overdueDocuments = workspace.documents.filter(
     (document) => document.isOverdue,
   );
-  const missingFileDocuments = workspace.documents.filter((document) =>
-    document.healthFlags.includes("missingFiles"),
-  );
+  const filesystemAttention = getWorkspaceFilesystemAttentionCounts(workspace);
+  const hasFilesystemAttention = filesystemAttention.totalAttentionCount > 0;
 
   return (
     <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[1.2fr_0.8fr]">
@@ -4585,13 +4760,56 @@ function DashboardView({
                 {workspace.workspace.name}
               </div>
               <div className="mt-1 text-[13px] text-muted-foreground">
-                Dashboard refreshed {formatDateTime(workspace.dashboard.generatedDate)}
+                Dashboard refreshed{" "}
+                {formatDateTime(workspace.dashboard.generatedDate)}
               </div>
             </div>
-            <Badge variant="outline">
-              {workspace.dashboard.totalDocuments} documents
-            </Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              {hasFilesystemAttention ? (
+                <Badge variant="destructive" className="gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Action required
+                </Badge>
+              ) : null}
+              <Badge variant="outline">
+                {workspace.dashboard.totalDocuments} documents
+              </Badge>
+            </div>
           </div>
+
+          {hasFilesystemAttention ? (
+            <div className="mt-4 rounded-2xl border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <AlertTriangle className="h-4 w-4" />
+                    Fix filesystem issues before they spread
+                  </div>
+                  <div className="mt-1 text-[13px] text-destructive/90">
+                    {filesystemAttention.totalAttentionCount} document
+                    {filesystemAttention.totalAttentionCount === 1 ? "" : "s"}{" "}
+                    need attention because files changed outside DocTrack. Open
+                    the affected documents table, then use{" "}
+                    <span className="font-semibold">Review Files</span> on the
+                    highlighted rows.
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() =>
+                      onOpenDocuments({
+                        healthFlag: "unmanagedPaths",
+                      })
+                    }
+                  >
+                    Open affected documents
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             {workspace.dashboard.countsByStatus.map((item) => (
@@ -4632,7 +4850,12 @@ function DashboardView({
                 workspace.dashboard.healthInsights.map((item) => (
                   <button
                     key={item.id}
-                    className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-xl border bg-background px-3 py-3 text-left transition",
+                      item.tone === "danger"
+                        ? "border-destructive/35 hover:bg-destructive/5"
+                        : "border-border hover:bg-accent",
+                    )}
                     onClick={() =>
                       onOpenDocuments({
                         healthFlag: item.healthFlag,
@@ -4648,9 +4871,9 @@ function DashboardView({
                     <Badge
                       variant={
                         item.tone === "danger"
-                          ? "warning"
+                          ? "destructive"
                           : item.tone === "warning"
-                            ? "default"
+                            ? "warning"
                             : "outline"
                       }
                     >
@@ -4737,48 +4960,6 @@ function DashboardView({
             )}
           </div>
         </section>
-
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-          <div className="text-sm font-semibold">Needs Attention</div>
-          <div className="mt-1 text-[13px] text-muted-foreground">
-            Jump directly into the most urgent documents.
-          </div>
-          <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
-            {overdueDocuments.map((document) => (
-              <button
-                key={`overdue-${document.id}`}
-                className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
-                onClick={() => onOpenDocument(document.id)}
-              >
-                <div className="copyable-text text-[13px] font-semibold">
-                  {document.title}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Overdue since {formatDateShort(document.nextReviewDate ?? document.modifiedDate)}
-                </div>
-              </button>
-            ))}
-            {missingFileDocuments.map((document) => (
-              <button
-                key={`missing-${document.id}`}
-                className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
-                onClick={() => onOpenDocument(document.id)}
-              >
-                <div className="copyable-text text-[13px] font-semibold">
-                  {document.title}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Latest version has no tracked files
-                </div>
-              </button>
-            ))}
-            {overdueDocuments.length === 0 && missingFileDocuments.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                No urgent document health items right now.
-              </div>
-            ) : null}
-          </div>
-        </section>
       </div>
     </div>
   );
@@ -4821,7 +5002,10 @@ function DocumentsView({
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
   onCloseDocumentDetail: () => void;
-  onShowFiles: (documentRecordId: number) => void;
+  onShowFiles: (
+    documentRecordId: number,
+    options?: { preferAffectedVersion?: boolean },
+  ) => void;
   onRequestStatusChange: (
     document: DocumentListItem,
     nextStatus: DocumentStatus,
@@ -5092,9 +5276,14 @@ function DocumentsView({
         accessorKey: "title",
         header: columnHeader("Title"),
         cell: ({ row }) => (
-          <span className="copyable-text font-medium">
-            {row.original.title}
-          </span>
+          <div className="flex items-center gap-2">
+            {documentNeedsFilesystemReview(row.original) ? (
+              <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+            ) : null}
+            <span className="copyable-text font-medium">
+              {row.original.title}
+            </span>
+          </div>
         ),
       },
       {
@@ -5254,16 +5443,27 @@ function DocumentsView({
               Edit
             </Button>
             <Button
-              variant="ghost"
+              variant={
+                documentNeedsFilesystemReview(row.original)
+                  ? "destructive"
+                  : "ghost"
+              }
               size="sm"
               disabled={!row.original.latestVersionLabel}
               onClick={(event) => {
                 stopRowAction(event);
-                void onShowFiles(row.original.id);
+                void onShowFiles(
+                  row.original.id,
+                  documentNeedsFilesystemReview(row.original)
+                    ? { preferAffectedVersion: true }
+                    : undefined,
+                );
               }}
             >
               <FolderOpen className="h-4 w-4" />
-              Show Files
+              {documentNeedsFilesystemReview(row.original)
+                ? "Review Files"
+                : "Show Files"}
             </Button>
           </div>
         ),
@@ -5320,6 +5520,9 @@ function DocumentsView({
   });
 
   const currentTableRows = table.getRowModel().rows.map((row) => row.original);
+  const affectedCurrentRows = currentTableRows.filter((document) =>
+    documentNeedsFilesystemReview(document),
+  );
 
   const wholeWorkspaceRows = useMemo(() => {
     const sortingToUse =
@@ -5608,13 +5811,30 @@ function DocumentsView({
               >
                 <option value="All">All health states</option>
                 <option value="overdueReview">Overdue review</option>
-                <option value="missingFiles">Missing files</option>
+                <option value="missingFiles">Missing tracked files</option>
                 <option value="unversionedShell">Unversioned shells</option>
                 <option value="unmanagedPaths">Unmanaged paths</option>
                 <option value="staleDocument">Stale documents</option>
               </Select>
             </Field>
           </div>
+
+          {affectedCurrentRows.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-[13px] text-destructive">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-semibold">
+                    Highlighted rows need filesystem review
+                  </div>
+                  <div className="mt-1 text-destructive/90">
+                    Use <span className="font-semibold">Review Files</span> to
+                    open the Show Files dialog and reconcile external changes.
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
             <div className="h-full overflow-auto">
@@ -5654,12 +5874,22 @@ function DocumentsView({
                     </tr>
                   ) : (
                     table.getRowModel().rows.map((row) => (
+                      (() => {
+                        const hasFilesystemReviewIssue =
+                          documentNeedsFilesystemReview(row.original);
+
+                        return (
                       <tr
                         key={row.id}
                         className={cn(
                           "cursor-pointer border-b border-border/60 transition hover:bg-accent/70",
+                          hasFilesystemReviewIssue &&
+                            "border-destructive/25 bg-destructive/5 hover:bg-destructive/10",
                           workspace.selectedDocumentRecordId ===
-                            row.original.id && "bg-accent/70",
+                            row.original.id &&
+                            (hasFilesystemReviewIssue
+                              ? "bg-destructive/10"
+                              : "bg-accent/70"),
                         )}
                         onClick={() => onSelectDocument(row.original.id)}
                       >
@@ -5678,6 +5908,8 @@ function DocumentsView({
                           </td>
                         ))}
                       </tr>
+                        );
+                      })()
                     ))
                   )}
                 </tbody>
@@ -5936,10 +6168,18 @@ function DocumentsView({
                               ) : null}
                             </div>
                           ) : null}
-                          {version.unmanagedPaths.length > 0 ? (
-                            <div className="mt-3 rounded-lg border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                              Unmanaged paths:{" "}
-                              {version.unmanagedPaths.join(", ")}
+                          {version.filesystemChanges.length > 0 ? (
+                            <div className="mt-3">
+                              <FilesystemDriftSummary
+                                compact
+                                state={version.filesystemState}
+                                paths={version.filesystemChanges.map(
+                                  (change) =>
+                                    change.discoveredPath ??
+                                    change.trackedPath ??
+                                    change.kind,
+                                )}
+                              />
                             </div>
                           ) : null}
                         </div>
@@ -6341,9 +6581,18 @@ function DocumentDetailSurface({
                           ) : null}
                         </div>
 
-                        {version.unmanagedPaths.length > 0 ? (
-                          <div className="mt-3 rounded-xl border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-                            Unmanaged paths: {version.unmanagedPaths.join(", ")}
+                        {version.filesystemChanges.length > 0 ? (
+                          <div className="mt-3">
+                            <FilesystemDriftSummary
+                              compact
+                              state={version.filesystemState}
+                              paths={version.filesystemChanges.map(
+                                (change) =>
+                                  change.discoveredPath ??
+                                  change.trackedPath ??
+                                  change.kind,
+                              )}
+                            />
                           </div>
                         ) : null}
                       </div>
@@ -7053,6 +7302,85 @@ function LanguagesView({
         )}
       </div>
     </div>
+  );
+}
+
+function FilesystemDriftSummary({
+  state,
+  paths,
+  compact = false,
+}: {
+  state: "clean" | "dirty" | "ambiguous";
+  paths: string[];
+  compact?: boolean;
+}) {
+  const containerClassName =
+    state === "ambiguous"
+      ? "border-destructive/60 bg-destructive/10 text-destructive"
+      : "border-destructive/40 bg-destructive/5 text-destructive";
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-3 py-2.5",
+        containerClassName,
+        compact ? "text-xs" : "text-[13px]",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">
+            Action required: filesystem drift detected
+          </div>
+          <div className="mt-1 text-current/90">
+            Review this version before trusting the tracked file list.
+          </div>
+          <div className="mt-1 break-words">
+            {state === "ambiguous"
+              ? "Ambiguous changes found."
+              : "Changes found."}{" "}
+            {paths.join(", ")}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getWorkspaceFilesystemAttentionCounts(
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string],
+) {
+  const unmanagedPathDocuments = workspace.documents.filter((document) =>
+    document.healthFlags.includes("unmanagedPaths"),
+  );
+  const missingFileDocuments = workspace.documents.filter((document) =>
+    document.healthFlags.includes("missingFiles"),
+  );
+  const attentionDocumentIds = new Set<number>([
+    ...unmanagedPathDocuments.map((document) => document.id),
+    ...missingFileDocuments.map((document) => document.id),
+  ]);
+
+  return {
+    unmanagedPathDocumentCount: unmanagedPathDocuments.length,
+    missingFileDocumentCount: missingFileDocuments.length,
+    totalAttentionCount: attentionDocumentIds.size,
+  };
+}
+
+function documentNeedsFilesystemReview(document: DocumentListItem) {
+  return (
+    document.healthFlags.includes("unmanagedPaths") ||
+    document.healthFlags.includes("missingFiles")
+  );
+}
+
+function versionNeedsFilesystemReview(version: DocumentVersion) {
+  return (
+    version.filesystemState !== "clean" ||
+    version.filesystemChanges.length > 0 ||
+    version.unmanagedPaths.length > 0
   );
 }
 
@@ -8913,7 +9241,9 @@ function VersionFilesDialog({
   state,
   onStateChange,
   version,
+  affectedVersions,
   canEdit,
+  onSelectVersion,
   onRefresh,
   onAddFiles,
   onOpenFile,
@@ -8928,13 +9258,16 @@ function VersionFilesDialog({
   onOpenStoredPath,
   onIgnoreUnmanagedPath,
   onReconcileUnmanagedPath,
+  onApplyFilesystemChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: FilesDialogState;
   onStateChange: React.Dispatch<React.SetStateAction<FilesDialogState>>;
   version: DocumentVersion | null;
+  affectedVersions: DocumentVersion[];
   canEdit: boolean;
+  onSelectVersion: (documentVersionId: number) => void;
   onRefresh: (documentVersionId: number) => Promise<void>;
   onAddFiles: (documentVersionId: number) => Promise<void>;
   onOpenFile: (fileId: number) => void;
@@ -8961,9 +9294,20 @@ function VersionFilesDialog({
     documentVersionId: number,
     relativePath: string,
   ) => Promise<void>;
+  onApplyFilesystemChange: (
+    documentVersionId: number,
+    changeIndex: number,
+    change: VersionFilesystemChange,
+  ) => Promise<void>;
 }) {
   const [isDropTargetActive, setIsDropTargetActive] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const currentVersionNeedsReview = version
+    ? affectedVersions.some((affectedVersion) => affectedVersion.id === version.id)
+    : false;
+  const showAffectedVersionSwitcher =
+    affectedVersions.length > 1 ||
+    (affectedVersions.length === 1 && !currentVersionNeedsReview);
   const groupedFiles = DOCUMENT_VERSION_FILE_ROLES.map((role) => ({
     role,
     files: version?.files.filter((file) => file.role === role) ?? [],
@@ -9056,6 +9400,52 @@ function VersionFilesDialog({
                 </div>
               </div>
             </div>
+
+            {affectedVersions.length > 0 ? (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-destructive">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <AlertTriangle className="h-4 w-4" />
+                      {affectedVersions.length === 1
+                        ? "This version needs review"
+                        : `${affectedVersions.length} versions need review`}
+                    </div>
+                    <div className="mt-1 text-[13px] text-destructive/90">
+                      Use the version buttons below to move through each affected
+                      version and apply decisions from this dialog.
+                    </div>
+                  </div>
+                  <Badge variant="destructive">
+                    {affectedVersions.length} affected version
+                    {affectedVersions.length === 1 ? "" : "s"}
+                  </Badge>
+                </div>
+                {showAffectedVersionSwitcher ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {affectedVersions.map((affectedVersion) => (
+                      <Button
+                        key={affectedVersion.id}
+                        size="sm"
+                        variant={
+                          affectedVersion.id === version.id
+                            ? "destructive"
+                            : "outline"
+                        }
+                        className={
+                          affectedVersion.id === version.id
+                            ? ""
+                            : "border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        }
+                        onClick={() => onSelectVersion(affectedVersion.id)}
+                      >
+                        Review Version {affectedVersion.versionLabel}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="rounded-xl border border-border bg-background p-3">
               <div
@@ -9219,45 +9609,124 @@ function VersionFilesDialog({
                   </div>
                 </div>
               ) : null}
-              {!canEdit ? (
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Older versions are read-only. Use the latest version to add,
-                  rename, delete, or reclassify files.
-                </div>
-              ) : null}
             </div>
 
-            {version.unmanagedPaths.length > 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-card p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Unmanaged Paths
+            {version.filesystemChanges.length > 0 ? (
+              <div
+                className={cn(
+                  "rounded-xl border p-3",
+                  version.filesystemState === "ambiguous"
+                    ? "border-destructive/60 bg-destructive/10"
+                    : "border-destructive/40 bg-destructive/5",
+                )}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="rounded-full bg-destructive/15 p-2 text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-destructive">
+                        Action Required
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-destructive">
+                        Files were changed outside DocTrack
+                      </div>
+                      <div className="mt-1 text-xs text-destructive/90">
+                        {canEdit
+                          ? "Review and resolve each item below before relying on this version."
+                          : "Review the filesystem drift before relying on this version."}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="destructive">
+                      {version.filesystemChanges.length} change
+                      {version.filesystemChanges.length === 1 ? "" : "s"}
+                    </Badge>
+                    <Badge
+                      variant={
+                        version.filesystemState === "ambiguous"
+                          ? "destructive"
+                          : "warning"
+                      }
+                    >
+                      {version.filesystemState === "ambiguous"
+                        ? "Unsafe to auto-match"
+                        : "Review pending"}
+                    </Badge>
+                  </div>
                 </div>
                 <div className="mt-3 space-y-2">
-                  {version.unmanagedPaths.map((relativePath) => (
+                  {version.filesystemChanges.map((change, changeIndex) => {
+                    const pathLabel =
+                      change.discoveredPath ?? change.trackedPath ?? "Unknown path";
+                    const discoveredPath = change.discoveredPath;
+                    const requiresManualAttention =
+                      change.kind === "collision" ||
+                      change.kind === "missingTracked" ||
+                      change.kind === "nestedUnmanaged";
+                    const canApply =
+                      canEdit &&
+                      change.kind !== "collision" &&
+                      change.kind !== "nestedUnmanaged" &&
+                      change.kind !== "newUnmanaged";
+                    const canImportUnmanaged =
+                      canEdit &&
+                      (change.kind === "newUnmanaged" ||
+                        change.kind === "nestedUnmanaged");
+
+                    return (
                     <div
-                      key={relativePath}
-                      className="rounded-xl border border-border bg-background p-3"
+                      key={`${change.kind}-${changeIndex}-${pathLabel}`}
+                      className={cn(
+                        "rounded-xl border p-3",
+                        requiresManualAttention
+                          ? "border-destructive/35 bg-background"
+                          : "border-destructive/20 bg-background",
+                      )}
                     >
-                      <div className="copyable-text font-mono text-xs text-primary">
-                        {relativePath}
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline">{change.kind}</Badge>
+                            <Badge
+                              variant={
+                                requiresManualAttention
+                                  ? "destructive"
+                                  : "warning"
+                              }
+                            >
+                              {requiresManualAttention
+                                ? "Needs decision"
+                                : "Review"}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 text-sm text-foreground">
+                            {change.message}
+                          </div>
+                          <div className="mt-2 copyable-text font-mono text-xs text-primary">
+                            {pathLabel}
+                          </div>
+                        </div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => onOpenStoredPath(relativePath)}
+                          onClick={() => onOpenStoredPath(pathLabel)}
                         >
                           <FolderOpen className="h-4 w-4" />
                           Open Path
                         </Button>
-                        {canEdit ? (
+                        {discoveredPath && canImportUnmanaged ? (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() =>
                               void onReconcileUnmanagedPath(
                                 version.id,
-                                relativePath,
+                                discoveredPath,
                               )
                             }
                           >
@@ -9265,21 +9734,43 @@ function VersionFilesDialog({
                             Import Into Managed Files
                           </Button>
                         ) : null}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            void onIgnoreUnmanagedPath(
-                              version.id,
-                              relativePath,
-                            )
-                          }
-                        >
-                          Ignore
-                        </Button>
+                        {discoveredPath && canImportUnmanaged ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              void onIgnoreUnmanagedPath(
+                                version.id,
+                                discoveredPath,
+                              )
+                            }
+                          >
+                            Ignore
+                          </Button>
+                        ) : null}
+                        {canApply ? (
+                          <Button
+                            variant={
+                              change.kind === "missingTracked"
+                                ? "destructive"
+                                : "default"
+                            }
+                            size="sm"
+                            onClick={() =>
+                              void onApplyFilesystemChange(
+                                version.id,
+                                changeIndex,
+                                change,
+                              )
+                            }
+                          >
+                            Apply
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : null}

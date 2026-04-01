@@ -12,7 +12,9 @@ import { FileStorageService } from '@main/services/fileStorageService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
+import { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import { IPC_CHANNELS } from '@shared/ipc';
 
 let mainWindow: BrowserWindowType | null = null;
 
@@ -50,7 +52,12 @@ const createWindow = async (): Promise<void> => {
 app.whenReady().then(async () => {
   const catalogService = new AppCatalogService(path.join(app.getPath('userData'), 'catalog.json'));
   const workspaceManager = new WorkspaceManager();
-  const fileStorageService = new FileStorageService();
+  const workspaceFilesystemWatcherService = new WorkspaceFilesystemWatcherService((event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.workspaceFilesystemDrift, event);
+    }
+  });
+  const fileStorageService = new FileStorageService(workspaceFilesystemWatcherService);
   const templateService = new TemplateService(fileStorageService);
   const documentIdGenerator = new DocumentIdGeneratorService();
   const activityLogService = new ActivityLogService();
@@ -61,7 +68,8 @@ app.whenReady().then(async () => {
     documentIdGenerator,
     fileStorageService,
     templateService,
-    activityLogService
+    activityLogService,
+    workspaceBackupService
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
   const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
@@ -74,7 +82,8 @@ app.whenReady().then(async () => {
     catalogService,
     documentIdGenerator,
     activityLogService,
-    workspaceBackupService
+    workspaceBackupService,
+    workspaceFilesystemWatcherService
   );
 
   registerIpcHandlers({
@@ -96,6 +105,7 @@ app.whenReady().then(async () => {
   });
 
   app.on('before-quit', () => {
+    workspaceFilesystemWatcherService.dispose();
     workspaceManager.dispose();
   });
 });

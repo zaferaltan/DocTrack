@@ -149,6 +149,16 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsSyncVersionFiles, (_event, rootPath: string, documentVersionId: number) =>
     services.documentService.syncVersionFiles(rootPath, documentVersionId)
   );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsGetVersionFilesystemPreview,
+    (_event, rootPath: string, documentVersionId: number) =>
+      services.documentService.getVersionFilesystemPreview(rootPath, documentVersionId)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.documentsApplyVersionFilesystemReconciliation,
+    (_event, rootPath: string, documentVersionId: number, input) =>
+      services.documentService.applyVersionFilesystemReconciliation(rootPath, documentVersionId, input)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsOpenVersionFile, (_event, rootPath: string, fileId: number) =>
     services.documentService.openVersionFile(rootPath, fileId)
   );

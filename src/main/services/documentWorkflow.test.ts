@@ -336,7 +336,7 @@ describe('document workflow integration', () => {
     expect(nextVersion.versions[1]?.versionDocumentId).toBe('PROCEDURE-FR-26-001');
   });
 
-  it('adds files, syncs manual filesystem changes, and preserves role metadata across rename', () => {
+  it('previews manual filesystem changes without mutating tracked files until reconciliation is applied', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',
       documentTypeId: 2,
@@ -378,19 +378,114 @@ describe('document workflow integration', () => {
       workspaceRootPath,
       versioned.versions[0]!.id
     );
-    const renamedWorkingFile = afterRenameAndManualAdd.files.find((file) => file.role === 'working');
-    const conceptPdfFile = afterRenameAndManualAdd.files.find((file) => file.role === 'concept-pdf');
+    const trackedWorkingFile = afterRenameAndManualAdd.files.find((file) => file.role === 'working');
 
-    expect(renamedWorkingFile?.fileName).toBe('procedure-renamed.docx');
-    expect(conceptPdfFile?.fileName).toBe('procedure-concept.pdf');
+    expect(trackedWorkingFile?.fileName).toBe('procedure.docx');
+    expect(afterRenameAndManualAdd.filesystemState).toBe('dirty');
+    expect(afterRenameAndManualAdd.filesystemChanges.some((change) => change.kind === 'renamed')).toBe(true);
+    expect(afterRenameAndManualAdd.filesystemChanges.some((change) => change.kind === 'newUnmanaged')).toBe(true);
+    expect(afterRenameAndManualAdd.filesystemChanges.some((change) => change.kind === 'nestedUnmanaged')).toBe(true);
     expect(afterRenameAndManualAdd.unmanagedPaths).toContain(
       'Documents/Procedure/02202600001/001/custom'
     );
 
+    const renameChangeIndex = afterRenameAndManualAdd.filesystemChanges.findIndex(
+      (change) => change.kind === 'renamed'
+    );
+    const reconciledRename = documentService.applyVersionFilesystemReconciliation(
+      workspaceRootPath,
+      versioned.versions[0]!.id,
+      { changeIndexes: [renameChangeIndex] }
+    );
+    expect(reconciledRename.files.find((file) => file.role === 'working')?.fileName).toBe(
+      'procedure-renamed.docx'
+    );
+
+    const unmanagedImportChangeIndex = reconciledRename.filesystemChanges.findIndex(
+      (change) =>
+        change.kind === 'newUnmanaged' &&
+        change.discoveredPath ===
+          'Documents/Procedure/02202600001/001/concept-pdf/procedure-concept.pdf'
+    );
+    const reconciledImport = documentService.applyVersionFilesystemReconciliation(
+      workspaceRootPath,
+      versioned.versions[0]!.id,
+      { changeIndexes: [unmanagedImportChangeIndex] }
+    );
+    expect(reconciledImport.files.map((file) => file.role).sort()).toEqual([
+      'concept-pdf',
+      'working'
+    ]);
+
     rmSync(renamedAbsolutePath, { force: true });
     const afterDelete = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+    const missingChangeIndex = afterDelete.filesystemChanges.findIndex(
+      (change) => change.kind === 'missingTracked'
+    );
+    const reconciledDelete = documentService.applyVersionFilesystemReconciliation(
+      workspaceRootPath,
+      versioned.versions[0]!.id,
+      { changeIndexes: [missingChangeIndex] }
+    );
 
-    expect(afterDelete.files.map((file) => file.role)).toEqual(['concept-pdf']);
+    expect(reconciledDelete.files.map((file) => file.role)).toEqual(['concept-pdf']);
+    expect(reconciledDelete.filesystemChanges.some((change) => change.kind === 'missingTracked')).toBe(
+      false
+    );
+    const listedAfterDelete = documentService.list(workspaceRootPath).find((item) => item.id === created.id);
+    expect(listedAfterDelete?.healthFlags).not.toContain('missingFiles');
+  });
+
+  it('marks duplicate-content external moves as ambiguous instead of auto-matching them', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Ambiguous Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+
+    const firstSourceFile = path.join(tempRoot, 'incoming', 'duplicate-a.txt');
+    const secondSourceFile = path.join(tempRoot, 'incoming', 'duplicate-b.txt');
+    mkdirSync(path.dirname(firstSourceFile), { recursive: true });
+    writeFileSync(firstSourceFile, 'same content', 'utf8');
+    writeFileSync(secondSourceFile, 'same content', 'utf8');
+
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [firstSourceFile]
+    });
+    const afterSecondFile = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'other',
+      sourceFilePaths: [secondSourceFile]
+    });
+    const otherFile = afterSecondFile.files.find((file) => file.role === 'other');
+    if (!otherFile) {
+      throw new Error('Expected the secondary tracked file to exist.');
+    }
+
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+    const workingAbsolutePath = path.join(
+      workspaceRootPath,
+      ...afterSecondFile.files.find((file) => file.role === 'working')!.filePath.split('/')
+    );
+    const otherAbsolutePath = path.join(workspaceRootPath, ...otherFile.filePath.split('/'));
+    renameSync(workingAbsolutePath, path.join(versionFolderAbsolutePath, 'moved-a.txt'));
+    renameSync(otherAbsolutePath, path.join(versionFolderAbsolutePath, 'moved-b.txt'));
+
+    const preview = documentService.getVersionFilesystemPreview(workspaceRootPath, versioned.versions[0]!.id);
+
+    expect(preview.filesystemState).toBe('ambiguous');
+    expect(preview.filesystemChanges.some((change) => change.kind === 'collision')).toBe(true);
   });
 
   it('deletes a version and removes its physical version folder', () => {
@@ -532,8 +627,9 @@ describe('document workflow integration', () => {
       revisionDescription: 'Collision version'
     });
     const workingFile = path.join(tempRoot, 'incoming', 'duplicate-name.txt');
-    const conceptFile = path.join(tempRoot, 'incoming', 'duplicate-name-copy.txt');
+    const conceptFile = path.join(tempRoot, 'alternate', 'duplicate-name.txt');
     mkdirSync(path.dirname(workingFile), { recursive: true });
+    mkdirSync(path.dirname(conceptFile), { recursive: true });
     writeFileSync(workingFile, 'working duplicate', 'utf8');
     writeFileSync(conceptFile, 'concept duplicate', 'utf8');
 
@@ -560,9 +656,8 @@ describe('document workflow integration', () => {
       ...created.documentFolderPath.split('/'),
       '001',
       'concept-pdf',
-      'duplicate-name-copy.txt'
+      'duplicate-name.txt'
     );
-    renameSync(conceptStoredPath, path.join(path.dirname(conceptStoredPath), 'duplicate-name.txt'));
 
     expect(() =>
       workspaceService.updateSettings(workspaceRootPath, {
@@ -829,6 +924,50 @@ describe('document workflow integration', () => {
     expect(comparison.currentVersionLabel).toBe('002');
     expect(comparison.previousVersionLabel).toBe('001');
     expect(comparison.deltas.map((delta) => delta.changeType).sort()).toEqual(['added', 'removed']);
+  });
+
+  it('flags document health when an older version still has filesystem drift', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Historic Drift Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versionOne = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial release'
+    });
+    const firstSourceFile = path.join(tempRoot, 'incoming', 'historic-drift-v1.txt');
+    const secondSourceFile = path.join(tempRoot, 'incoming', 'historic-drift-v2.txt');
+    mkdirSync(path.dirname(firstSourceFile), { recursive: true });
+    writeFileSync(firstSourceFile, 'version one', 'utf8');
+    writeFileSync(secondSourceFile, 'version two', 'utf8');
+
+    const versionOneWithFiles = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versionOne.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [firstSourceFile]
+    });
+    const versionOneStoredPath = path.join(
+      workspaceRootPath,
+      ...versionOneWithFiles.files[0]!.filePath.split('/')
+    );
+
+    const versionTwo = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Follow-up release'
+    });
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versionTwo.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [secondSourceFile]
+    });
+
+    rmSync(versionOneStoredPath, { force: true });
+
+    const listedDocument = documentService.list(workspaceRootPath).find((item) => item.id === created.id);
+    expect(listedDocument?.healthFlags).toContain('missingFiles');
+    expect(listedDocument?.healthFlags).toContain('unmanagedPaths');
   });
 
   it('can ignore unmanaged paths after they are discovered in a version folder', () => {

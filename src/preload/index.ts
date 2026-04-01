@@ -25,7 +25,16 @@ const api: DocTrackApi = {
       ),
     restoreBackup: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceRestoreBackup, rootPath, input),
-    integrityCheck: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceIntegrityCheck, rootPath)
+    integrityCheck: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceIntegrityCheck, rootPath),
+    onFilesystemDrift: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: Parameters<typeof listener>[0]) => {
+        listener(payload);
+      };
+      ipcRenderer.on(IPC_CHANNELS.workspaceFilesystemDrift, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.workspaceFilesystemDrift, wrappedListener);
+      };
+    }
   },
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName) =>
@@ -63,6 +72,15 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentsChangeVersionFileRole, filePath, input),
     syncVersionFiles: (filePath, documentVersionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsSyncVersionFiles, filePath, documentVersionId),
+    getVersionFilesystemPreview: (filePath, documentVersionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsGetVersionFilesystemPreview, filePath, documentVersionId),
+    applyVersionFilesystemReconciliation: (filePath, documentVersionId, input) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documentsApplyVersionFilesystemReconciliation,
+        filePath,
+        documentVersionId,
+        input
+      ),
     openVersionFile: (filePath, fileId) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsOpenVersionFile, filePath, fileId),
     openDocumentFolder: (filePath, documentRecordId) =>

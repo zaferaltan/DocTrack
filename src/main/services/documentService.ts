@@ -6,8 +6,13 @@ import { shell } from 'electron';
 import type { WorkspaceManager } from '@main/database/workspaceManager';
 import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
-import { FileStorageService, type ManagedFileInfo } from '@main/services/fileStorageService';
+import {
+  FileStorageService,
+  type DiscoveredVersionFile,
+  type ManagedFileInfo
+} from '@main/services/fileStorageService';
 import { TemplateService } from '@main/services/templateService';
+import type { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { nowIso } from '@main/utils/date';
 import {
   isDocumentVersionFileRole,
@@ -19,6 +24,7 @@ import {
 } from '@shared/documentModel';
 import type {
   AddDocumentVersionFilesInput,
+  ApplyVersionFilesystemReconciliationInput,
   ChangeDocumentVersionFileRoleInput,
   CreateDocumentInput,
   DeleteDocumentInput,
@@ -37,6 +43,8 @@ import type {
   UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
   VersionComparisonResult,
+  VersionFilesystemChange,
+  VersionFilesystemState,
   VersionFileDelta,
   VersionFileImportPlan
 } from '@shared/types';
@@ -127,6 +135,12 @@ interface VersionFileContextRow extends VersionFileRow {
   DocumentId: number;
 }
 
+interface VersionFilesystemPreviewData {
+  unmanagedPaths: string[];
+  filesystemState: VersionFilesystemState;
+  filesystemChanges: VersionFilesystemChange[];
+}
+
 const FILE_ROLE_SORT_ORDER: DocumentVersionFileRole[] = [
   'working',
   'concept-pdf',
@@ -151,7 +165,8 @@ export class DocumentService {
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly fileStorageService: FileStorageService,
     private readonly templateService: TemplateService,
-    private readonly activityLogService: ActivityLogService
+    private readonly activityLogService: ActivityLogService,
+    private readonly workspaceBackupService?: Pick<WorkspaceBackupService, 'createBackup'>
   ) {}
 
   list(rootPath: string): DocumentListItem[] {
@@ -208,9 +223,18 @@ export class DocumentService {
     return rows.map((row) => {
       const latestVersion =
         row.LatestVersionId !== null ? this.getVersionRow(context.db, row.LatestVersionId) : undefined;
-      const unmanagedPaths = latestVersion ? this.syncVersionFilesInternal(context, latestVersion) : [];
-      const latestVersionFileCount =
-        latestVersion ? this.getVersionFileRows(context.db, latestVersion.Id).length : 0;
+      const documentVersionPreviews = this.getDocumentVersionPreviews(context, row.Id);
+      const versionPreviews = [...documentVersionPreviews.values()];
+      const hasMissingTrackedFiles = versionPreviews.some((preview) =>
+        preview.filesystemChanges.some((change) => change.kind === 'missingTracked')
+      );
+      const hasFilesystemReviewIssues = versionPreviews.some(
+        (preview) =>
+          preview.unmanagedPaths.length > 0 ||
+          preview.filesystemState !== 'clean' ||
+          preview.filesystemChanges.length > 0
+      );
+      const latestVersionFileCount = latestVersion ? this.getVersionFileRows(context.db, latestVersion.Id).length : 0;
       const nextReviewDate = this.getNextReviewDate(
         row.ReviewBaselineReleasedDate ?? row.ReleasedDate,
         row.RevisionIntervalMonths
@@ -250,8 +274,8 @@ export class DocumentService {
         isOverdue,
         healthFlags: this.getDocumentHealthFlags({
           latestVersionLabel: row.LatestVersionLabel,
-          latestVersionFileCount,
-          unmanagedPathCount: unmanagedPaths.length,
+          hasMissingTrackedFiles,
+          hasFilesystemReviewIssues,
           modifiedDate: row.ModifiedDate,
           isOverdue
         }),
@@ -264,8 +288,8 @@ export class DocumentService {
 
   getDetail(rootPath: string, documentRecordId: number): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
-    const unmanagedPathsByVersionId = this.syncDocumentVersions(context, documentRecordId);
-    return this.getDetailFromDatabase(context.db, documentRecordId, unmanagedPathsByVersionId);
+    const filesystemPreviewByVersionId = this.getDocumentVersionPreviews(context, documentRecordId);
+    return this.getDetailFromDatabase(context.db, documentRecordId, filesystemPreviewByVersionId);
   }
 
   create(rootPath: string, input: CreateDocumentInput): DocumentDetail {
@@ -635,7 +659,6 @@ export class DocumentService {
 
     const version = this.getVersionRow(context.db, input.documentVersionId);
     this.assertVersionIsMutable(context.db, version);
-    this.syncVersionFilesInternal(context, version);
 
     const document = this.getDocumentRow(context.db, version.DocumentId);
     const importedFiles: ManagedFileInfo[] = [];
@@ -710,7 +733,6 @@ export class DocumentService {
     const document = this.getDocumentRow(context.db, fileRow.DocumentId);
     this.assertVersionIsMutable(context.db, version);
     this.assertRenameInput(input);
-    this.syncVersionFilesInternal(context, version);
 
     const nextRelativePath = this.fileStorageService.getStoredRelativePath(
       context.settings,
@@ -763,7 +785,6 @@ export class DocumentService {
     const fileRow = this.getVersionFileContextRow(context.db, input.fileId);
     const version = this.getVersionRow(context.db, fileRow.VersionId);
     this.assertVersionIsMutable(context.db, version);
-    this.syncVersionFilesInternal(context, version);
 
     this.fileStorageService.deleteManagedFile(context.rootPath, fileRow.FilePath);
     context.db.transaction(() => {
@@ -793,7 +814,6 @@ export class DocumentService {
     const version = this.getVersionRow(context.db, fileRow.VersionId);
     const document = this.getDocumentRow(context.db, fileRow.DocumentId);
     this.assertVersionIsMutable(context.db, version);
-    this.syncVersionFilesInternal(context, version);
 
     const nextRelativePath = this.fileStorageService.getStoredRelativePath(
       context.settings,
@@ -843,10 +863,141 @@ export class DocumentService {
   }
 
   syncVersionFiles(rootPath: string, documentVersionId: number): DocumentVersion {
+    return this.getVersionFilesystemPreview(rootPath, documentVersionId);
+  }
+
+  getVersionFilesystemPreview(rootPath: string, documentVersionId: number): DocumentVersion {
     const context = this.workspaceManager.getContext(rootPath);
     const version = this.getVersionRow(context.db, documentVersionId);
-    const unmanagedPaths = this.syncVersionFilesInternal(context, version);
-    return this.getVersionFromDatabase(context.db, documentVersionId, unmanagedPaths);
+    const preview = this.buildVersionFilesystemPreview(context, version);
+    return this.getVersionFromDatabase(context.db, documentVersionId, preview);
+  }
+
+  applyVersionFilesystemReconciliation(
+    rootPath: string,
+    documentVersionId: number,
+    input: ApplyVersionFilesystemReconciliationInput = {}
+  ): DocumentVersion {
+    const context = this.workspaceManager.getContext(rootPath);
+    const version = this.getVersionRow(context.db, documentVersionId);
+    const preview = this.buildVersionFilesystemPreview(context, version);
+    const requestedIndexes =
+      input.changeIndexes && input.changeIndexes.length > 0
+        ? [...new Set(input.changeIndexes)].sort((left, right) => left - right)
+        : preview.filesystemChanges.map((_change, index) => index);
+    const selectedChanges = requestedIndexes
+      .map((index) => preview.filesystemChanges[index])
+      .filter((change): change is VersionFilesystemChange => change !== undefined);
+
+    if (selectedChanges.length === 0) {
+      return this.getVersionFromDatabase(context.db, documentVersionId, preview);
+    }
+
+    if (selectedChanges.some((change) => change.kind === 'collision' || change.kind === 'nestedUnmanaged')) {
+      throw new Error('Ambiguous filesystem changes must be resolved manually before they can be applied.');
+    }
+
+    const destructiveChangeKinds = new Set<VersionFilesystemChange['kind']>(['missingTracked']);
+    if (selectedChanges.some((change) => destructiveChangeKinds.has(change.kind))) {
+      this.workspaceBackupService?.createBackup(rootPath, 'safety');
+    }
+
+    const now = nowIso();
+    const document = this.getDocumentRow(context.db, version.DocumentId);
+    context.db.transaction(() => {
+      const insert = context.db.prepare(
+        `
+          INSERT INTO DocumentVersionFiles (
+            DocumentVersionId,
+            Role,
+            FileName,
+            FilePath,
+            ContentHash,
+            FileSize,
+            ModifiedDate,
+            CreatedDate
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      );
+      const update = context.db.prepare(
+        `
+          UPDATE DocumentVersionFiles
+          SET Role = ?, FileName = ?, FilePath = ?, ContentHash = ?, FileSize = ?, ModifiedDate = ?
+          WHERE Id = ?
+        `
+      );
+      const remove = context.db.prepare('DELETE FROM DocumentVersionFiles WHERE Id = ?');
+
+      for (const change of selectedChanges) {
+        switch (change.kind) {
+          case 'missingTracked':
+            if (change.trackedFileId) {
+              remove.run(change.trackedFileId);
+            }
+            break;
+          case 'newUnmanaged':
+            if (!change.discoveredPath || !change.suggestedRole) {
+              break;
+            }
+
+            {
+              const discoveredAbsolutePath = this.fileStorageService.resolveStoredFilePath(
+                context.rootPath,
+                change.discoveredPath,
+                true
+              );
+              if (statSync(discoveredAbsolutePath).isDirectory()) {
+                throw new Error('Folder imports must be reconciled through the unmanaged path import flow.');
+              }
+
+              const fileInfo = this.fileStorageService.readManagedFileInfo(context.rootPath, change.discoveredPath);
+              insert.run(
+                version.Id,
+                change.suggestedRole,
+                fileInfo.fileName,
+                fileInfo.relativePath,
+                fileInfo.contentHash,
+                fileInfo.fileSize,
+                fileInfo.modifiedDate,
+                now
+              );
+            }
+            break;
+          case 'modified':
+          case 'renamed':
+          case 'roleMoved':
+            if (!change.trackedFileId || !change.discoveredPath) {
+              break;
+            }
+
+            {
+              const fileInfo = this.fileStorageService.readManagedFileInfo(context.rootPath, change.discoveredPath);
+              update.run(
+                change.suggestedRole ?? this.getVersionFileContextRow(context.db, change.trackedFileId).Role,
+                fileInfo.fileName,
+                fileInfo.relativePath,
+                fileInfo.contentHash,
+                fileInfo.fileSize,
+                fileInfo.modifiedDate,
+                change.trackedFileId
+              );
+            }
+            break;
+          default:
+            break;
+        }
+      }
+
+      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(now, document.Id);
+      this.activityLogService.log(context.db, {
+        eventType: 'document.files.reconciled',
+        message: `Applied ${selectedChanges.length} filesystem change${selectedChanges.length === 1 ? '' : 's'} to version ${version.VersionLabel}.`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
+      });
+    })();
+
+    return this.getVersionFilesystemPreview(rootPath, documentVersionId);
   }
 
   previewVersionFile(rootPath: string, fileId: number): FilePreviewResult {
@@ -1091,6 +1242,8 @@ export class DocumentService {
       throw new Error('The selected unmanaged path does not contain any files to import.');
     }
 
+    this.workspaceBackupService?.createBackup(rootPath, 'safety');
+
     const filesByRole = sourceFilePaths.reduce((accumulator, sourceFilePath) => {
       const role = this.suggestRoleForFile(path.basename(sourceFilePath));
       const group = accumulator.get(role) ?? [];
@@ -1117,14 +1270,35 @@ export class DocumentService {
       const createdDate = nowIso();
 
       for (const [role, filePaths] of filesByRole.entries()) {
-        const importedFiles = this.fileStorageService.importManagedFiles(
-          context.rootPath,
-          context.settings,
-          document.DocumentFolderPath,
-          version.VersionLabel,
-          role,
-          filePaths
-        );
+        const importedFiles: ManagedFileInfo[] = [];
+        for (const sourceFilePath of filePaths) {
+          const sourceRelativePath = this.fileStorageService.normalizeRelativePath(
+            path.relative(context.rootPath, sourceFilePath)
+          );
+          const targetRelativePath = this.fileStorageService.getStoredRelativePath(
+            context.settings,
+            document.DocumentFolderPath,
+            version.VersionLabel,
+            role,
+            path.basename(sourceFilePath)
+          );
+
+          if (sourceRelativePath === this.fileStorageService.normalizeRelativePath(targetRelativePath)) {
+            importedFiles.push(this.fileStorageService.readManagedFileInfo(context.rootPath, sourceRelativePath));
+            continue;
+          }
+
+          importedFiles.push(
+            ...this.fileStorageService.importManagedFiles(
+              context.rootPath,
+              context.settings,
+              document.DocumentFolderPath,
+              version.VersionLabel,
+              role,
+              [sourceFilePath]
+            )
+          );
+        }
 
         for (const file of importedFiles) {
           insert.run(
@@ -1151,7 +1325,16 @@ export class DocumentService {
       });
     })();
 
-    rmSync(targetAbsolutePath, { recursive: true, force: true });
+    const normalizedRelativePath = this.fileStorageService.normalizeRelativePath(relativePath);
+    const managedRelativePaths = new Set(
+      sourceFilePaths.map((sourceFilePath) =>
+        this.fileStorageService.normalizeRelativePath(path.relative(context.rootPath, sourceFilePath))
+      )
+    );
+    if (!managedRelativePaths.has(normalizedRelativePath)) {
+      rmSync(targetAbsolutePath, { recursive: true, force: true });
+    }
+
     return this.syncVersionFiles(rootPath, version.Id);
   }
 
@@ -1367,17 +1550,7 @@ export class DocumentService {
   openVersionFile(rootPath: string, fileId: number): void {
     const context = this.workspaceManager.getContext(rootPath);
     const fileRow = this.getVersionFileContextRow(context.db, fileId);
-    this.syncVersionFilesInternal(context, this.getVersionRow(context.db, fileRow.VersionId));
-
-    const refreshed = context.db
-      .prepare('SELECT FilePath FROM DocumentVersionFiles WHERE Id = @id')
-      .get({ id: fileId }) as { FilePath: string } | undefined;
-
-    if (!refreshed?.FilePath) {
-      throw new Error('The selected file could not be found.');
-    }
-
-    const resolvedPath = this.fileStorageService.resolveStoredFilePath(context.rootPath, refreshed.FilePath);
+    const resolvedPath = this.fileStorageService.resolveStoredFilePath(context.rootPath, fileRow.FilePath);
     void shell.openPath(resolvedPath);
   }
 
@@ -1406,13 +1579,42 @@ export class DocumentService {
 
   openStoredPath(rootPath: string, relativePath: string): void {
     const context = this.workspaceManager.getContext(rootPath);
-    void shell.openPath(this.fileStorageService.resolveStoredFilePath(context.rootPath, relativePath, true));
+    const resolvedPath = this.fileStorageService.resolveStoredFilePath(
+      context.rootPath,
+      relativePath,
+      true
+    );
+    const resolvedRootPath = path.resolve(context.rootPath);
+    let targetPath = resolvedPath;
+
+    while (!existsSync(targetPath)) {
+      const parentPath = path.dirname(targetPath);
+      if (parentPath === targetPath) {
+        targetPath = resolvedRootPath;
+        break;
+      }
+
+      const relativeToRoot = path.relative(resolvedRootPath, parentPath);
+      if (
+        relativeToRoot === '' ||
+        relativeToRoot === '.' ||
+        relativeToRoot.startsWith('..') ||
+        path.isAbsolute(relativeToRoot)
+      ) {
+        targetPath = resolvedRootPath;
+        break;
+      }
+
+      targetPath = parentPath;
+    }
+
+    void shell.openPath(targetPath);
   }
 
-  private syncDocumentVersions(
+  private getDocumentVersionPreviews(
     context: ReturnType<WorkspaceManager['getContext']>,
     documentRecordId: number
-  ): Map<number, string[]> {
+  ): Map<number, VersionFilesystemPreviewData> {
     const versions = context.db
       .prepare(
         `
@@ -1435,32 +1637,25 @@ export class DocumentService {
       )
       .all({ documentRecordId }) as VersionRow[];
 
-    const unmanagedPathsByVersionId = new Map<number, string[]>();
+    const previewByVersionId = new Map<number, VersionFilesystemPreviewData>();
     for (const version of versions) {
-      unmanagedPathsByVersionId.set(version.Id, this.syncVersionFilesInternal(context, version));
+      previewByVersionId.set(version.Id, this.buildVersionFilesystemPreview(context, version));
     }
 
-    return unmanagedPathsByVersionId;
+    return previewByVersionId;
   }
 
-  private syncVersionFilesInternal(
+  private buildVersionFilesystemPreview(
     context: ReturnType<WorkspaceManager['getContext']>,
     version: VersionRow
-  ): string[] {
+  ): VersionFilesystemPreviewData {
     const document = this.getDocumentRow(context.db, version.DocumentId);
     const documentFolderPath = this.getDocumentFolderPath(context, document);
-    this.fileStorageService.ensureDocumentFolder(context.rootPath, documentFolderPath);
-    this.fileStorageService.ensureVersionFolder(
-      context.rootPath,
-      context.settings,
-      documentFolderPath,
-      version.VersionLabel
-    );
-
     const versionFolderPath = this.fileStorageService.getVersionFolderRelativePath(
       documentFolderPath,
       version.VersionLabel
     );
+    const normalizedVersionFolderPath = this.fileStorageService.normalizeRelativePath(versionFolderPath);
     const scanResult = this.fileStorageService.scanVersionFolder(context.rootPath, versionFolderPath);
     const ignoredPaths = new Set(
       (context.db
@@ -1477,8 +1672,8 @@ export class DocumentService {
     );
     const matchedExistingIds = new Set<number>();
     const matchedDiscoveredIndices = new Set<number>();
-    const updates: Array<{ row: VersionFileRow; file: ManagedFileInfo }> = [];
-    const inserts: Array<{ file: ManagedFileInfo; role: DocumentVersionFileRole }> = [];
+    const filesystemChanges: VersionFilesystemChange[] = [];
+    let filesystemState: VersionFilesystemState = 'clean';
 
     scanResult.files.forEach((file, index) => {
       const exactMatch = existingByPath.get(this.fileStorageService.normalizeRelativePath(file.relativePath));
@@ -1488,123 +1683,182 @@ export class DocumentService {
 
       matchedExistingIds.add(exactMatch.Id);
       matchedDiscoveredIndices.add(index);
-      updates.push({ row: exactMatch, file });
+      if (this.hasFileMetadataChanges(exactMatch, file)) {
+        filesystemChanges.push({
+          kind: 'modified',
+          trackedFileId: exactMatch.Id,
+          trackedPath: exactMatch.FilePath,
+          discoveredPath: file.relativePath,
+          suggestedRole: exactMatch.Role,
+          message: `"${exactMatch.FileName}" changed on disk and needs review before DocTrack updates its metadata.`
+        });
+        filesystemState = 'dirty';
+      }
     });
 
     const remainingExisting = existingRows.filter((row) => !matchedExistingIds.has(row.Id));
     const remainingDiscovered = scanResult.files
       .map((file, index) => ({ file, index }))
       .filter((item) => !matchedDiscoveredIndices.has(item.index));
-    const existingByHash = new Map<string, VersionFileRow[]>();
+    const remainingExistingByHash = new Map<string, VersionFileRow[]>();
+    const remainingDiscoveredByHash = new Map<
+      string,
+      Array<{ file: DiscoveredVersionFile; index: number }>
+    >();
+    const handledExistingIds = new Set<number>();
+    const handledDiscoveredIndices = new Set<number>();
 
     for (const row of remainingExisting) {
-      const queue = existingByHash.get(row.ContentHash) ?? [];
+      const queue = remainingExistingByHash.get(row.ContentHash) ?? [];
       queue.push(row);
-      existingByHash.set(row.ContentHash, queue);
+      remainingExistingByHash.set(row.ContentHash, queue);
     }
 
     for (const discovered of remainingDiscovered) {
-      const queue = existingByHash.get(discovered.file.contentHash);
-      const hashMatch = queue?.shift();
+      const queue = remainingDiscoveredByHash.get(discovered.file.contentHash) ?? [];
+      queue.push(discovered);
+      remainingDiscoveredByHash.set(discovered.file.contentHash, queue);
+    }
 
-      if (hashMatch) {
-        matchedExistingIds.add(hashMatch.Id);
-        updates.push({ row: hashMatch, file: discovered.file });
+    const allHashes = new Set<string>([
+      ...remainingExistingByHash.keys(),
+      ...remainingDiscoveredByHash.keys()
+    ]);
+    for (const hash of allHashes) {
+      const existingGroup = remainingExistingByHash.get(hash) ?? [];
+      const discoveredGroup = remainingDiscoveredByHash.get(hash) ?? [];
+
+      if (existingGroup.length === 1 && discoveredGroup.length === 1) {
+        const row = existingGroup[0]!;
+        const discovered = discoveredGroup[0]!;
+        handledExistingIds.add(row.Id);
+        handledDiscoveredIndices.add(discovered.index);
+
+        const suggestedRole =
+          isDocumentVersionFileRole(discovered.file.inferredRole) && discovered.file.inferredRole !== 'other'
+            ? discovered.file.inferredRole
+            : row.Role;
+        const kind = suggestedRole !== row.Role ? 'roleMoved' : 'renamed';
+        filesystemChanges.push({
+          kind,
+          trackedFileId: row.Id,
+          trackedPath: row.FilePath,
+          discoveredPath: discovered.file.relativePath,
+          suggestedRole,
+          message:
+            kind === 'roleMoved'
+              ? `"${row.FileName}" was moved on disk and its tracked role would change to ${suggestedRole}.`
+              : `"${row.FileName}" was moved or renamed on disk and DocTrack can relink it safely.`
+        });
+        filesystemState = 'dirty';
         continue;
       }
 
-      inserts.push({
-        file: discovered.file,
-        role: isDocumentVersionFileRole(discovered.file.inferredRole)
-          ? discovered.file.inferredRole
-          : 'other'
+      if (existingGroup.length > 0 && discoveredGroup.length > 0) {
+        for (const row of existingGroup) {
+          handledExistingIds.add(row.Id);
+        }
+
+        for (const discovered of discoveredGroup) {
+          handledDiscoveredIndices.add(discovered.index);
+        }
+
+        filesystemChanges.push({
+          kind: 'collision',
+          trackedFileId: existingGroup[0]?.Id,
+          trackedPath: existingGroup[0]?.FilePath,
+          discoveredPath: discoveredGroup[0]?.file.relativePath,
+          message:
+            `DocTrack found multiple files with the same content hash in version ${version.VersionLabel}, so it cannot safely match external moves automatically.`
+        });
+        filesystemState = 'ambiguous';
+      }
+    }
+
+    for (const row of remainingExisting) {
+      if (handledExistingIds.has(row.Id)) {
+        continue;
+      }
+
+      filesystemChanges.push({
+        kind: 'missingTracked',
+        trackedFileId: row.Id,
+        trackedPath: row.FilePath,
+        suggestedRole: row.Role,
+        message: `"${row.FileName}" is tracked by DocTrack but the file is missing on disk.`
       });
+      filesystemState = 'dirty';
     }
 
-    const deleteIds = existingRows
-      .filter((row) => !matchedExistingIds.has(row.Id) && !updates.some((update) => update.row.Id === row.Id))
-      .map((row) => row.Id);
+    for (const discovered of remainingDiscovered) {
+      if (handledDiscoveredIndices.has(discovered.index)) {
+        continue;
+      }
 
-    const hasChanges =
-      inserts.length > 0 ||
-      deleteIds.length > 0 ||
-      updates.some(({ row, file }) => this.hasFileMetadataChanges(row, file));
+      const normalizedPath = this.fileStorageService.normalizeRelativePath(discovered.file.relativePath);
+      if (this.isIgnoredFilesystemPath(normalizedPath, ignoredPaths)) {
+        continue;
+      }
 
-    if (!hasChanges) {
-      return scanResult.unmanagedPaths.filter(
-        (relativePath) => !ignoredPaths.has(this.fileStorageService.normalizeRelativePath(relativePath))
-      );
+      const suggestedRole = isDocumentVersionFileRole(discovered.file.inferredRole)
+        ? discovered.file.inferredRole
+        : this.suggestRoleForFile(discovered.file.fileName);
+      filesystemChanges.push({
+        kind: 'newUnmanaged',
+        discoveredPath: discovered.file.relativePath,
+        suggestedRole,
+        message: `"${discovered.file.fileName}" was added on disk and is not tracked by DocTrack yet.`
+      });
+      filesystemState = 'dirty';
     }
 
-    context.db.transaction(() => {
-      const insert = context.db.prepare(
-        `
-          INSERT INTO DocumentVersionFiles (
-            DocumentVersionId,
-            Role,
-            FileName,
-            FilePath,
-            ContentHash,
-            FileSize,
-            ModifiedDate,
-            CreatedDate
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `
-      );
-      const update = context.db.prepare(
-        `
-          UPDATE DocumentVersionFiles
-          SET Role = ?, FileName = ?, FilePath = ?, ContentHash = ?, FileSize = ?, ModifiedDate = ?
-          WHERE Id = ?
-        `
-      );
-      const remove = context.db.prepare('DELETE FROM DocumentVersionFiles WHERE Id = ?');
-      const changedDate = nowIso();
-
-      for (const item of inserts) {
-        insert.run(
-          version.Id,
-          item.role,
-          item.file.fileName,
-          item.file.relativePath,
-          item.file.contentHash,
-          item.file.fileSize,
-          item.file.modifiedDate,
-          changedDate
-        );
-      }
-
-      for (const item of updates) {
-        update.run(
-          item.row.Role,
-          item.file.fileName,
-          item.file.relativePath,
-          item.file.contentHash,
-          item.file.fileSize,
-          item.file.modifiedDate,
-          item.row.Id
-        );
-      }
-
-      for (const id of deleteIds) {
-        remove.run(id);
-      }
-
-      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(
-        changedDate,
-        document.Id
-      );
-    })();
-
-    return scanResult.unmanagedPaths.filter(
-      (relativePath) => !ignoredPaths.has(this.fileStorageService.normalizeRelativePath(relativePath))
+    const unmanagedPaths = scanResult.unmanagedPaths.filter(
+      (relativePath) =>
+        !this.isIgnoredFilesystemPath(
+          this.fileStorageService.normalizeRelativePath(relativePath),
+          ignoredPaths
+        )
     );
+    for (const unmanagedPath of unmanagedPaths) {
+      const relativeToVersion = path.posix.relative(normalizedVersionFolderPath, unmanagedPath);
+      const kind = relativeToVersion.includes('/') ? 'nestedUnmanaged' : 'newUnmanaged';
+      filesystemChanges.push({
+        kind,
+        discoveredPath: unmanagedPath,
+        message:
+          kind === 'nestedUnmanaged'
+            ? `Nested content was found at "${unmanagedPath}" and must be reviewed manually.`
+            : `Unmanaged content was found at "${unmanagedPath}".`
+      });
+      if (filesystemState !== 'ambiguous') {
+        filesystemState = 'dirty';
+      }
+    }
+
+    return {
+      unmanagedPaths,
+      filesystemState,
+      filesystemChanges
+    };
+  }
+
+  private isIgnoredFilesystemPath(normalizedPath: string, ignoredPaths: Set<string>): boolean {
+    for (const ignoredPath of ignoredPaths) {
+      if (
+        normalizedPath === ignoredPath ||
+        normalizedPath.startsWith(`${ignoredPath}/`)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private getDetailFromDatabase(
     db: Database.Database,
     documentRecordId: number,
-    unmanagedPathsByVersionId: Map<number, string[]>
+    filesystemPreviewByVersionId: Map<number, VersionFilesystemPreviewData>
   ): DocumentDetail {
     const document = this.getDocumentRow(db, documentRecordId);
     const versionRows = db
@@ -1657,6 +1911,11 @@ export class DocumentService {
     }
 
     const versions: DocumentVersion[] = versionRows.map((row) => ({
+      ...(filesystemPreviewByVersionId.get(row.Id) ?? {
+        unmanagedPaths: [],
+        filesystemState: 'clean',
+        filesystemChanges: []
+      }),
       id: row.Id,
       documentId: row.DocumentId,
       versionDocumentId: row.VersionDocumentID?.trim() || document.DocumentID,
@@ -1668,8 +1927,7 @@ export class DocumentService {
       approvedBy: row.ApprovedBy,
       createdDate: row.CreatedDate,
       revisionDescription: row.Notes,
-      files: this.sortVersionFiles(filesByVersionId.get(row.Id) ?? []),
-      unmanagedPaths: unmanagedPathsByVersionId.get(row.Id) ?? []
+      files: this.sortVersionFiles(filesByVersionId.get(row.Id) ?? [])
     }));
 
     return {
@@ -1700,12 +1958,13 @@ export class DocumentService {
   private getVersionFromDatabase(
     db: Database.Database,
     documentVersionId: number,
-    unmanagedPaths: string[]
+    filesystemPreview: VersionFilesystemPreviewData
   ): DocumentVersion {
     const version = this.getVersionRow(db, documentVersionId);
     const files = this.getVersionFileRows(db, documentVersionId).map((row) => this.mapVersionFileRow(row));
 
     return {
+      ...filesystemPreview,
       id: version.Id,
       documentId: version.DocumentId,
       versionDocumentId: version.VersionDocumentID?.trim() || this.getDocumentRow(db, version.DocumentId).DocumentID,
@@ -1717,8 +1976,7 @@ export class DocumentService {
       approvedBy: version.ApprovedBy,
       createdDate: version.CreatedDate,
       revisionDescription: version.Notes,
-      files: this.sortVersionFiles(files),
-      unmanagedPaths
+      files: this.sortVersionFiles(files)
     };
   }
 
@@ -1938,8 +2196,8 @@ export class DocumentService {
 
   private getDocumentHealthFlags(input: {
     latestVersionLabel: string | null;
-    latestVersionFileCount: number;
-    unmanagedPathCount: number;
+    hasMissingTrackedFiles: boolean;
+    hasFilesystemReviewIssues: boolean;
     modifiedDate: string;
     isOverdue: boolean;
   }): DocumentHealthFlag[] {
@@ -1949,11 +2207,11 @@ export class DocumentService {
       flags.push('unversionedShell');
     }
 
-    if (input.latestVersionLabel && input.latestVersionFileCount === 0) {
+    if (input.latestVersionLabel && input.hasMissingTrackedFiles) {
       flags.push('missingFiles');
     }
 
-    if (input.unmanagedPathCount > 0) {
+    if (input.hasFilesystemReviewIssues) {
       flags.push('unmanagedPaths');
     }
 
@@ -2109,9 +2367,12 @@ export class DocumentService {
   }
 
   private assertVersionIsMutable(db: Database.Database, version: VersionRow): void {
-    const latestVersion = this.getLatestVersion(db, version.DocumentId);
-    if (!latestVersion || latestVersion.Id !== version.Id) {
-      throw new Error('Only the latest version can be changed.');
+    const existingVersion = db
+      .prepare('SELECT Id FROM DocumentVersions WHERE Id = @id')
+      .get({ id: version.Id }) as { Id: number } | undefined;
+
+    if (!existingVersion) {
+      throw new Error('The selected version could not be found.');
     }
   }
 

@@ -136,7 +136,9 @@ const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentD
       createdDate: '2026-03-28T10:00:00.000Z',
       revisionDescription: '',
       files: [],
-      unmanagedPaths: []
+      unmanagedPaths: [],
+      filesystemState: 'clean',
+      filesystemChanges: []
     }
   ],
   ...overrides
@@ -240,7 +242,8 @@ const buildDocTrackMock = (
         checkedDate: '2026-03-31T12:00:00.000Z',
         issueCount: 0,
         issues: []
-      })
+      }),
+      onFilesystemDrift: vi.fn().mockImplementation(() => () => undefined)
     },
     dialogs: {
       pickWorkspaceCreatePath: vi.fn().mockResolvedValue(null),
@@ -264,6 +267,8 @@ const buildDocTrackMock = (
       deleteVersionFile: vi.fn(),
       changeVersionFileRole: vi.fn(),
       syncVersionFiles: vi.fn(),
+      getVersionFilesystemPreview: vi.fn(),
+      applyVersionFilesystemReconciliation: vi.fn(),
       openVersionFile: vi.fn().mockResolvedValue(undefined),
       openDocumentFolder: vi.fn().mockResolvedValue(undefined),
       openVersionFolder: vi.fn().mockResolvedValue(undefined),
