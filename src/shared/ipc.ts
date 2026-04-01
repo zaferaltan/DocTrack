@@ -1,10 +1,12 @@
 import type { ApplicationSettings } from '@shared/applicationSettings';
 import type {
+  AddTemplateFilesInput,
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
   CreateBackupResult,
   ConfidentialityClass,
   ConfidentialityClassInput,
+  CreateTemplateInput,
   CreateDocumentInput,
   DeleteDocumentInput,
   DeleteDocumentVersionInput,
@@ -27,6 +29,7 @@ import type {
   RenameDocumentVersionFileInput,
   RestoreBackupInput,
   RestoreBackupPreview,
+  TemplateSummary,
   UpdateDocumentVersionInput,
   VersionComparisonResult,
   VersionFileImportPlan,
@@ -93,6 +96,10 @@ export const IPC_CHANNELS = {
   projectsCreate: 'projects:create',
   projectsUpdate: 'projects:update',
   projectsDelete: 'projects:delete',
+  templatesList: 'templates:list',
+  templatesCreate: 'templates:create',
+  templatesAddFiles: 'templates:addFiles',
+  templatesDelete: 'templates:delete',
   confidentialityClassesList: 'confidentialityClasses:list',
   confidentialityClassesCreate: 'confidentialityClasses:create',
   confidentialityClassesUpdate: 'confidentialityClasses:update',
@@ -196,6 +203,12 @@ export interface DocTrackApi {
     create: (rootPath: string, input: ProjectInput) => Promise<Project>;
     update: (rootPath: string, id: number, input: ProjectInput) => Promise<Project>;
     delete: (rootPath: string, id: number) => Promise<void>;
+  };
+  templates: {
+    list: (rootPath: string) => Promise<TemplateSummary[]>;
+    create: (rootPath: string, input: CreateTemplateInput) => Promise<TemplateSummary>;
+    addFiles: (rootPath: string, input: AddTemplateFilesInput) => Promise<TemplateSummary>;
+    delete: (rootPath: string, templateId: string) => Promise<void>;
   };
   confidentialityClasses: {
     list: (rootPath: string) => Promise<ConfidentialityClass[]>;

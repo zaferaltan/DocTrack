@@ -3,6 +3,7 @@ import type { AppCatalogService } from '@main/catalog/appCatalogService';
 import type { DocumentExportService } from '@main/services/documentExportService';
 import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
+import type { TemplateService } from '@main/services/templateService';
 import type { WorkspaceService } from '@main/services/workspaceService';
 import type { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { IPC_CHANNELS } from '@shared/ipc';
@@ -13,6 +14,7 @@ interface ServiceContainer {
   documentExportService: DocumentExportService;
   documentTypeService: DocumentTypeService;
   workspaceCatalogService: WorkspaceCatalogService;
+  templateService: TemplateService;
   catalogService: AppCatalogService;
 }
 
@@ -210,6 +212,19 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
   ipcMain.handle(IPC_CHANNELS.projectsDelete, (_event, rootPath: string, id: number) =>
     services.workspaceCatalogService.deleteProject(rootPath, id)
+  );
+
+  ipcMain.handle(IPC_CHANNELS.templatesList, (_event, rootPath: string) =>
+    services.templateService.list(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.templatesCreate, (_event, rootPath: string, input) =>
+    services.templateService.create(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.templatesAddFiles, (_event, rootPath: string, input) =>
+    services.templateService.addFiles(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.templatesDelete, (_event, rootPath: string, templateId: string) =>
+    services.templateService.delete(rootPath, templateId)
   );
 
   ipcMain.handle(IPC_CHANNELS.confidentialityClassesList, (_event, rootPath: string) =>

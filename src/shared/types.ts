@@ -1,8 +1,4 @@
-import type {
-  DocumentVersionFileRole,
-  DocumentVersionScheme,
-  VersionBumpType
-} from '@shared/documentModel';
+import type { DocumentVersionFileRole, DocumentVersionScheme, VersionBumpType } from '@shared/documentModel';
 import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
@@ -45,6 +41,22 @@ export interface ConfidentialityClass {
 export interface WorkspaceLanguage {
   id: number;
   code: string;
+}
+
+export interface TemplateFile {
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+  modifiedDate: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  folderPath: string;
+  fileCount: number;
+  modifiedDate: string | null;
+  files: TemplateFile[];
 }
 
 export interface DocumentListItem {
@@ -284,6 +296,7 @@ export interface CreateDocumentInput {
   documentTypeId: number;
   author: string;
   versionScheme: DocumentVersionScheme;
+  templateId?: string | null;
   startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
@@ -347,6 +360,15 @@ export interface ProjectInput {
   name: string;
 }
 
+export interface CreateTemplateInput {
+  name: string;
+}
+
+export interface AddTemplateFilesInput {
+  templateId: string;
+  sourceFilePaths: string[];
+}
+
 export interface ConfidentialityClassInput {
   name: string;
 }
@@ -382,6 +404,7 @@ export interface WorkspaceSummary {
   dashboard: WorkspaceDashboardSummary;
   documentTypes: DocumentType[];
   projects: Project[];
+  templates: TemplateSummary[];
   confidentialityClasses: ConfidentialityClass[];
   languages: WorkspaceLanguage[];
   statuses: DocumentStatus[];

@@ -7,6 +7,7 @@ import type { WorkspaceManager } from '@main/database/workspaceManager';
 import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { FileStorageService, type ManagedFileInfo } from '@main/services/fileStorageService';
+import { TemplateService } from '@main/services/templateService';
 import { nowIso } from '@main/utils/date';
 import {
   isDocumentVersionFileRole,
@@ -149,6 +150,7 @@ export class DocumentService {
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly fileStorageService: FileStorageService,
+    private readonly templateService: TemplateService,
     private readonly activityLogService: ActivityLogService
   ) {}
 
@@ -269,115 +271,232 @@ export class DocumentService {
   create(rootPath: string, input: CreateDocumentInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
     this.assertCreateDocumentInput(input);
+    const template = input.templateId?.trim()
+      ? this.templateService.get(rootPath, input.templateId)
+      : null;
+    let createdDocumentFolderPath: string | null = null;
 
-    const insertedDocumentId = context.db.transaction(() => {
-      const type = context.db
-        .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes WHERE Id = @id')
-        .get({ id: input.documentTypeId }) as
-        | { Id: number; Name: string; NumberPrefix: string }
-        | undefined;
+    try {
+      const insertedDocumentId = context.db.transaction(() => {
+        const type = context.db
+          .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes WHERE Id = @id')
+          .get({ id: input.documentTypeId }) as
+          | { Id: number; Name: string; NumberPrefix: string }
+          | undefined;
 
-      if (!type) {
-        throw new Error('The selected document type could not be found.');
-      }
+        if (!type) {
+          throw new Error('The selected document type could not be found.');
+        }
 
-      const createdDate = nowIso();
-      const title = input.title.trim();
-      const author = input.author.trim();
-      const languageId = this.normalizeOptionalReference(
-        context.db,
-        'Languages',
-        input.languageId,
-        'The selected language could not be found.'
-      );
-      const confidentialityClassId = this.normalizeOptionalReference(
-        context.db,
-        'ConfidentialityClasses',
-        input.confidentialityClassId,
-        'The selected confidentiality class could not be found.'
-      );
-      const projectId = this.normalizeOptionalReference(
-        context.db,
-        'Projects',
-        input.projectId,
-        'The selected project could not be found.'
-      );
-      const languageCode = this.getLookupValue(context.db, 'Languages', 'Code', languageId);
-      const projectName = this.getLookupValue(context.db, 'Projects', 'Name', projectId);
-      const company = (input.company ?? context.settings.defaultCompany).trim();
-      const department = (input.department ?? context.settings.defaultDepartment).trim();
-      const startDate = this.normalizeDocumentStartDate(input.startDate, createdDate);
-      const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
-      const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
-        numberPrefix: type.NumberPrefix,
-        documentTypeName: type.Name,
-        createdDate,
-        title,
-        author,
-        languageCode,
-        company,
-        department,
-        projectName
-      });
-      const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
-        context.settings,
-        type.Name,
-        documentId,
-        title
-      );
-      this.fileStorageService.ensureDocumentFolder(context.rootPath, documentFolderPath);
-
-      const documentInsert = context.db
-        .prepare(
-          `
-            INSERT INTO Documents (
-              DocumentID,
-              Title,
-              DocumentTypeId,
-              VersionScheme,
-              DocumentFolderPath,
-              CreatedDate,
-              ModifiedDate,
-              Author,
-              StartDate,
-              LanguageId,
-              ConfidentialityClassId,
-              ProjectId,
-              Company,
-              Department,
-              RevisionIntervalMonths
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-        .run(
-          documentId,
+        const createdDate = nowIso();
+        const title = input.title.trim();
+        const author = input.author.trim();
+        const languageId = this.normalizeOptionalReference(
+          context.db,
+          'Languages',
+          input.languageId,
+          'The selected language could not be found.'
+        );
+        const confidentialityClassId = this.normalizeOptionalReference(
+          context.db,
+          'ConfidentialityClasses',
+          input.confidentialityClassId,
+          'The selected confidentiality class could not be found.'
+        );
+        const projectId = this.normalizeOptionalReference(
+          context.db,
+          'Projects',
+          input.projectId,
+          'The selected project could not be found.'
+        );
+        const languageCode = this.getLookupValue(context.db, 'Languages', 'Code', languageId);
+        const projectName = this.getLookupValue(context.db, 'Projects', 'Name', projectId);
+        const company = (input.company ?? context.settings.defaultCompany).trim();
+        const department = (input.department ?? context.settings.defaultDepartment).trim();
+        const startDate = this.normalizeDocumentStartDate(input.startDate, createdDate);
+        const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
+        const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
+          numberPrefix: type.NumberPrefix,
+          documentTypeName: type.Name,
+          createdDate,
           title,
-          input.documentTypeId,
-          input.versionScheme,
-          documentFolderPath,
-          createdDate,
-          createdDate,
           author,
-          startDate,
-          languageId,
-          confidentialityClassId,
-          projectId,
+          languageCode,
           company,
           department,
-          revisionIntervalMonths
+          projectName
+        });
+        const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
+          context.settings,
+          type.Name,
+          documentId,
+          title
         );
+        createdDocumentFolderPath = documentFolderPath;
+        this.fileStorageService.ensureDocumentFolder(context.rootPath, documentFolderPath);
 
-      const documentRecordId = Number(documentInsert.lastInsertRowid);
-      this.activityLogService.log(context.db, {
-        eventType: 'document.created',
-        message: `Created document "${title}".`,
-        documentRecordId
-      });
+        const documentInsert = context.db
+          .prepare(
+            `
+              INSERT INTO Documents (
+                DocumentID,
+                Title,
+                DocumentTypeId,
+                VersionScheme,
+                DocumentFolderPath,
+                CreatedDate,
+                ModifiedDate,
+                Author,
+                StartDate,
+                LanguageId,
+                ConfidentialityClassId,
+                ProjectId,
+                Company,
+                Department,
+                RevisionIntervalMonths
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `
+          )
+          .run(
+            documentId,
+            title,
+            input.documentTypeId,
+            input.versionScheme,
+            documentFolderPath,
+            createdDate,
+            createdDate,
+            author,
+            startDate,
+            languageId,
+            confidentialityClassId,
+            projectId,
+            company,
+            department,
+            revisionIntervalMonths
+          );
 
-      return documentRecordId;
-    })();
+        const documentRecordId = Number(documentInsert.lastInsertRowid);
+        this.activityLogService.log(context.db, {
+          eventType: 'document.created',
+          message: template
+            ? `Created document "${title}" from template "${template.name}".`
+            : `Created document "${title}".`,
+          documentRecordId
+        });
 
-    return this.getDetail(rootPath, insertedDocumentId);
+        if (template) {
+          const versionLabel = this.getNextVersionLabel(input.versionScheme, undefined, undefined);
+          this.assertTemplateFilesFitVersionLayout(context, documentFolderPath, versionLabel, template.files);
+          this.fileStorageService.ensureVersionFolder(
+            context.rootPath,
+            context.settings,
+            documentFolderPath,
+            versionLabel
+          );
+
+          const versionInsert = context.db
+            .prepare(
+              `
+                INSERT INTO DocumentVersions (
+                  DocumentId,
+                  VersionDocumentID,
+                  SequenceNumber,
+                  VersionLabel,
+                  Status,
+                  ReleasedDate,
+                  ReviewedBy,
+                  ApprovedBy,
+                  CreatedDate,
+                  Notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `
+            )
+            .run(
+              documentRecordId,
+              documentId,
+              1,
+              versionLabel,
+              'Draft',
+              null,
+              '',
+              '',
+              createdDate,
+              `Created from template "${template.name}".`
+            );
+          const documentVersionId = Number(versionInsert.lastInsertRowid);
+          const insertFile = context.db.prepare(
+            `
+              INSERT INTO DocumentVersionFiles (
+                DocumentVersionId,
+                Role,
+                FileName,
+                FilePath,
+                ContentHash,
+                FileSize,
+                ModifiedDate,
+                CreatedDate
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `
+          );
+
+          const filesByRole = template.files.reduce((accumulator, file) => {
+            const role = this.suggestRoleForFile(file.fileName);
+            const group = accumulator.get(role) ?? [];
+            group.push(file);
+            accumulator.set(role, group);
+            return accumulator;
+          }, new Map<DocumentVersionFileRole, typeof template.files>());
+
+          for (const role of FILE_ROLE_SORT_ORDER) {
+            const templateFiles = filesByRole.get(role) ?? [];
+            if (templateFiles.length === 0) {
+              continue;
+            }
+
+            const importedFiles = this.fileStorageService.importManagedFiles(
+              context.rootPath,
+              context.settings,
+              documentFolderPath,
+              versionLabel,
+              role,
+              templateFiles.map((file) =>
+                this.fileStorageService.resolveStoredFilePath(context.rootPath, file.filePath)
+              )
+            );
+
+            for (const file of importedFiles) {
+              insertFile.run(
+                documentVersionId,
+                role,
+                file.fileName,
+                file.relativePath,
+                file.contentHash,
+                file.fileSize,
+                file.modifiedDate,
+                createdDate
+              );
+            }
+          }
+
+          this.activityLogService.log(context.db, {
+            eventType: 'document.version.created',
+            message: `Created version ${versionLabel} from template "${template.name}".`,
+            documentRecordId,
+            documentVersionId
+          });
+        }
+
+        return documentRecordId;
+      })();
+
+      return this.getDetail(rootPath, insertedDocumentId);
+    } catch (error) {
+      if (createdDocumentFolderPath) {
+        this.fileStorageService.deleteDocumentFolder(context.rootPath, createdDocumentFolderPath);
+      }
+
+      throw error;
+    }
   }
 
   createVersion(rootPath: string, input: CreateVersionInput): DocumentDetail {
@@ -1893,6 +2012,36 @@ export class DocumentService {
     return readdirSync(absolutePath).flatMap((entry) =>
       this.collectFilesFromPath(path.join(absolutePath, entry))
     );
+  }
+
+  private assertTemplateFilesFitVersionLayout(
+    context: ReturnType<WorkspaceManager['getContext']>,
+    documentFolderPath: string,
+    versionLabel: string,
+    files: Array<{ fileName: string }>
+  ): void {
+    const seenPaths = new Map<string, string>();
+
+    for (const file of files) {
+      const role = this.suggestRoleForFile(file.fileName);
+      const relativePath = this.fileStorageService.getStoredRelativePath(
+        context.settings,
+        documentFolderPath,
+        versionLabel,
+        role,
+        file.fileName
+      );
+      const normalizedPath = this.fileStorageService.normalizeRelativePath(relativePath);
+      const existingFileName = seenPaths.get(normalizedPath);
+
+      if (existingFileName) {
+        throw new Error(
+          `The selected template contains a filename collision for "${existingFileName}" in the target document layout.`
+        );
+      }
+
+      seenPaths.set(normalizedPath, file.fileName);
+    }
   }
 
   private getNextVersionDocumentId(

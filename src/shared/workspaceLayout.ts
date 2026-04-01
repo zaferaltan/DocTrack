@@ -3,6 +3,7 @@ import { DOCUMENT_VERSION_FILE_ROLES, isDocumentVersionFileRole } from '@shared/
 export const WORKSPACE_DATABASE_DIRECTORY_NAME = 'Database';
 export const WORKSPACE_DATABASE_FILE_NAME = 'workspace.sqlite';
 export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
+export const WORKSPACE_TEMPLATES_DIRECTORY_NAME = 'Templates';
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
 export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
@@ -298,10 +299,19 @@ export const normalizeVisibleDocumentColumns = (value: unknown): DocumentTableCo
 export const getWorkspaceDatabaseRelativePath = (): string =>
   joinRelativeSegments(WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
 
+export const getWorkspaceTemplatesRelativePath = (): string =>
+  joinRelativeSegments(WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+
 export const getDocumentTypeDirectoryRelativePath = (documentTypeName: string): string =>
   joinRelativeSegments(
     WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
     sanitizeStoragePathSegment(documentTypeName, 'Uncategorized')
+  );
+
+export const getTemplateFolderRelativePath = (templateName: string): string =>
+  joinRelativeSegments(
+    WORKSPACE_TEMPLATES_DIRECTORY_NAME,
+    sanitizeStoragePathSegment(templateName, 'Untitled Template')
   );
 
 export const buildDocumentFolderRelativePath = (
@@ -337,6 +347,11 @@ export const buildVersionFileRelativePath = (
       : '',
     sanitizeStoragePathSegment(fileName, 'document.bin')
   );
+
+export const buildTemplateFileRelativePath = (
+  templateFolderPath: string,
+  fileName: string
+): string => joinRelativeSegments(templateFolderPath, sanitizeStoragePathSegment(fileName, 'document.bin'));
 
 export const getRecognizedRoleDirectoryNames = (): string[] => [...DOCUMENT_VERSION_FILE_ROLES];
 

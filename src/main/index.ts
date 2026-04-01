@@ -9,6 +9,7 @@ import { DocumentExportService } from '@main/services/documentExportService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
@@ -50,6 +51,7 @@ app.whenReady().then(async () => {
   const catalogService = new AppCatalogService(path.join(app.getPath('userData'), 'catalog.json'));
   const workspaceManager = new WorkspaceManager();
   const fileStorageService = new FileStorageService();
+  const templateService = new TemplateService(fileStorageService);
   const documentIdGenerator = new DocumentIdGeneratorService();
   const activityLogService = new ActivityLogService();
   const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
@@ -58,6 +60,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     documentIdGenerator,
     fileStorageService,
+    templateService,
     activityLogService
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
@@ -66,6 +69,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     documentService,
     fileStorageService,
+    templateService,
     workspaceCatalogService,
     catalogService,
     documentIdGenerator,
@@ -79,6 +83,7 @@ app.whenReady().then(async () => {
     documentExportService,
     documentTypeService,
     workspaceCatalogService,
+    templateService,
     catalogService
   });
 

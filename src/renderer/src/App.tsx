@@ -112,6 +112,7 @@ import {
   WORKSPACE_VERSION_MANAGEMENT_OPTIONS,
   getDocumentTableColumnLabel,
   getDocumentIdFormatTemplateForPreset,
+  getWorkspaceTemplatesRelativePath,
   normalizeDocumentIdFormatTemplate,
   resolveDocumentIdFormatTemplate,
   type DocumentTableColumn,
@@ -135,6 +136,7 @@ import type {
   IntegrityCheckResult,
   Project,
   RestoreBackupPreview,
+  TemplateSummary,
   UpdateDocumentInput,
   UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
@@ -191,6 +193,7 @@ const buildCreateDocumentDialogState = (
   open: true,
   author: applicationSettings.defaultDocumentAuthor,
   versionScheme: applicationSettings.defaultDocumentVersionScheme,
+  templateId: "",
   company: workspaceSettings.defaultCompany,
   department: workspaceSettings.defaultDepartment,
   startDate: new Date().toISOString().slice(0, 10),
@@ -207,6 +210,7 @@ const buildEditDocumentDialogState = (
   documentTypeId: String(documentDetail.typeId),
   author: documentDetail.author,
   versionScheme: documentDetail.versionScheme,
+  templateId: "",
   languageId: documentDetail.languageId
     ? String(documentDetail.languageId)
     : "",
@@ -275,6 +279,7 @@ interface DocumentDialogState {
   documentTypeId: string;
   author: string;
   versionScheme: DocumentVersionScheme;
+  templateId: string;
   startDate: string;
   languageId: string;
   confidentialityClassId: string;
@@ -334,6 +339,19 @@ interface ProjectDialogState {
   open: boolean;
   id?: number;
   name: string;
+  isSubmitting: boolean;
+}
+
+interface TemplateDialogState {
+  open: boolean;
+  name: string;
+  isSubmitting: boolean;
+}
+
+interface TemplateFilesDialogState {
+  open: boolean;
+  templateId?: string;
+  templateName: string;
   isSubmitting: boolean;
 }
 
@@ -476,6 +494,7 @@ const defaultDocumentDialogState: DocumentDialogState = {
   documentTypeId: "",
   author: "",
   versionScheme: "numeric-3",
+  templateId: "",
   startDate: "",
   languageId: "",
   confidentialityClassId: "",
@@ -534,6 +553,19 @@ const defaultProjectDialogState: ProjectDialogState = {
   open: false,
   id: undefined,
   name: "",
+  isSubmitting: false,
+};
+
+const defaultTemplateDialogState: TemplateDialogState = {
+  open: false,
+  name: "",
+  isSubmitting: false,
+};
+
+const defaultTemplateFilesDialogState: TemplateFilesDialogState = {
+  open: false,
+  templateId: undefined,
+  templateName: "",
   isSubmitting: false,
 };
 
@@ -971,6 +1003,10 @@ function App() {
   );
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
   const [projectDialog, setProjectDialog] = useState(defaultProjectDialogState);
+  const [templateDialog, setTemplateDialog] = useState(defaultTemplateDialogState);
+  const [templateFilesDialog, setTemplateFilesDialog] = useState(
+    defaultTemplateFilesDialogState,
+  );
   const [classificationDialog, setClassificationDialog] = useState(
     defaultClassificationDialogState,
   );
@@ -1613,6 +1649,7 @@ function App() {
               ...documentInput,
               documentTypeId: Number(documentDialog.documentTypeId),
               versionScheme: documentDialog.versionScheme,
+              templateId: documentDialog.templateId || null,
             } satisfies CreateDocumentInput)
           : await window.docTrack.documents.update(activeWorkspacePath, {
               documentRecordId: documentDialog.documentRecordId!,
@@ -1904,6 +1941,90 @@ function App() {
       await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete project.");
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      setTemplateDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.templates.create(activeWorkspacePath, {
+        name: templateDialog.name,
+      });
+      await refreshWorkspace(activeWorkspacePath);
+      setTemplateDialog(defaultTemplateDialogState);
+      setNotification({
+        tone: "success",
+        message: `Template "${templateDialog.name.trim()}" added to this workspace.`,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to create template.");
+      setTemplateDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleAddFilesToTemplate = async () => {
+    if (!activeWorkspacePath || !templateFilesDialog.templateId) {
+      return;
+    }
+
+    try {
+      setTemplateFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      const sourceFilePaths = await window.docTrack.dialogs.pickDocumentFiles();
+      if (sourceFilePaths.length === 0) {
+        setTemplateFilesDialog((state) => ({ ...state, isSubmitting: false }));
+        return;
+      }
+
+      await window.docTrack.templates.addFiles(activeWorkspacePath, {
+        templateId: templateFilesDialog.templateId,
+        sourceFilePaths,
+      });
+      await refreshWorkspace(activeWorkspacePath);
+      setTemplateFilesDialog(defaultTemplateFilesDialogState);
+      setNotification({
+        tone: "success",
+        message: `Added ${sourceFilePaths.length} file${sourceFilePaths.length === 1 ? "" : "s"} to "${templateFilesDialog.templateName}".`,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to add files to the selected template.");
+      setTemplateFilesDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
+  const handleDeleteTemplate = async (template: TemplateSummary) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const performDelete = async () => {
+      await window.docTrack.templates.delete(activeWorkspacePath, template.id);
+      await refreshWorkspace(activeWorkspacePath);
+      setNotification({
+        tone: "success",
+        message: `"${template.name}" removed from this workspace.`,
+      });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Template",
+        description: `Delete "${template.name}" from this workspace. This removes its template files from the Templates folder.`,
+        confirmLabel: "Delete Template",
+        tone: "destructive",
+        detailLines: [`${template.fileCount} file${template.fileCount === 1 ? "" : "s"}`],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
+    } catch (error) {
+      notifyError(error, "Unable to delete template.");
     }
   };
 
@@ -2979,6 +3100,49 @@ function App() {
         onAssignProject={handleAssignProjectToDocument}
       />
     );
+  } else if (activeWorkspace.selectedView === "templates") {
+    activeWorkspaceContent = (
+      <TemplatesView
+        workspace={activeWorkspace}
+        onCreateTemplate={() =>
+          setTemplateDialog({ ...defaultTemplateDialogState, open: true })
+        }
+        onAddFiles={(template) =>
+          setTemplateFilesDialog({
+            open: true,
+            templateId: template.id,
+            templateName: template.name,
+            isSubmitting: false,
+          })
+        }
+        onOpenTemplatesFolder={() => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          void window.docTrack.documents
+            .openStoredPath(
+              activeWorkspacePath,
+              getWorkspaceTemplatesRelativePath(),
+            )
+            .catch((error: Error) => {
+              notifyError(error, "Unable to open the templates folder.");
+            });
+        }}
+        onOpenTemplateFolder={(template) => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          void window.docTrack.documents
+            .openStoredPath(activeWorkspacePath, template.folderPath)
+            .catch((error: Error) => {
+              notifyError(error, "Unable to open the selected template folder.");
+            });
+        }}
+        onDeleteTemplate={handleDeleteTemplate}
+      />
+    );
   } else if (activeWorkspace.selectedView === "classifications") {
     activeWorkspaceContent = (
       <ClassificationsView
@@ -3294,6 +3458,16 @@ function App() {
               />
             ) : null}
             <SidebarButton
+              icon={FileStack}
+              label="Templates"
+              active={activeWorkspace?.selectedView === "templates"}
+              disabled={!activeWorkspace}
+              onClick={() =>
+                activeWorkspacePath &&
+                setWorkspaceView(activeWorkspacePath, "templates")
+              }
+            />
+            <SidebarButton
               icon={LayoutPanelLeft}
               label="Document Types"
               active={activeWorkspace?.selectedView === "documentTypes"}
@@ -3400,6 +3574,7 @@ function App() {
         onStateChange={setDocumentDialog}
         onSubmit={handleSaveDocument}
         documentTypes={activeWorkspace?.documentTypes ?? []}
+        templates={activeWorkspace?.templates ?? []}
         projects={activeWorkspace?.projects ?? []}
         confidentialityClasses={activeWorkspace?.confidentialityClasses ?? []}
         languages={activeWorkspace?.languages ?? []}
@@ -3467,6 +3642,32 @@ function App() {
         state={projectDialog}
         onStateChange={setProjectDialog}
         onSubmit={handleSaveProject}
+      />
+
+      <TemplateDialog
+        open={templateDialog.open}
+        onOpenChange={(open) =>
+          setTemplateDialog(
+            open ? { ...templateDialog, open } : defaultTemplateDialogState,
+          )
+        }
+        state={templateDialog}
+        onStateChange={setTemplateDialog}
+        onSubmit={handleSaveTemplate}
+      />
+
+      <TemplateFilesDialog
+        open={templateFilesDialog.open}
+        onOpenChange={(open) =>
+          setTemplateFilesDialog(
+            open
+              ? { ...templateFilesDialog, open }
+              : defaultTemplateFilesDialogState,
+          )
+        }
+        state={templateFilesDialog}
+        onStateChange={setTemplateFilesDialog}
+        onSubmit={handleAddFilesToTemplate}
       />
 
       <ConfidentialityClassDialog
@@ -6594,6 +6795,138 @@ function ProjectsView({
   );
 }
 
+function TemplatesView({
+  workspace,
+  onCreateTemplate,
+  onAddFiles,
+  onOpenTemplatesFolder,
+  onOpenTemplateFolder,
+  onDeleteTemplate,
+}: {
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
+  onCreateTemplate: () => void;
+  onAddFiles: (template: TemplateSummary) => void;
+  onOpenTemplatesFolder: () => void;
+  onOpenTemplateFolder: (template: TemplateSummary) => void;
+  onDeleteTemplate: (template: TemplateSummary) => void;
+}) {
+  const totalTemplateFiles = workspace.templates.reduce(
+    (total, template) => total + template.fileCount,
+    0,
+  );
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
+        <div>
+          <div className="text-lg font-semibold">Templates</div>
+          <div className="mt-1 text-[13px] text-muted-foreground">
+            Reusable workspace document starters stored in the root Templates
+            folder.
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={onOpenTemplatesFolder}>
+            <FolderOpen className="h-4 w-4" />
+            Open Templates Folder
+          </Button>
+          <Button onClick={onCreateTemplate}>
+            <Plus className="h-4 w-4" />
+            Add Template
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-border bg-background px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Total Templates
+          </div>
+          <div className="mt-2 text-2xl font-semibold">
+            {workspace.templates.length}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-background px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Total Template Files
+          </div>
+          <div className="mt-2 text-2xl font-semibold">{totalTemplateFiles}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {workspace.templates.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+            No templates yet. Create one, add files, and use it when
+            creating a new document.
+          </div>
+        ) : (
+          workspace.templates.map((template) => {
+            return (
+              <div
+                key={template.id}
+                className="rounded-xl border border-border bg-background p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="copyable-text text-base font-semibold">
+                      {template.name}
+                    </div>
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      {template.fileCount} file
+                      {template.fileCount === 1 ? "" : "s"}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-primary">
+                      {template.folderPath}
+                    </div>
+                  </div>
+                  <Badge variant="outline">Template</Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {template.files.length === 0 ? (
+                    <Badge variant="outline">No files yet</Badge>
+                  ) : (
+                    template.files.map((file) => (
+                      <Badge key={file.filePath} variant="outline">
+                        {file.fileName}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onAddFiles(template)}
+                  >
+                    <Upload className="h-4 w-4" />
+                    Add Files
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onOpenTemplateFolder(template)}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Open Folder
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDeleteTemplate(template)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ClassificationsView({
   workspace,
   onCreateConfidentialityClass,
@@ -7658,6 +7991,7 @@ function DocumentDialog({
   onStateChange,
   onSubmit,
   documentTypes,
+  templates,
   projects,
   confidentialityClasses,
   languages,
@@ -7669,6 +8003,7 @@ function DocumentDialog({
   onStateChange: React.Dispatch<React.SetStateAction<DocumentDialogState>>;
   onSubmit: () => Promise<void>;
   documentTypes: DocumentType[];
+  templates: TemplateSummary[];
   projects: Project[];
   confidentialityClasses: ConfidentialityClass[];
   languages: WorkspaceLanguage[];
@@ -7793,6 +8128,30 @@ function DocumentDialog({
                 <div className="text-xs text-muted-foreground">
                   This controls how version folders are labeled for this
                   document.
+                </div>
+              </Field>
+
+              <Field label="Template">
+                <Select
+                  value={state.templateId}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      templateId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">No template</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {state.templateId
+                    ? "Choosing a template creates the initial version immediately and imports the template files as tracked files."
+                    : "Leave this empty to create a metadata-only document shell first."}
                 </div>
               </Field>
             </>
@@ -8315,6 +8674,115 @@ function ProjectDialog({
               <Plus className="h-4 w-4" />
             )}
             Save Project
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TemplateDialog({
+  open,
+  onOpenChange,
+  state,
+  onStateChange,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  state: TemplateDialogState;
+  onStateChange: React.Dispatch<React.SetStateAction<TemplateDialogState>>;
+  onSubmit: () => Promise<void>;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[540px]">
+        <DialogHeader>
+          <DialogTitle>Create Template</DialogTitle>
+          <DialogDescription>
+            Templates are stored as folders in the workspace Templates
+            directory.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Field label="Template Name">
+          <Input
+            placeholder="Procedure Starter"
+            value={state.name}
+            onChange={(event) =>
+              onStateChange((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
+          />
+        </Field>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            Save Template
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TemplateFilesDialog({
+  open,
+  onOpenChange,
+  state,
+  onStateChange,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  state: TemplateFilesDialogState;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<TemplateFilesDialogState>
+  >;
+  onSubmit: () => Promise<void>;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Add Template Files</DialogTitle>
+          <DialogDescription>
+            Files added here become reusable starter content for new documents
+            created from this template.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="rounded-xl border border-border bg-background p-3">
+            <div className="text-sm font-semibold">{state.templateName}</div>
+            <div className="mt-1 text-[13px] text-muted-foreground">
+              Imported files are stored directly inside this template folder in
+              the workspace Templates directory.
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            Select and Add Files
           </Button>
         </DialogFooter>
       </DialogContent>

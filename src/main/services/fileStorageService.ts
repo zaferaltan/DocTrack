@@ -12,14 +12,17 @@ import {
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
+  buildTemplateFileRelativePath,
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
   buildVersionFileRelativePath,
   getDocumentTypeDirectoryRelativePath,
   getRecognizedRoleDirectoryNames,
+  getTemplateFolderRelativePath,
   isRecognizedRoleDirectoryName,
   sanitizeStoragePathSegment,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  WORKSPACE_TEMPLATES_DIRECTORY_NAME,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -41,9 +44,21 @@ export interface VersionFolderScanResult {
   unmanagedPaths: string[];
 }
 
+export type TemplateStoredFile = ManagedFileInfo;
+
 export class FileStorageService {
   getWorkspaceDocumentsDirectory(rootPath: string): string {
     return path.join(rootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
+  }
+
+  getWorkspaceTemplatesDirectory(rootPath: string): string {
+    return path.join(rootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+  }
+
+  ensureTemplatesDirectory(rootPath: string): string {
+    const directoryPath = this.getWorkspaceTemplatesDirectory(rootPath);
+    mkdirSync(directoryPath, { recursive: true });
+    return directoryPath;
   }
 
   getDocumentTypeDirectory(rootPath: string, documentTypeName: string): string {
@@ -59,6 +74,82 @@ export class FileStorageService {
   ensureDocumentTypeDirectories(rootPath: string, documentTypeNames: string[]): void {
     for (const documentTypeName of documentTypeNames) {
       this.ensureDocumentTypeDirectory(rootPath, documentTypeName);
+    }
+  }
+
+  getTemplateFolderRelativePath(templateId: string): string {
+    return getTemplateFolderRelativePath(templateId);
+  }
+
+  getTemplateFolderAbsolutePath(rootPath: string, templateId: string): string {
+    return this.resolveStoredFilePath(rootPath, this.getTemplateFolderRelativePath(templateId), true);
+  }
+
+  ensureTemplateFolder(rootPath: string, templateId: string): string {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+    mkdirSync(templateFolderAbsolutePath, { recursive: true });
+    return templateFolderAbsolutePath;
+  }
+
+  getTemplateStoredRelativePath(templateId: string, fileName: string): string {
+    return buildTemplateFileRelativePath(
+      this.getTemplateFolderRelativePath(templateId),
+      sanitizeStoragePathSegment(path.basename(fileName), 'document.bin')
+    );
+  }
+
+  importTemplateFiles(
+    rootPath: string,
+    templateId: string,
+    sourceFilePaths: string[]
+  ): ManagedFileInfo[] {
+    if (sourceFilePaths.length === 0) {
+      return [];
+    }
+
+    this.ensureTemplateFolder(rootPath, templateId);
+
+    return sourceFilePaths.map((sourceFilePath) => {
+      if (!existsSync(sourceFilePath)) {
+        throw new Error('Selected source file could not be found.');
+      }
+
+      const fileName = sanitizeStoragePathSegment(path.basename(sourceFilePath), 'document.bin');
+      const relativePath = this.getTemplateStoredRelativePath(templateId, fileName);
+      const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
+      mkdirSync(path.dirname(absolutePath), { recursive: true });
+
+      if (existsSync(absolutePath)) {
+        throw new Error(`A file named "${fileName}" already exists in this template.`);
+      }
+
+      copyFileSync(sourceFilePath, absolutePath);
+      return this.readManagedFileInfo(rootPath, relativePath);
+    });
+  }
+
+  listTemplateFiles(rootPath: string, templateId: string): TemplateStoredFile[] {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+    if (!existsSync(templateFolderAbsolutePath)) {
+      return [];
+    }
+
+    return readdirSync(templateFolderAbsolutePath, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        this.readManagedFileInfo(
+          rootPath,
+          this.normalizeRelativePath(path.posix.join(this.getTemplateFolderRelativePath(templateId), entry.name))
+        )
+      )
+      .sort((left, right) => left.fileName.localeCompare(right.fileName));
+  }
+
+  deleteTemplateFolder(rootPath: string, templateId: string): void {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+
+    if (existsSync(templateFolderAbsolutePath)) {
+      rmSync(templateFolderAbsolutePath, { recursive: true, force: true });
     }
   }
 

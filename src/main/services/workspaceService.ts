@@ -7,6 +7,7 @@ import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { nowIso } from '@main/utils/date';
@@ -48,6 +49,7 @@ export class WorkspaceService {
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentService: DocumentService,
     private readonly fileStorageService: FileStorageService,
+    private readonly templateService: TemplateService,
     private readonly workspaceCatalogService: WorkspaceCatalogService,
     private readonly catalogService: AppCatalogService,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
@@ -123,6 +125,7 @@ export class WorkspaceService {
         dashboard: this.buildDashboardSummary(context, documents),
         documentTypes: this.mapTypeRows(typeRows),
         projects: this.workspaceCatalogService.listProjects(rootPath),
+        templates: this.templateService.list(rootPath),
         confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
         languages: this.workspaceCatalogService.listLanguages(rootPath),
         statuses: [...DOCUMENT_STATUSES]

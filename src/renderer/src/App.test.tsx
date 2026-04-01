@@ -86,6 +86,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
       }
     ],
     projects: [],
+    templates: [],
     confidentialityClasses: [],
     languages: [
       {
@@ -310,6 +311,12 @@ const buildDocTrackMock = (
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined)
+    },
+    templates: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      addFiles: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined)
     },
     confidentialityClasses: {
@@ -1510,6 +1517,144 @@ describe('App', () => {
     await click(getButton('Workspace Settings'));
     const dialog = getDialog();
     expect(dialog.className).toContain('max-h-[85vh]');
+
+    await view.unmount();
+  });
+
+  it('shows the templates workspace view and routes template actions through IPC', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.templates = [
+      {
+        id: 'Procedure Starter',
+        name: 'Procedure Starter',
+        folderPath: 'Templates/Procedure Starter',
+        fileCount: 1,
+        modifiedDate: '2026-03-31T12:00:00.000Z',
+        files: [
+          {
+            fileName: 'starter.docx',
+            filePath: 'Templates/Procedure Starter/starter.docx',
+            fileSize: 128,
+            modifiedDate: '2026-03-31T12:00:00.000Z'
+          }
+        ]
+      }
+    ];
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.templates.create = vi.fn().mockResolvedValue(workspaceResult.summary.templates[0]);
+    docTrack.templates.addFiles = vi.fn().mockResolvedValue(workspaceResult.summary.templates[0]);
+    docTrack.dialogs.pickDocumentFiles = vi
+      .fn()
+      .mockResolvedValue(['/incoming/template-starter.docx']);
+
+    const view = await renderApp();
+
+    await click(getButton('Templates'));
+    expect(document.body.textContent).toContain(
+      'Reusable workspace document starters stored in the root Templates folder.'
+    );
+
+    await click(getButton('Add Template'));
+    let dialog = getDialog();
+    await changeInput(
+      getLabeledControl(dialog, 'Template Name', 'input') as HTMLInputElement,
+      'Procedure Starter'
+    );
+    await click(getButton('Save Template', dialog));
+
+    expect(docTrack.templates.create).toHaveBeenCalledWith(workspaceInfo.rootPath, {
+      name: 'Procedure Starter'
+    });
+
+    await click(getButton('Add Files'));
+    dialog = getDialog();
+    await click(getButton('Select and Add Files', dialog));
+
+    expect(docTrack.templates.addFiles).toHaveBeenCalledWith(workspaceInfo.rootPath, {
+      templateId: 'Procedure Starter',
+      sourceFilePaths: ['/incoming/template-starter.docx']
+    });
+
+    await view.unmount();
+  });
+
+  it('includes the selected template when creating a document', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.templates = [
+      {
+        id: 'Procedure Starter',
+        name: 'Procedure Starter',
+        folderPath: 'Templates/Procedure Starter',
+        fileCount: 1,
+        modifiedDate: '2026-03-31T12:00:00.000Z',
+        files: [
+          {
+            fileName: 'starter.docx',
+            filePath: 'Templates/Procedure Starter/starter.docx',
+            fileSize: 128,
+            modifiedDate: '2026-03-31T12:00:00.000Z'
+          }
+        ]
+      }
+    ];
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.documents.create = vi.fn().mockResolvedValue(
+      buildDocumentDetail({
+        versions: [
+          {
+            ...buildDocumentDetail().versions[0]!,
+            revisionDescription: 'Created from template "Procedure Starter".'
+          }
+        ]
+      })
+    );
+
+    const view = await renderApp();
+
+    await click(getButton('New Document'));
+    const dialog = getDialog();
+    await changeInput(
+      getLabeledControl(dialog, 'Title', 'input') as HTMLInputElement,
+      'Templated Procedure'
+    );
+    await changeInput(
+      getLabeledControl(dialog, 'Author', 'input') as HTMLInputElement,
+      'Taylor Reed'
+    );
+    await changeSelect(
+      getLabeledControl(dialog, 'Document Type', 'select') as HTMLSelectElement,
+      '2'
+    );
+    await changeSelect(
+      getLabeledControl(dialog, 'Template', 'select') as HTMLSelectElement,
+      'Procedure Starter'
+    );
+    await click(getButton('Create Document', dialog));
+
+    expect(docTrack.documents.create).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        title: 'Templated Procedure',
+        author: 'Taylor Reed',
+        documentTypeId: 2,
+        versionScheme: 'numeric-3',
+        templateId: 'Procedure Starter'
+      })
+    );
 
     await view.unmount();
   });

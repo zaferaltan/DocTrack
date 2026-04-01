@@ -10,13 +10,15 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DATABASE_DIRECTORY_NAME,
-  WORKSPACE_DATABASE_FILE_NAME
+  WORKSPACE_DATABASE_FILE_NAME,
+  WORKSPACE_TEMPLATES_DIRECTORY_NAME
 } from '@shared/workspaceLayout';
 
 vi.mock('electron', () => ({
@@ -35,11 +37,13 @@ describe('workspace integration', () => {
   let workspaceManager: WorkspaceManager;
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
+  let templateService: TemplateService;
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-workspace-'));
     workspaceManager = new WorkspaceManager();
     const fileStorageService = new FileStorageService();
+    templateService = new TemplateService(fileStorageService);
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
@@ -48,6 +52,7 @@ describe('workspace integration', () => {
       workspaceManager,
       documentIdGenerator,
       fileStorageService,
+      templateService,
       activityLogService
     );
     new DocumentTypeService(workspaceManager, fileStorageService);
@@ -56,6 +61,7 @@ describe('workspace integration', () => {
       workspaceManager,
       documentService,
       fileStorageService,
+      templateService,
       workspaceCatalogService,
       catalogService,
       documentIdGenerator,
@@ -106,6 +112,8 @@ describe('workspace integration', () => {
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Specification'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Report'))).toBe(true);
+    expect(existsSync(path.join(workspaceRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME))).toBe(true);
+    expect(result.summary.templates).toEqual([]);
   });
 
   it('stores the workspace name separately from a custom workspace folder name', () => {
@@ -376,5 +384,51 @@ describe('workspace integration', () => {
     const integrity = workspaceService.integrityCheck(workspaceRootPath);
     expect(integrity.issueCount).toBeGreaterThan(0);
     expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(true);
+  });
+
+  it('preserves templates across backup and restore', () => {
+    const created = workspaceService.create({
+      name: 'Template Recovery',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+    const sourceFile = path.join(tempRoot, 'incoming', 'template-procedure.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'template procedure', 'utf8');
+
+    const template = templateService.create(workspaceRootPath, {
+      name: 'Procedure Starter'
+    });
+    templateService.addFiles(workspaceRootPath, {
+      templateId: template.id,
+      sourceFilePaths: [sourceFile]
+    });
+
+    const backup = workspaceService.createBackup(workspaceRootPath);
+    const restored = workspaceService.restoreBackup(workspaceRootPath, {
+      backupId: backup.backup.id,
+      destinationParentPath: tempRoot,
+      destinationFolderName: 'Template Recovery Restored'
+    });
+
+    expect(restored.summary.templates).toHaveLength(1);
+    expect(restored.summary.templates[0]?.name).toBe('Procedure Starter');
+    expect(restored.summary.templates[0]?.files[0]?.fileName).toBe('template-procedure.docx');
+    expect(
+      existsSync(
+        path.join(
+          restored.workspace.rootPath,
+          'Templates',
+          'Procedure Starter',
+          'template-procedure.docx'
+        )
+      )
+    ).toBe(true);
   });
 });

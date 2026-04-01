@@ -14,6 +14,7 @@ import {
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  WORKSPACE_TEMPLATES_DIRECTORY_NAME,
   isDocumentIdFormatPreset,
   normalizeDocumentIdFormatTemplate,
   isWorkspaceFileOrganizationMode,
@@ -57,6 +58,7 @@ export interface WorkspaceContext {
   databaseFilePath: string;
   databaseDirectoryPath: string;
   documentsDirectoryPath: string;
+  templatesDirectoryPath: string;
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
 }
@@ -85,11 +87,13 @@ export class WorkspaceManager {
 
     const databaseDirectoryPath = this.getWorkspaceDatabaseDirectoryPath(resolvedRootPath);
     const documentsDirectoryPath = this.getWorkspaceDocumentsDirectoryPath(resolvedRootPath);
+    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(resolvedRootPath);
     const databaseFilePath = this.getWorkspaceDatabaseFilePath(resolvedRootPath);
     const settings = this.normalizeWorkspaceSettings(input.settings);
 
     mkdirSync(databaseDirectoryPath, { recursive: true });
     mkdirSync(documentsDirectoryPath, { recursive: true });
+    mkdirSync(templatesDirectoryPath, { recursive: true });
     const db = new Database(databaseFilePath);
 
     try {
@@ -222,6 +226,8 @@ export class WorkspaceManager {
 
   private buildContext(db: Database.Database, rootPath: string): WorkspaceContext {
     const databaseFilePath = this.getWorkspaceDatabaseFilePath(rootPath);
+    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(rootPath);
+    mkdirSync(templatesDirectoryPath, { recursive: true });
     db.prepare('UPDATE Workspaces SET FilePath = ?, RootPath = ? WHERE Id = 1').run(
       databaseFilePath,
       rootPath
@@ -233,6 +239,7 @@ export class WorkspaceManager {
       databaseFilePath,
       databaseDirectoryPath: this.getWorkspaceDatabaseDirectoryPath(rootPath),
       documentsDirectoryPath: this.getWorkspaceDocumentsDirectoryPath(rootPath),
+      templatesDirectoryPath,
       workspace: this.readWorkspaceInfo(db, rootPath),
       settings: this.readWorkspaceSettings(db)
     };
@@ -365,6 +372,10 @@ export class WorkspaceManager {
     return path.join(rootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
   }
 
+  private getWorkspaceTemplatesDirectoryPath(rootPath: string): string {
+    return path.join(rootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+  }
+
   private getWorkspaceDatabaseFilePath(rootPath: string): string {
     return path.join(rootPath, WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
   }
@@ -375,6 +386,7 @@ export class WorkspaceManager {
     const backupRootPath = path.join(rootPath, BACKUPS_DIRECTORY_NAME, backupId);
     const databaseSourcePath = this.getWorkspaceDatabaseDirectoryPath(rootPath);
     const documentsSourcePath = this.getWorkspaceDocumentsDirectoryPath(rootPath);
+    const templatesSourcePath = this.getWorkspaceTemplatesDirectoryPath(rootPath);
     const manifestPath = path.join(backupRootPath, 'manifest.json');
 
     mkdirSync(backupRootPath, { recursive: true });
@@ -384,6 +396,11 @@ export class WorkspaceManager {
     cpSync(documentsSourcePath, path.join(backupRootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME), {
       recursive: true
     });
+    if (existsSync(templatesSourcePath)) {
+      cpSync(templatesSourcePath, path.join(backupRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME), {
+        recursive: true
+      });
+    }
 
     writeFileSync(
       manifestPath,
@@ -402,6 +419,7 @@ export class WorkspaceManager {
           reason: 'safety',
           databaseDirectoryName: WORKSPACE_DATABASE_DIRECTORY_NAME,
           documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+          templatesDirectoryName: WORKSPACE_TEMPLATES_DIRECTORY_NAME,
           pendingMigrationIds
         },
         null,

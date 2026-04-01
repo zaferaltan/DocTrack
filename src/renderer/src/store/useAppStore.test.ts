@@ -42,6 +42,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
       }
     ],
     projects: [],
+    templates: [],
     confidentialityClasses: [],
     languages: [],
     statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete']
@@ -111,6 +112,12 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       update: vi.fn(),
       delete: vi.fn()
     },
+    templates: {
+      list: vi.fn(),
+      create: vi.fn(),
+      addFiles: vi.fn(),
+      delete: vi.fn()
+    },
     confidentialityClasses: {
       list: vi.fn(),
       create: vi.fn(),
@@ -159,6 +166,21 @@ describe('useAppStore', () => {
     expect(store.getState().activeWorkspacePath).toBe(workspaceInfo.rootPath);
     expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe(
       'documentTypes'
+    );
+  });
+
+  it('can persist templates as the default workspace view', async () => {
+    const docTrack = installDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      defaultWorkspaceView: 'templates'
+    });
+    const store = createAppStore();
+
+    await store.getState().bootstrap();
+
+    expect(docTrack.workspace.getSummary).toHaveBeenCalledWith(workspaceInfo.rootPath);
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe(
+      'templates'
     );
   });
 

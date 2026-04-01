@@ -9,6 +9,7 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
@@ -31,6 +32,7 @@ describe('document workflow integration', () => {
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
   let documentTypeService: DocumentTypeService;
+  let templateService: TemplateService;
   let workspaceCatalogService: WorkspaceCatalogService;
   let workspaceRootPath: string;
 
@@ -38,6 +40,7 @@ describe('document workflow integration', () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-docs-'));
     workspaceManager = new WorkspaceManager();
     const fileStorageService = new FileStorageService();
+    templateService = new TemplateService(fileStorageService);
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
@@ -46,6 +49,7 @@ describe('document workflow integration', () => {
       workspaceManager,
       documentIdGenerator,
       fileStorageService,
+      templateService,
       activityLogService
     );
     documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
@@ -54,6 +58,7 @@ describe('document workflow integration', () => {
       workspaceManager,
       documentService,
       fileStorageService,
+      templateService,
       workspaceCatalogService,
       catalogService,
       documentIdGenerator,
@@ -102,6 +107,105 @@ describe('document workflow integration', () => {
     expect(list).toHaveLength(1);
     expect(list[0]?.latestVersionLabel).toBeNull();
     expect(list[0]?.status).toBeNull();
+  });
+
+  it('creates a managed initial version from a selected template', () => {
+    const workingSourceFile = path.join(tempRoot, 'incoming', 'starter.docx');
+    const conceptPdfSourceFile = path.join(tempRoot, 'incoming', 'starter.pdf');
+    mkdirSync(path.dirname(workingSourceFile), { recursive: true });
+    writeFileSync(workingSourceFile, 'starter working file', 'utf8');
+    writeFileSync(conceptPdfSourceFile, 'starter concept pdf', 'utf8');
+
+    const template = templateService.create(workspaceRootPath, {
+      name: 'Procedure Starter'
+    });
+    templateService.addFiles(workspaceRootPath, {
+      templateId: template.id,
+      sourceFilePaths: [workingSourceFile]
+    });
+    templateService.addFiles(workspaceRootPath, {
+      templateId: template.id,
+      sourceFilePaths: [conceptPdfSourceFile]
+    });
+
+    const detail = documentService.create(workspaceRootPath, {
+      title: 'Templated Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3',
+      templateId: template.id
+    });
+
+    expect(detail.versions).toHaveLength(1);
+    expect(detail.versions[0]?.versionLabel).toBe('001');
+    expect(detail.versions[0]?.status).toBe('Draft');
+    expect(detail.versions[0]?.revisionDescription).toBe(
+      'Created from template "Procedure Starter".'
+    );
+    expect(detail.versions[0]?.files.map((file) => file.role)).toEqual([
+      'working',
+      'concept-pdf'
+    ]);
+    expect(detail.versions[0]?.files.map((file) => file.fileName)).toEqual([
+      'starter.docx',
+      'starter.pdf'
+    ]);
+  });
+
+  it('uses the correct initial version labels when a template creates the first managed version', () => {
+    const sourceFile = path.join(tempRoot, 'incoming', 'template-start.docx');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'template-start', 'utf8');
+
+    const template = templateService.create(workspaceRootPath, {
+      name: 'Generic Starter'
+    });
+    templateService.addFiles(workspaceRootPath, {
+      templateId: template.id,
+      sourceFilePaths: [sourceFile]
+    });
+
+    const prefixed = documentService.create(workspaceRootPath, {
+      title: 'Prefixed Templated Specification',
+      documentTypeId: 1,
+      author: 'Morgan Ellis',
+      versionScheme: 'v-prefix',
+      templateId: template.id
+    });
+    const majorMinor = documentService.create(workspaceRootPath, {
+      title: 'Major Minor Templated Report',
+      documentTypeId: 3,
+      author: 'Avery Chen',
+      versionScheme: 'major-minor',
+      templateId: template.id
+    });
+
+    expect(prefixed.versions[0]?.versionLabel).toBe('v1');
+    expect(majorMinor.versions[0]?.versionLabel).toBe('1.0');
+  });
+
+  it('rejects duplicate filenames when adding files to a template', () => {
+    const firstSourceFile = path.join(tempRoot, 'incoming', 'working', 'duplicate.docx');
+    const secondSourceFile = path.join(tempRoot, 'incoming', 'other', 'duplicate.docx');
+    mkdirSync(path.dirname(firstSourceFile), { recursive: true });
+    mkdirSync(path.dirname(secondSourceFile), { recursive: true });
+    writeFileSync(firstSourceFile, 'first duplicate', 'utf8');
+    writeFileSync(secondSourceFile, 'second duplicate', 'utf8');
+
+    const template = templateService.create(workspaceRootPath, {
+      name: 'Collision Starter'
+    });
+    templateService.addFiles(workspaceRootPath, {
+      templateId: template.id,
+      sourceFilePaths: [firstSourceFile]
+    });
+
+    expect(() =>
+      templateService.addFiles(workspaceRootPath, {
+        templateId: template.id,
+        sourceFilePaths: [secondSourceFile]
+      })
+    ).toThrow('already exists in this template');
   });
 
   it('creates versions using numeric, prefixed, and major-minor version labels', () => {

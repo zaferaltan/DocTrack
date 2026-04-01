@@ -21,7 +21,8 @@ import type {
 import {
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME,
-  WORKSPACE_DOCUMENTS_DIRECTORY_NAME
+  WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  WORKSPACE_TEMPLATES_DIRECTORY_NAME
 } from '@shared/workspaceLayout';
 
 const BACKUPS_DIRECTORY_NAME = 'Backups';
@@ -29,6 +30,7 @@ const BACKUPS_DIRECTORY_NAME = 'Backups';
 interface BackupManifest extends WorkspaceBackupSummary {
   databaseDirectoryName: string;
   documentsDirectoryName: string;
+  templatesDirectoryName?: string;
 }
 
 const sanitizeBackupSegment = (value: string): string =>
@@ -97,6 +99,7 @@ export class WorkspaceBackupService {
     const backupDirectoryPath = getBackupDirectoryPath(context.rootPath, backupId);
     const databaseDestinationPath = path.join(backupDirectoryPath, WORKSPACE_DATABASE_DIRECTORY_NAME);
     const documentsDestinationPath = path.join(backupDirectoryPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
+    const templatesDestinationPath = path.join(backupDirectoryPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME);
     const documentCount =
       ((context.db.prepare('SELECT COUNT(*) AS total FROM Documents').get() as { total: number } | undefined)
         ?.total ?? 0);
@@ -110,6 +113,9 @@ export class WorkspaceBackupService {
     ensureDirectory(backupDirectoryPath);
     cpSync(context.databaseDirectoryPath, databaseDestinationPath, { recursive: true });
     cpSync(context.documentsDirectoryPath, documentsDestinationPath, { recursive: true });
+    if (existsSync(context.templatesDirectoryPath)) {
+      cpSync(context.templatesDirectoryPath, templatesDestinationPath, { recursive: true });
+    }
 
     const manifest: BackupManifest = {
       id: backupId,
@@ -124,7 +130,8 @@ export class WorkspaceBackupService {
       sizeBytes: getDirectorySize(backupDirectoryPath),
       reason,
       databaseDirectoryName: WORKSPACE_DATABASE_DIRECTORY_NAME,
-      documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME
+      documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+      templatesDirectoryName: WORKSPACE_TEMPLATES_DIRECTORY_NAME
     };
 
     writeFileSync(manifest.manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
@@ -175,6 +182,9 @@ export class WorkspaceBackupService {
     const backup = this.getBackup(rootPath, backupId);
     const databaseSourcePath = path.join(backup.backupPath, backup.databaseDirectoryName);
     const documentsSourcePath = path.join(backup.backupPath, backup.documentsDirectoryName);
+    const templatesSourcePath = backup.templatesDirectoryName
+      ? path.join(backup.backupPath, backup.templatesDirectoryName)
+      : null;
 
     ensureDirectory(preview.destinationRootPath);
     cpSync(databaseSourcePath, path.join(preview.destinationRootPath, WORKSPACE_DATABASE_DIRECTORY_NAME), {
@@ -183,6 +193,11 @@ export class WorkspaceBackupService {
     cpSync(documentsSourcePath, path.join(preview.destinationRootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME), {
       recursive: true
     });
+    if (templatesSourcePath && existsSync(templatesSourcePath)) {
+      cpSync(templatesSourcePath, path.join(preview.destinationRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME), {
+        recursive: true
+      });
+    }
 
     const restoredDatabasePath = path.join(
       preview.destinationRootPath,

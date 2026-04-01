@@ -15,6 +15,7 @@ export const WORKSPACE_VIEWS = [
   "documents",
   "documentTypes",
   "projects",
+  "templates",
   "classifications",
   "languages",
 ] as const;
@@ -161,6 +162,11 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
     value: "projects",
     label: "Projects",
     description: "Open workspaces on the projects view by default.",
+  },
+  {
+    value: "templates",
+    label: "Templates",
+    description: "Open workspaces on the templates view by default.",
   },
   {
     value: "classifications",

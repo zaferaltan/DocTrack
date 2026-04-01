@@ -118,6 +118,12 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.projectsUpdate, filePath, id, input),
     delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.projectsDelete, filePath, id)
   },
+  templates: {
+    list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.templatesList, filePath),
+    create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.templatesCreate, filePath, input),
+    addFiles: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.templatesAddFiles, filePath, input),
+    delete: (filePath, templateId) => ipcRenderer.invoke(IPC_CHANNELS.templatesDelete, filePath, templateId)
+  },
   confidentialityClasses: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.confidentialityClassesList, filePath),
     create: (filePath, input) =>
