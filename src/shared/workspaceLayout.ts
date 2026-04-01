@@ -28,9 +28,11 @@ export const DOCUMENT_TABLE_COLUMNS = [
   'project',
   'company',
   'department',
+  'startDate',
   'createdDate',
   'modifiedDate',
   'releasedDate',
+  'reviewedBy',
   'approvedBy',
   'revisionIntervalMonths',
   'revisionDescription'
@@ -195,9 +197,11 @@ export const DOCUMENT_TABLE_COLUMN_OPTIONS: Array<{
   { value: 'project', label: 'Project' },
   { value: 'company', label: 'Company' },
   { value: 'department', label: 'Department' },
+  { value: 'startDate', label: 'Start Date' },
   { value: 'createdDate', label: 'Created Date' },
   { value: 'modifiedDate', label: 'Modified Date' },
   { value: 'releasedDate', label: 'Released Date' },
+  { value: 'reviewedBy', label: 'Reviewed By' },
   { value: 'approvedBy', label: 'Approved By' },
   { value: 'revisionIntervalMonths', label: 'Revision Interval' },
   { value: 'revisionDescription', label: 'Revision Description' }

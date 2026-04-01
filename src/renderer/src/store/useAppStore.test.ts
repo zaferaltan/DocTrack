@@ -81,6 +81,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       delete: vi.fn(),
       createVersion: vi.fn(),
       updateLatestVersion: vi.fn(),
+      updateVersion: vi.fn(),
       deleteVersion: vi.fn(),
       addVersionFiles: vi.fn(),
       renameVersionFile: vi.fn(),

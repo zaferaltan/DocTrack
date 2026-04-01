@@ -70,12 +70,14 @@ export interface DocumentListItem {
   projectName: string | null;
   company: string;
   department: string;
+  startDate: string;
   revisionIntervalMonths: number | null;
   nextReviewDate: string | null;
   isOverdue: boolean;
   healthFlags: DocumentHealthFlag[];
   latestVersionFileCount: number;
   lastActivityDate: string;
+  reviewedBy: string;
 }
 
 export interface RecentActivityItem {
@@ -245,6 +247,7 @@ export interface DocumentVersion {
   versionLabel: string;
   status: DocumentStatus;
   releasedDate: string | null;
+  reviewedBy: string;
   approvedBy: string;
   createdDate: string;
   revisionDescription: string;
@@ -271,6 +274,7 @@ export interface DocumentDetail {
   projectName: string | null;
   company: string;
   department: string;
+  startDate: string;
   revisionIntervalMonths: number | null;
   versions: DocumentVersion[];
 }
@@ -280,6 +284,7 @@ export interface CreateDocumentInput {
   documentTypeId: number;
   author: string;
   versionScheme: DocumentVersionScheme;
+  startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
   projectId?: number | null;
@@ -306,6 +311,7 @@ export interface UpdateDocumentInput {
   documentRecordId: number;
   title: string;
   author: string;
+  startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
   projectId?: number | null;
@@ -314,10 +320,20 @@ export interface UpdateDocumentInput {
   revisionIntervalMonths?: number | null;
 }
 
+export interface UpdateDocumentVersionInput {
+  documentVersionId: number;
+  status: DocumentStatus;
+  releasedDate: string | null;
+  reviewedBy: string;
+  approvedBy: string;
+  revisionDescription: string;
+}
+
 export interface UpdateLatestVersionInput {
   documentRecordId: number;
   status: DocumentStatus;
   releasedDate: string | null;
+  reviewedBy: string;
   approvedBy: string;
   revisionDescription: string;
 }

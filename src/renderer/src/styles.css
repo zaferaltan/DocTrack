@@ -64,6 +64,20 @@ body {
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+pre,
+.copyable-text {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.copyable-text {
+  cursor: text;
 }
 
 ::-webkit-scrollbar {

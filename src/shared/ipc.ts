@@ -27,6 +27,7 @@ import type {
   RenameDocumentVersionFileInput,
   RestoreBackupInput,
   RestoreBackupPreview,
+  UpdateDocumentVersionInput,
   VersionComparisonResult,
   VersionFileImportPlan,
   WorkspaceBackupSummary,
@@ -68,6 +69,7 @@ export const IPC_CHANNELS = {
   documentsDelete: 'documents:delete',
   documentsDeleteVersion: 'documents:deleteVersion',
   documentsUpdateLatestVersion: 'documents:updateLatestVersion',
+  documentsUpdateVersion: 'documents:updateVersion',
   documentsAddVersionFiles: 'documents:addVersionFiles',
   documentsRenameVersionFile: 'documents:renameVersionFile',
   documentsDeleteVersionFile: 'documents:deleteVersionFile',
@@ -141,6 +143,7 @@ export interface DocTrackApi {
     delete: (rootPath: string, input: DeleteDocumentInput) => Promise<void>;
     deleteVersion: (rootPath: string, input: DeleteDocumentVersionInput) => Promise<DocumentDetail>;
     updateLatestVersion: (rootPath: string, input: UpdateLatestVersionInput) => Promise<DocumentDetail>;
+    updateVersion: (rootPath: string, input: UpdateDocumentVersionInput) => Promise<DocumentDetail>;
     addVersionFiles: (rootPath: string, input: AddDocumentVersionFilesInput) => Promise<DocumentVersion>;
     renameVersionFile: (
       rootPath: string,

@@ -75,8 +75,10 @@ const PDF_CARD_FIELD_ORDER: DocumentTableColumn[] = [
   'project',
   'company',
   'department',
+  'startDate',
   'createdDate',
   'approvedBy',
+  'reviewedBy',
   'revisionIntervalMonths',
   'revisionDescription'
 ];
@@ -202,12 +204,16 @@ export const getDocumentExportCellValue = (
       return document.company || '—';
     case 'department':
       return document.department || '—';
+    case 'startDate':
+      return formatDateShort(document.startDate);
     case 'createdDate':
       return formatDateShort(document.createdDate);
     case 'modifiedDate':
       return formatDateShort(document.modifiedDate);
     case 'releasedDate':
       return formatDateShort(document.releasedDate);
+    case 'reviewedBy':
+      return document.reviewedBy || '—';
     case 'approvedBy':
       return document.approvedBy || '—';
     case 'revisionIntervalMonths':

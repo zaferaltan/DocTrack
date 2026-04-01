@@ -62,12 +62,14 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         projectName: null,
         company: 'Acme',
         department: 'Quality',
+        startDate: '2026-03-28',
         revisionIntervalMonths: 12,
         nextReviewDate: '2027-03-28T10:00:00.000Z',
         isOverdue: false,
         healthFlags: [],
         latestVersionFileCount: 1,
-        lastActivityDate: '2026-03-28T10:00:00.000Z'
+        lastActivityDate: '2026-03-28T10:00:00.000Z',
+        reviewedBy: ''
       }
     ],
     dashboard: defaultDashboard,
@@ -117,6 +119,7 @@ const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentD
   projectName: null,
   company: 'Acme',
   department: 'Quality',
+  startDate: '2026-03-28',
   revisionIntervalMonths: 12,
   versions: [
     {
@@ -127,6 +130,7 @@ const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentD
       versionLabel: '001',
       status: 'Draft',
       releasedDate: null,
+      reviewedBy: '',
       approvedBy: '',
       createdDate: '2026-03-28T10:00:00.000Z',
       revisionDescription: '',
@@ -252,6 +256,7 @@ const buildDocTrackMock = (
       delete: vi.fn().mockResolvedValue(undefined),
       createVersion: vi.fn(),
       updateLatestVersion: vi.fn(),
+      updateVersion: vi.fn(),
       deleteVersion: vi.fn(),
       addVersionFiles: vi.fn(),
       renameVersionFile: vi.fn(),
@@ -723,7 +728,10 @@ describe('App', () => {
     });
 
     await click(getButton('Delete'));
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    const confirmationDialog = getDialog();
+    expect(normalizeText(confirmationDialog.textContent)).toContain('Delete Document Type');
+    await click(getButton('Delete Document Type', confirmationDialog));
     expect(docTrack.documentTypes.delete).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -860,12 +868,14 @@ describe('App', () => {
       projectName: null,
       company: 'Acme',
       department: 'Operations',
+      startDate: '2026-03-28',
       revisionIntervalMonths: 6,
       nextReviewDate: '2026-09-29T10:00:00.000Z',
       isOverdue: false,
       healthFlags: [],
       latestVersionFileCount: 1,
-      lastActivityDate: '2026-03-29T10:00:00.000Z'
+      lastActivityDate: '2026-03-29T10:00:00.000Z',
+      reviewedBy: 'Morgan Patel'
     });
 
     const docTrack = buildDocTrackMock(
@@ -941,12 +951,14 @@ describe('App', () => {
       projectName: null,
       company: 'Acme',
       department: 'Operations',
+      startDate: '2026-03-28',
       revisionIntervalMonths: 6,
       nextReviewDate: '2026-09-29T10:00:00.000Z',
       isOverdue: false,
       healthFlags: [],
       latestVersionFileCount: 1,
-      lastActivityDate: '2026-03-29T10:00:00.000Z'
+      lastActivityDate: '2026-03-29T10:00:00.000Z',
+      reviewedBy: 'Morgan Patel'
     });
 
     const docTrack = buildDocTrackMock(

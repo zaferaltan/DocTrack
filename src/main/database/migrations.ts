@@ -6,6 +6,7 @@ import versionManagementMigration from '../../../migrations/004_version_manageme
 import documentIdFormatMigration from '../../../migrations/005_document_id_format.sql?raw';
 import workspaceBrandingMigration from '../../../migrations/006_workspace_branding.sql?raw';
 import activityLogMigration from '../../../migrations/007_activity_log.sql?raw';
+import documentReviewMetadataMigration from '../../../migrations/008_document_review_metadata.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
@@ -36,6 +37,10 @@ const MIGRATIONS = [
   {
     id: '007_activity_log',
     sql: activityLogMigration
+  },
+  {
+    id: '008_document_review_metadata',
+    sql: documentReviewMetadataMigration
   }
 ] as const;
 

@@ -371,6 +371,22 @@ export class FileStorageService {
     this.cleanupEmptyDirectories(path.dirname(currentAbsolutePath), this.getWorkspaceDocumentsDirectory(rootPath));
   }
 
+  cleanupEmptyRoleDirectoriesInVersionFolder(rootPath: string, versionFolderPath: string): void {
+    const versionFolderAbsolutePath = this.resolveStoredFilePath(rootPath, versionFolderPath, true);
+
+    if (!existsSync(versionFolderAbsolutePath)) {
+      return;
+    }
+
+    for (const entry of readdirSync(versionFolderAbsolutePath, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !isRecognizedRoleDirectoryName(entry.name)) {
+        continue;
+      }
+
+      this.cleanupEmptyRoleDirectory(path.join(versionFolderAbsolutePath, entry.name));
+    }
+  }
+
   normalizeRelativePath(relativePath: string): string {
     return relativePath.split(/[\\/]/).join('/').replace(/^[/\\]+|[/\\]+$/g, '');
   }

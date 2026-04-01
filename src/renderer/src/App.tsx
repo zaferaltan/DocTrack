@@ -22,6 +22,8 @@ import {
   LayoutPanelLeft,
   Loader2,
   Moon,
+  Maximize2,
+  Minimize2,
   Pencil,
   PencilLine,
   Plus,
@@ -134,6 +136,7 @@ import type {
   Project,
   RestoreBackupPreview,
   UpdateDocumentInput,
+  UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
   VersionComparisonResult,
   WorkspaceBackupSummary,
@@ -190,6 +193,7 @@ const buildCreateDocumentDialogState = (
   versionScheme: applicationSettings.defaultDocumentVersionScheme,
   company: workspaceSettings.defaultCompany,
   department: workspaceSettings.defaultDepartment,
+  startDate: new Date().toISOString().slice(0, 10),
 });
 
 const buildEditDocumentDialogState = (
@@ -212,6 +216,7 @@ const buildEditDocumentDialogState = (
   projectId: documentDetail.projectId ? String(documentDetail.projectId) : "",
   company: documentDetail.company,
   department: documentDetail.department,
+  startDate: toDateInputValue(documentDetail.startDate),
   revisionIntervalMonths:
     documentDetail.revisionIntervalMonths !== null
       ? String(documentDetail.revisionIntervalMonths)
@@ -270,6 +275,7 @@ interface DocumentDialogState {
   documentTypeId: string;
   author: string;
   versionScheme: DocumentVersionScheme;
+  startDate: string;
   languageId: string;
   confidentialityClassId: string;
   projectId: string;
@@ -298,8 +304,12 @@ interface FilesDialogState {
 
 interface LatestVersionDialogState {
   open: boolean;
+  mode: "latest" | "version";
+  versionId?: number;
+  versionLabel: string;
   status: DocumentStatus;
   releasedDate: string;
+  reviewedBy: string;
   approvedBy: string;
   revisionDescription: string;
   isSubmitting: boolean;
@@ -405,6 +415,23 @@ interface DeleteRecordsDialogState {
   isSubmitting: boolean;
 }
 
+interface ConfirmationDialogState {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone: "default" | "destructive";
+  detailLines: string[];
+  isSubmitting: boolean;
+  onConfirm?: () => Promise<void>;
+}
+
+interface RevisionDescriptionDialogState {
+  open: boolean;
+  title: string;
+  content: string;
+}
+
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
   name: "",
@@ -449,6 +476,7 @@ const defaultDocumentDialogState: DocumentDialogState = {
   documentTypeId: "",
   author: "",
   versionScheme: "numeric-3",
+  startDate: "",
   languageId: "",
   confidentialityClassId: "",
   projectId: "",
@@ -477,8 +505,12 @@ const defaultFilesDialogState: FilesDialogState = {
 
 const defaultLatestVersionDialogState: LatestVersionDialogState = {
   open: false,
+  mode: "latest",
+  versionId: undefined,
+  versionLabel: "",
   status: "Draft",
   releasedDate: "",
+  reviewedBy: "",
   approvedBy: "",
   revisionDescription: "",
   isSubmitting: false,
@@ -569,6 +601,23 @@ const defaultDeleteRecordsDialogState: DeleteRecordsDialogState = {
   isSubmitting: false,
 };
 
+const defaultConfirmationDialogState: ConfirmationDialogState = {
+  open: false,
+  title: "",
+  description: "",
+  confirmLabel: "",
+  tone: "destructive",
+  detailLines: [],
+  isSubmitting: false,
+  onConfirm: undefined,
+};
+
+const defaultRevisionDescriptionDialogState: RevisionDescriptionDialogState = {
+  open: false,
+  title: "",
+  content: "",
+};
+
 const parseOptionalSelectNumber = (value: string): number | null =>
   value.trim() ? Number(value) : null;
 
@@ -655,12 +704,14 @@ const toDocumentUpdateInput = (
     | "projectId"
     | "company"
     | "department"
+    | "startDate"
     | "revisionIntervalMonths"
   >,
 ): UpdateDocumentInput => ({
   documentRecordId: document.id,
   title: document.title,
   author: document.author,
+  startDate: document.startDate,
   languageId: document.languageId,
   confidentialityClassId: document.confidentialityClassId,
   projectId: document.projectId,
@@ -939,6 +990,12 @@ function App() {
   const [deleteRecordsDialog, setDeleteRecordsDialog] = useState(
     defaultDeleteRecordsDialogState,
   );
+  const [confirmationDialog, setConfirmationDialog] = useState(
+    defaultConfirmationDialogState,
+  );
+  const [revisionDescriptionDialog, setRevisionDescriptionDialog] = useState(
+    defaultRevisionDescriptionDialogState,
+  );
   const [dashboardDrilldown, setDashboardDrilldown] =
     useState<DashboardDrilldownState | null>(null);
   const [selectedDocumentDetail, setSelectedDocumentDetail] =
@@ -980,6 +1037,40 @@ function App() {
       setNotification({
         tone: "error",
         message: getErrorMessage(error, fallbackMessage),
+      });
+    },
+  );
+  const openConfirmationDialog = useEffectEvent(
+    (input: Omit<ConfirmationDialogState, "open" | "isSubmitting">): void => {
+      setConfirmationDialog({
+        ...input,
+        open: true,
+        isSubmitting: false,
+      });
+    },
+  );
+  const openRevisionDescriptionDialog = useEffectEvent(
+    (title: string, content: string): void => {
+      setRevisionDescriptionDialog({
+        open: true,
+        title,
+        content,
+      });
+    },
+  );
+  const openVersionMetadataDialog = useEffectEvent(
+    (version: DocumentVersion, mode: "latest" | "version" = "version"): void => {
+      setLatestVersionDialog({
+        open: true,
+        mode,
+        versionId: version.id,
+        versionLabel: version.versionLabel,
+        status: version.status,
+        releasedDate: toDateInputValue(version.releasedDate),
+        reviewedBy: version.reviewedBy,
+        approvedBy: version.approvedBy,
+        revisionDescription: version.revisionDescription,
+        isSubmitting: false,
       });
     },
   );
@@ -1489,6 +1580,9 @@ function App() {
         author: availableColumns.includes("author")
           ? documentDialog.author
           : "",
+        startDate: availableColumns.includes("startDate")
+          ? documentDialog.startDate || null
+          : null,
         languageId: availableColumns.includes("language")
           ? parseOptionalSelectNumber(documentDialog.languageId)
           : null,
@@ -1576,32 +1670,54 @@ function App() {
   };
 
   const handleSaveLatestVersion = async () => {
-    if (!activeWorkspacePath || !selectedDocumentDetail) {
+    if (!activeWorkspacePath || !selectedDocumentDetail || !latestVersionDialog.versionId) {
       return;
     }
 
     try {
       setLatestVersionDialog((state) => ({ ...state, isSubmitting: true }));
-      const detail = await window.docTrack.documents.updateLatestVersion(
-        activeWorkspacePath,
-        {
-          documentRecordId: selectedDocumentDetail.id,
-          status: latestVersionDialog.status,
-          releasedDate: latestVersionDialog.releasedDate || null,
-          approvedBy: latestVersionDialog.approvedBy,
-          revisionDescription: latestVersionDialog.revisionDescription,
-        } satisfies UpdateLatestVersionInput,
-      );
+      const detail =
+        latestVersionDialog.mode === "latest"
+          ? await window.docTrack.documents.updateLatestVersion(
+              activeWorkspacePath,
+              {
+                documentRecordId: selectedDocumentDetail.id,
+                status: latestVersionDialog.status,
+                releasedDate: latestVersionDialog.releasedDate || null,
+                reviewedBy: latestVersionDialog.reviewedBy,
+                approvedBy: latestVersionDialog.approvedBy,
+                revisionDescription: latestVersionDialog.revisionDescription,
+              } satisfies UpdateLatestVersionInput,
+            )
+          : await window.docTrack.documents.updateVersion(
+              activeWorkspacePath,
+              {
+                documentVersionId: latestVersionDialog.versionId,
+                status: latestVersionDialog.status,
+                releasedDate: latestVersionDialog.releasedDate || null,
+                reviewedBy: latestVersionDialog.reviewedBy,
+                approvedBy: latestVersionDialog.approvedBy,
+                revisionDescription: latestVersionDialog.revisionDescription,
+              } satisfies UpdateDocumentVersionInput,
+            );
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
       setLatestVersionDialog(defaultLatestVersionDialogState);
       setNotification({
         tone: "success",
-        message: `Updated latest version for ${detail.documentId}.`,
+        message:
+          latestVersionDialog.mode === "latest"
+            ? `Updated latest version for ${detail.documentId}.`
+            : `Updated version ${latestVersionDialog.versionLabel} for ${detail.documentId}.`,
       });
     } catch (error) {
-      notifyError(error, "Unable to update the latest version.");
+      notifyError(
+        error,
+        latestVersionDialog.mode === "latest"
+          ? "Unable to update the latest version."
+          : "Unable to update the selected version.",
+      );
       setLatestVersionDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
@@ -1641,6 +1757,7 @@ function App() {
           documentRecordId: document.id,
           status: statusChangeDialog.nextStatus,
           releasedDate: document.releasedDate,
+          reviewedBy: document.reviewedBy,
           approvedBy: document.approvedBy,
           revisionDescription: document.revisionDescription,
         } satisfies UpdateLatestVersionInput,
@@ -1699,20 +1816,29 @@ function App() {
       return;
     }
 
-    if (
-      applicationSettings.confirmDestructiveActions &&
-      !window.confirm(`Delete document type "${type.name}"?`)
-    ) {
-      return;
-    }
-
-    try {
+    const performDelete = async () => {
       await window.docTrack.documentTypes.delete(activeWorkspacePath, type.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
         tone: "success",
         message: `"${type.name}" removed from this workspace.`,
       });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Document Type",
+        description: `Delete "${type.name}" from this workspace. Documents already using this type block deletion automatically.`,
+        confirmLabel: "Delete Document Type",
+        tone: "destructive",
+        detailLines: [`Prefix: ${type.numberPrefix}`],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete document type.");
     }
@@ -1753,20 +1879,29 @@ function App() {
       return;
     }
 
-    if (
-      applicationSettings.confirmDestructiveActions &&
-      !window.confirm(`Delete project "${project.name}"?`)
-    ) {
-      return;
-    }
-
-    try {
+    const performDelete = async () => {
       await window.docTrack.projects.delete(activeWorkspacePath, project.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
         tone: "success",
         message: `"${project.name}" removed from this workspace.`,
       });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Project",
+        description: `Delete "${project.name}" from this workspace. Documents already linked to it must be reassigned first.`,
+        confirmLabel: "Delete Project",
+        tone: "destructive",
+        detailLines: [],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete project.");
     }
@@ -1812,14 +1947,7 @@ function App() {
       return;
     }
 
-    if (
-      applicationSettings.confirmDestructiveActions &&
-      !window.confirm(`Delete confidentiality class "${item.name}"?`)
-    ) {
-      return;
-    }
-
-    try {
+    const performDelete = async () => {
       await window.docTrack.confidentialityClasses.delete(
         activeWorkspacePath,
         item.id,
@@ -1829,6 +1957,22 @@ function App() {
         tone: "success",
         message: `"${item.name}" removed from this workspace.`,
       });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Confidentiality Class",
+        description: `Delete "${item.name}" from this workspace. Existing document references prevent accidental removal.`,
+        confirmLabel: "Delete Class",
+        tone: "destructive",
+        detailLines: [],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete confidentiality class.");
     }
@@ -1869,20 +2013,29 @@ function App() {
       return;
     }
 
-    if (
-      applicationSettings.confirmDestructiveActions &&
-      !window.confirm(`Delete language "${item.code}"?`)
-    ) {
-      return;
-    }
-
-    try {
+    const performDelete = async () => {
       await window.docTrack.languages.delete(activeWorkspacePath, item.id);
       await refreshWorkspace(activeWorkspacePath);
       setNotification({
         tone: "success",
         message: `"${item.code}" removed from this workspace.`,
       });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Language",
+        description: `Delete "${item.code}" from this workspace. Linked documents must be updated first.`,
+        confirmLabel: "Delete Language",
+        tone: "destructive",
+        detailLines: [],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete language.");
     }
@@ -2146,26 +2299,37 @@ function App() {
       return;
     }
 
-    if (
-      applicationSettings.confirmDestructiveActions &&
-      !window.confirm(`Delete "${file.fileName}"?`)
-    ) {
+    const performDelete = async () => {
+      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
+      try {
+        await window.docTrack.documents.deleteVersionFile(activeWorkspacePath, {
+          fileId: file.id,
+        });
+        await refreshSelectedDocument(
+          activeWorkspacePath,
+          selectedDocumentDetail.id,
+        );
+      } finally {
+        setFilesDialog((state) => ({ ...state, isSubmitting: false }));
+      }
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Managed File",
+        description: `Delete "${file.fileName}" from this version. The managed file on disk will be removed too.`,
+        confirmLabel: "Delete File",
+        tone: "destructive",
+        detailLines: [file.filePath],
+        onConfirm: performDelete,
+      });
       return;
     }
 
     try {
-      setFilesDialog((state) => ({ ...state, isSubmitting: true }));
-      await window.docTrack.documents.deleteVersionFile(activeWorkspacePath, {
-        fileId: file.id,
-      });
-      await refreshSelectedDocument(
-        activeWorkspacePath,
-        selectedDocumentDetail.id,
-      );
+      await performDelete();
     } catch (error) {
       notifyError(error, "Unable to delete the selected file.");
-    } finally {
-      setFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
@@ -2575,6 +2739,21 @@ function App() {
     }
   };
 
+  const handleConfirmActionDialog = async () => {
+    if (!confirmationDialog.onConfirm) {
+      return;
+    }
+
+    try {
+      setConfirmationDialog((state) => ({ ...state, isSubmitting: true }));
+      await confirmationDialog.onConfirm();
+      setConfirmationDialog(defaultConfirmationDialogState);
+    } catch (error) {
+      notifyError(error, "Unable to complete the requested action.");
+      setConfirmationDialog((state) => ({ ...state, isSubmitting: false }));
+    }
+  };
+
   let activeWorkspaceContent: React.ReactNode = null;
 
   if (!activeWorkspace) {
@@ -2690,18 +2869,23 @@ function App() {
               return;
             }
 
-            setLatestVersionDialog({
-              open: true,
-              status: latestVersion.status,
-              releasedDate: toDateInputValue(latestVersion.releasedDate),
-              approvedBy: latestVersion.approvedBy,
-              revisionDescription: latestVersion.revisionDescription,
-              isSubmitting: false,
-            });
+            openVersionMetadataDialog(latestVersion, "latest");
           })().catch((error: Error) => {
             notifyError(error, "Unable to load the latest version details.");
           });
         }}
+        onRequestVersionEdit={(documentVersionId) => {
+          const version =
+            selectedDocumentDetail?.versions.find(
+              (item) => item.id === documentVersionId,
+            ) ?? null;
+          if (!version) {
+            return;
+          }
+
+          openVersionMetadataDialog(version, "version");
+        }}
+        onOpenRevisionDescription={openRevisionDescriptionDialog}
         onShowDocumentFolder={() => {
           if (!activeWorkspacePath || !selectedDocumentDetail) {
             return;
@@ -3386,6 +3570,27 @@ function App() {
           )
         }
         onConfirm={handleConfirmDeleteRecords}
+      />
+      <ConfirmationDialog
+        state={confirmationDialog}
+        onOpenChange={(open) =>
+          setConfirmationDialog(
+            open
+              ? { ...confirmationDialog, open }
+              : defaultConfirmationDialogState,
+          )
+        }
+        onConfirm={handleConfirmActionDialog}
+      />
+      <RevisionDescriptionDialog
+        state={revisionDescriptionDialog}
+        onOpenChange={(open) =>
+          setRevisionDescriptionDialog(
+            open
+              ? { ...revisionDescriptionDialog, open }
+              : defaultRevisionDescriptionDialogState,
+          )
+        }
       />
 
       <RenameFileDialog
@@ -4162,16 +4367,16 @@ function DashboardView({
   }) => void;
   onOpenDocument: (documentRecordId: number) => void;
 }) {
-  const overdueDocuments = workspace.documents
-    .filter((document) => document.isOverdue)
-    .slice(0, 5);
-  const missingFileDocuments = workspace.documents
-    .filter((document) => document.healthFlags.includes("missingFiles"))
-    .slice(0, 5);
+  const overdueDocuments = workspace.documents.filter(
+    (document) => document.isOverdue,
+  );
+  const missingFileDocuments = workspace.documents.filter((document) =>
+    document.healthFlags.includes("missingFiles"),
+  );
 
   return (
-    <div className="grid h-full gap-3 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="space-y-3">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="min-h-0 space-y-3">
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -4217,7 +4422,7 @@ function DashboardView({
                 </div>
               </div>
             </div>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
               {workspace.dashboard.healthInsights.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
                   No document health issues detected right now.
@@ -4262,8 +4467,9 @@ function DashboardView({
               Open focused document slices by type or project.
             </div>
 
-            <div className="mt-4 space-y-2">
-              {workspace.dashboard.countsByType.slice(0, 4).map((item) => (
+            <div className="mt-4 max-h-[320px] space-y-4 overflow-y-auto pr-1">
+              <div className="space-y-2">
+                {workspace.dashboard.countsByType.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5"
@@ -4271,11 +4477,11 @@ function DashboardView({
                   <span className="text-[13px]">{item.label}</span>
                   <Badge variant="outline">{item.count}</Badge>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mt-4 space-y-2">
-              {workspace.dashboard.countsByProject.slice(0, 4).map((item) => (
+              <div className="space-y-2">
+                {workspace.dashboard.countsByProject.map((item) => (
                 <button
                   key={item.id}
                   className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
@@ -4289,13 +4495,14 @@ function DashboardView({
                   <span className="text-[13px]">{item.label}</span>
                   <Badge variant="outline">{item.count}</Badge>
                 </button>
-              ))}
+                ))}
+              </div>
             </div>
           </section>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="min-h-0 space-y-3">
         <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -4306,7 +4513,7 @@ function DashboardView({
             </div>
             <History className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 max-h-[396px] space-y-2 overflow-y-auto pr-1">
             {workspace.dashboard.recentActivity.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
                 No recent activity has been recorded yet.
@@ -4335,14 +4542,16 @@ function DashboardView({
           <div className="mt-1 text-[13px] text-muted-foreground">
             Jump directly into the most urgent documents.
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {overdueDocuments.map((document) => (
               <button
                 key={`overdue-${document.id}`}
                 className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
                 onClick={() => onOpenDocument(document.id)}
               >
-                <div className="text-[13px] font-semibold">{document.title}</div>
+                <div className="copyable-text text-[13px] font-semibold">
+                  {document.title}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   Overdue since {formatDateShort(document.nextReviewDate ?? document.modifiedDate)}
                 </div>
@@ -4354,7 +4563,9 @@ function DashboardView({
                 className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
                 onClick={() => onOpenDocument(document.id)}
               >
-                <div className="text-[13px] font-semibold">{document.title}</div>
+                <div className="copyable-text text-[13px] font-semibold">
+                  {document.title}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   Latest version has no tracked files
                 </div>
@@ -4390,6 +4601,8 @@ function DocumentsView({
   onRequestEditDocument,
   onRequestNewVersion,
   onRequestLatestVersionEdit,
+  onRequestVersionEdit,
+  onOpenRevisionDescription,
   onShowDocumentFolder,
   onShowVersionFiles,
   onRequestDeleteDocument,
@@ -4418,6 +4631,8 @@ function DocumentsView({
   onRequestEditDocument: (documentRecordId?: number) => void;
   onRequestNewVersion: () => void;
   onRequestLatestVersionEdit: (documentRecordId?: number) => void;
+  onRequestVersionEdit: (documentVersionId: number) => void;
+  onOpenRevisionDescription: (title: string, content: string) => void;
   onShowDocumentFolder: () => void;
   onShowVersionFiles: (documentVersionId: number) => void;
   onRequestDeleteDocument: (documentRecordId?: number) => void;
@@ -4624,12 +4839,16 @@ function DocumentsView({
         return document.company;
       case "department":
         return document.department;
+      case "startDate":
+        return document.startDate;
       case "createdDate":
         return document.createdDate;
       case "modifiedDate":
         return document.modifiedDate;
       case "releasedDate":
         return document.releasedDate ?? "";
+      case "reviewedBy":
+        return document.reviewedBy;
       case "approvedBy":
         return document.approvedBy;
       case "revisionIntervalMonths":
@@ -4662,7 +4881,9 @@ function DocumentsView({
         accessorKey: "documentId",
         header: columnHeader("Document ID"),
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.documentId}</span>
+          <span className="copyable-text font-mono text-xs">
+            {row.original.documentId}
+          </span>
         ),
       },
       {
@@ -4670,7 +4891,9 @@ function DocumentsView({
         accessorKey: "title",
         header: columnHeader("Title"),
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.title}</span>
+          <span className="copyable-text font-medium">
+            {row.original.title}
+          </span>
         ),
       },
       {
@@ -4736,6 +4959,12 @@ function DocumentsView({
         cell: ({ row }) => <span>{row.original.department || "—"}</span>,
       },
       {
+        id: "startDate",
+        accessorKey: "startDate",
+        header: columnHeader("Start Date"),
+        cell: ({ row }) => <span>{formatDateShort(row.original.startDate)}</span>,
+      },
+      {
         id: "createdDate",
         accessorKey: "createdDate",
         header: columnHeader("Created Date"),
@@ -4762,6 +4991,12 @@ function DocumentsView({
               : "—"}
           </span>
         ),
+      },
+      {
+        id: "reviewedBy",
+        accessorKey: "reviewedBy",
+        header: columnHeader("Reviewed By"),
+        cell: ({ row }) => <span>{row.original.reviewedBy || "—"}</span>,
       },
       {
         id: "approvedBy",
@@ -4866,6 +5101,8 @@ function DocumentsView({
         projectFeatureEnabled ? (row.original.projectName ?? "") : "",
         availableColumns.includes("company") ? row.original.company : "",
         availableColumns.includes("department") ? row.original.department : "",
+        availableColumns.includes("startDate") ? row.original.startDate : "",
+        availableColumns.includes("reviewedBy") ? row.original.reviewedBy : "",
         availableColumns.includes("approvedBy") ? row.original.approvedBy : "",
         availableColumns.includes("revisionDescription")
           ? row.original.revisionDescription
@@ -4978,11 +5215,13 @@ function DocumentsView({
       onClose={onCloseDocumentDetail}
       onRequestEditDocument={onRequestEditDocument}
       onRequestLatestVersionEdit={onRequestLatestVersionEdit}
+      onRequestVersionEdit={onRequestVersionEdit}
       onRequestNewVersion={onRequestNewVersion}
       onShowDocumentFolder={onShowDocumentFolder}
       onShowVersionFiles={onShowVersionFiles}
       onRequestDeleteDocument={onRequestDeleteDocument}
       onRequestDeleteVersion={onRequestDeleteVersion}
+      onOpenRevisionDescription={onOpenRevisionDescription}
       isMacOs={isMacOs}
     />
   );
@@ -5279,10 +5518,10 @@ function DocumentsView({
                 <div className="rounded-xl border border-border bg-background p-3.5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="font-mono text-xs text-primary">
+                      <div className="copyable-text font-mono text-xs text-primary">
                         {selectedDocumentDetail!.documentId}
                       </div>
-                      <div className="mt-1.5 text-lg font-semibold">
+                      <div className="copyable-text mt-1.5 text-lg font-semibold">
                         {selectedDocumentDetail!.title}
                       </div>
                       <div className="mt-1 text-[13px] text-muted-foreground">
@@ -5447,7 +5686,7 @@ function DocumentsView({
                                   {version.files.length} files
                                 </Badge>
                               </div>
-                              <div className="mt-1 font-mono text-xs text-primary">
+                              <div className="copyable-text mt-1 font-mono text-xs text-primary">
                                 {version.versionDocumentId}
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
@@ -5575,11 +5814,13 @@ function DocumentDetailSurface({
   onClose,
   onRequestEditDocument,
   onRequestLatestVersionEdit,
+  onRequestVersionEdit,
   onRequestNewVersion,
   onShowDocumentFolder,
   onShowVersionFiles,
   onRequestDeleteDocument,
   onRequestDeleteVersion,
+  onOpenRevisionDescription,
   isMacOs,
 }: {
   layout: "sidebar" | "modal" | "page";
@@ -5589,11 +5830,13 @@ function DocumentDetailSurface({
   onClose: () => void;
   onRequestEditDocument: (documentRecordId?: number) => void;
   onRequestLatestVersionEdit: (documentRecordId?: number) => void;
+  onRequestVersionEdit: (documentVersionId: number) => void;
   onRequestNewVersion: () => void;
   onShowDocumentFolder: () => void;
   onShowVersionFiles: (documentVersionId: number) => void;
   onRequestDeleteDocument: (documentRecordId?: number) => void;
   onRequestDeleteVersion: (documentVersionId: number) => void;
+  onOpenRevisionDescription: (title: string, content: string) => void;
   isMacOs: boolean;
 }) {
   const latestVersion = documentDetail?.versions[0] ?? null;
@@ -5631,6 +5874,11 @@ function DocumentDetailSurface({
           show: availableColumns.includes("department"),
         },
         {
+          label: "Start Date",
+          value: formatDateShort(documentDetail.startDate),
+          show: availableColumns.includes("startDate"),
+        },
+        {
           label: "Revision Interval",
           value: documentDetail.revisionIntervalMonths
             ? `${documentDetail.revisionIntervalMonths} months`
@@ -5656,7 +5904,10 @@ function DocumentDetailSurface({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="font-mono text-[11px]">
+              <Badge
+                variant="outline"
+                className="copyable-text font-mono text-[11px]"
+              >
                 {documentDetail?.documentId ?? "Document detail"}
               </Badge>
               {latestVersion ? (
@@ -5669,7 +5920,7 @@ function DocumentDetailSurface({
                 </Badge>
               ) : null}
             </div>
-            <div className="mt-3 text-xl font-semibold tracking-tight">
+            <div className="copyable-text mt-3 text-xl font-semibold tracking-tight">
               {documentDetail?.title ?? "Document detail"}
             </div>
             <div className="mt-1 text-[13px] text-muted-foreground">
@@ -5818,13 +6069,21 @@ function DocumentDetailSurface({
                               </Badge>
                               {index === 0 ? <Badge>Latest</Badge> : null}
                             </div>
-                            <div className="mt-1 font-mono text-xs text-primary">
+                            <div className="copyable-text mt-1 font-mono text-xs text-primary">
                               {version.versionDocumentId}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               Created {formatDateTime(version.createdDate)}
                             </div>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onRequestVersionEdit(version.id)}
+                          >
+                            <PencilLine className="h-4 w-4" />
+                            Edit Version
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -5854,6 +6113,12 @@ function DocumentDetailSurface({
                               }
                             />
                           ) : null}
+                          {availableColumns.includes("reviewedBy") ? (
+                            <InfoCard
+                              label="Reviewed By"
+                              value={version.reviewedBy || "—"}
+                            />
+                          ) : null}
                           {availableColumns.includes("approvedBy") ? (
                             <InfoCard
                               label="Approved By"
@@ -5861,11 +6126,15 @@ function DocumentDetailSurface({
                             />
                           ) : null}
                           {availableColumns.includes("revisionDescription") ? (
-                            <InfoCard
+                            <ExpandableInfoCard
                               label="Revision Description"
-                              value={
-                                version.revisionDescription ||
-                                "No revision description."
+                              value={version.revisionDescription}
+                              emptyValue="No revision description."
+                              onShowMore={() =>
+                                onOpenRevisionDescription(
+                                  `Version ${version.versionLabel} Revision Description`,
+                                  version.revisionDescription,
+                                )
                               }
                             />
                           ) : null}
@@ -5901,7 +6170,7 @@ function DocumentDetailSurface({
                           Version {latestVersion.versionLabel}
                         </div>
                       </div>
-                      <div className="mt-2 font-mono text-xs text-primary">
+                      <div className="copyable-text mt-2 font-mono text-xs text-primary">
                         {latestVersion.versionDocumentId}
                       </div>
                     </div>
@@ -5914,15 +6183,25 @@ function DocumentDetailSurface({
                             : "—"
                         }
                       />
+                      {availableColumns.includes("reviewedBy") ? (
+                        <InfoCard
+                          label="Reviewed By"
+                          value={latestVersion.reviewedBy || "—"}
+                        />
+                      ) : null}
                       <InfoCard
                         label="Approved By"
                         value={latestVersion.approvedBy || "—"}
                       />
-                      <InfoCard
+                      <ExpandableInfoCard
                         label="Revision Description"
-                        value={
-                          latestVersion.revisionDescription ||
-                          "No revision description."
+                        value={latestVersion.revisionDescription}
+                        emptyValue="No revision description."
+                        onShowMore={() =>
+                          onOpenRevisionDescription(
+                            `Version ${latestVersion.versionLabel} Revision Description`,
+                            latestVersion.revisionDescription,
+                          )
                         }
                       />
                     </div>
@@ -5944,7 +6223,7 @@ function DocumentDetailSurface({
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     Document Folder
                   </div>
-                  <div className="mt-2 break-all font-mono text-xs text-primary">
+                  <div className="copyable-text mt-2 break-all font-mono text-xs text-primary">
                     {documentDetail.documentFolderPath}
                   </div>
                 </div>
@@ -6011,10 +6290,10 @@ function DocumentTypesView({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-mono text-xs text-primary">
+                <div className="copyable-text font-mono text-xs text-primary">
                   {type.numberPrefix}
                 </div>
-                <div className="mt-1.5 text-base font-semibold">
+                <div className="copyable-text mt-1.5 text-base font-semibold">
                   {type.name}
                 </div>
               </div>
@@ -6057,8 +6336,58 @@ function ProjectsView({
   onDeleteProject: (project: Project) => void;
   onAssignProject: (document: DocumentListItem, nextProjectId: string) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const [assignmentFilter, setAssignmentFilter] = useState<
+    "all" | "assigned" | "unassigned"
+  >("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const deferredSearch = useDeferredValue(search);
+  const totalAssignedDocuments = workspace.documents.filter(
+    (document) => document.projectId !== null,
+  ).length;
+  const filteredDocuments = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+
+    return workspace.documents
+      .filter((document) => {
+        const matchesSearch =
+          !query ||
+          [
+            document.documentId,
+            document.title,
+            document.typeName,
+            document.projectName ?? "",
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(query);
+        const matchesAssignment =
+          assignmentFilter === "all"
+            ? true
+            : assignmentFilter === "assigned"
+              ? document.projectId !== null
+              : document.projectId === null;
+        const matchesProject =
+          projectFilter === "all"
+            ? true
+            : String(document.projectId ?? "") === projectFilter;
+
+        return matchesSearch && matchesAssignment && matchesProject;
+      })
+      .sort((left, right) =>
+        left.title.localeCompare(right.title, undefined, {
+          sensitivity: "base",
+        }),
+      );
+  }, [
+    assignmentFilter,
+    deferredSearch,
+    projectFilter,
+    workspace.documents,
+  ]);
+
   return (
-    <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[0.9fr_1.1fr]">
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
           <div>
@@ -6073,7 +6402,26 @@ function ProjectsView({
           </Button>
         </div>
 
-        <div className="mt-4 grid gap-2.5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-border bg-background px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Total Projects
+            </div>
+            <div className="mt-2 text-2xl font-semibold">
+              {workspace.projects.length}
+            </div>
+          </div>
+          <div className="rounded-xl border border-border bg-background px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Assigned Documents
+            </div>
+            <div className="mt-2 text-2xl font-semibold">
+              {totalAssignedDocuments}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 max-h-[640px] space-y-2.5 overflow-y-auto pr-1">
           {workspace.projects.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
               No projects yet. Create a project, then assign existing documents
@@ -6134,27 +6482,92 @@ function ProjectsView({
           </div>
         </div>
 
-        <div className="mt-4 space-y-2.5">
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1.4fr)_180px_200px]">
+          <Field label="Search Documents">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                placeholder="Search by title, ID, type, or project"
+                className="pl-9"
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+          </Field>
+          <Field label="Assignment State">
+            <Select
+              value={assignmentFilter}
+              onChange={(event) =>
+                setAssignmentFilter(
+                  event.target.value as "all" | "assigned" | "unassigned",
+                )
+              }
+            >
+              <option value="all">All documents</option>
+              <option value="assigned">Assigned only</option>
+              <option value="unassigned">Unassigned only</option>
+            </Select>
+          </Field>
+          <Field label="Project Filter">
+            <Select
+              value={projectFilter}
+              onChange={(event) => setProjectFilter(event.target.value)}
+            >
+              <option value="all">All projects</option>
+              <option value="">No project</option>
+              {workspace.projects.map((project) => (
+                <option key={project.id} value={String(project.id)}>
+                  {project.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background px-4 py-3">
+          <div className="text-[13px] text-muted-foreground">
+            Showing {filteredDocuments.length} of {workspace.documents.length}{" "}
+            document{workspace.documents.length === 1 ? "" : "s"}.
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {totalAssignedDocuments} assigned,{" "}
+            {workspace.documents.length - totalAssignedDocuments} unassigned
+          </div>
+        </div>
+
+        <div className="mt-4 max-h-[640px] space-y-2.5 overflow-y-auto pr-1">
           {workspace.documents.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
               No documents yet. Create a document first, then assign it to a
               project here.
             </div>
+          ) : filteredDocuments.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+              No documents match the current project filters.
+            </div>
           ) : (
-            workspace.documents.map((document) => (
+            filteredDocuments.map((document) => (
               <div
                 key={document.id}
-                className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-[minmax(0,1fr)_220px]"
+                className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-[minmax(0,1fr)_240px]"
               >
                 <div className="min-w-0">
-                  <div className="font-mono text-xs text-primary">
+                  <div className="copyable-text font-mono text-xs text-primary">
                     {document.documentId}
                   </div>
-                  <div className="mt-1 text-sm font-semibold">
+                  <div className="copyable-text mt-1 text-sm font-semibold">
                     {document.title}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {document.typeName} • {document.projectName ?? "No project"}
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{document.typeName}</span>
+                    <span>•</span>
+                    <span>{document.projectName ?? "No project"}</span>
+                    {document.status ? (
+                      <>
+                        <span>•</span>
+                        <span>{document.status}</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
                 <Field label="Project">
@@ -6824,6 +7237,8 @@ function WorkspaceStorageSettingsFields({
 }) {
   const [showDocumentIdPlaceholders, setShowDocumentIdPlaceholders] =
     useState(false);
+  const [showWorkspaceSetupPreview, setShowWorkspaceSetupPreview] =
+    useState(false);
   const selectedStorageOption =
     WORKSPACE_STORAGE_LAYOUT_OPTIONS.find(
       (option) => option.value === settings.storageLayoutPreset,
@@ -6990,7 +7405,7 @@ function WorkspaceStorageSettingsFields({
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Live Preview
             </div>
-            <div className="mt-1.5 font-mono text-xs text-primary">
+            <div className="copyable-text mt-1.5 font-mono text-xs text-primary">
               {buildDocumentIdPreview(settings, 1)}
             </div>
           </div>
@@ -7017,7 +7432,7 @@ function WorkspaceStorageSettingsFields({
                   key={option.placeholder}
                   className="rounded-lg bg-card px-2.5 py-2"
                 >
-                  <div className="font-mono text-xs text-primary">
+                  <div className="copyable-text font-mono text-xs text-primary">
                     {option.placeholder}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
@@ -7033,60 +7448,86 @@ function WorkspaceStorageSettingsFields({
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px]">
-        <div className="font-medium">{selectedStorageOption.label}</div>
-        <div className="mt-1 text-muted-foreground">
-          {selectedStorageOption.description}
-        </div>
-        <div className="mt-2 font-medium">
-          {selectedFileOrganizationOption.label}
-        </div>
-        <div className="mt-1 text-muted-foreground">
-          {selectedFileOrganizationOption.description}
-        </div>
-        <div className="mt-2 font-medium">
-          {selectedVersionManagementOption.label}
-        </div>
-        <div className="mt-1 text-muted-foreground">
-          {selectedVersionManagementOption.description}
-        </div>
-        <div className="mt-2 font-medium">{selectedDocumentIdOption.label}</div>
-        <div className="mt-1 text-muted-foreground">
-          {selectedDocumentIdOption.description}
-        </div>
-        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Active Template
-        </div>
-        <div className="mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
-          {activeDocumentIdTemplate}
-        </div>
-        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Example Document IDs
-        </div>
-        <div className="mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
-          <div>Create -&gt; {previewDocumentIds[0]}</div>
-          <div>Next -&gt; {previewDocumentIds[1]}</div>
-          <div>Then -&gt; {previewDocumentIds[2]}</div>
-        </div>
-        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Example Path
-        </div>
-        <div className="mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
-          {previewWorkspaceName}/{previewRelativePath}
-        </div>
-        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Example Version IDs
-        </div>
-        <div className="mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
-          <div>001 -&gt; {previewVersionIds[0]}</div>
-          <div>002 -&gt; {previewVersionIds[1]}</div>
-          <div>003 -&gt; {previewVersionIds[2]}</div>
-        </div>
-        <div className="mt-3 text-xs text-muted-foreground">
-          Saving storage layout changes migrates managed document folders and
-          version files. Version document ID changes apply to new versions going
-          forward.
-        </div>
+      <div className="rounded-xl border border-border bg-background text-[13px]">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
+          onClick={() => setShowWorkspaceSetupPreview((current) => !current)}
+        >
+          <div>
+            <div className="font-medium">Preview Workspace Setup</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Expand to inspect the active storage layout, ID examples, and
+              folder structure.
+            </div>
+          </div>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+              showWorkspaceSetupPreview && "rotate-180",
+            )}
+          />
+        </button>
+
+        {showWorkspaceSetupPreview ? (
+          <div className="border-t border-border px-3 py-3">
+            <div className="font-medium">{selectedStorageOption.label}</div>
+            <div className="mt-1 text-muted-foreground">
+              {selectedStorageOption.description}
+            </div>
+            <div className="mt-2 font-medium">
+              {selectedFileOrganizationOption.label}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {selectedFileOrganizationOption.description}
+            </div>
+            <div className="mt-2 font-medium">
+              {selectedVersionManagementOption.label}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {selectedVersionManagementOption.description}
+            </div>
+            <div className="mt-2 font-medium">
+              {selectedDocumentIdOption.label}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {selectedDocumentIdOption.description}
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Active Template
+            </div>
+            <div className="copyable-text mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+              {activeDocumentIdTemplate}
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Example Document IDs
+            </div>
+            <div className="copyable-text mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+              <div>Create -&gt; {previewDocumentIds[0]}</div>
+              <div>Next -&gt; {previewDocumentIds[1]}</div>
+              <div>Then -&gt; {previewDocumentIds[2]}</div>
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Example Path
+            </div>
+            <div className="copyable-text mt-2 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+              {previewWorkspaceName}/{previewRelativePath}
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Example Version IDs
+            </div>
+            <div className="copyable-text mt-2 grid gap-1 rounded-lg bg-card px-2.5 py-2 font-mono text-xs text-primary">
+              <div>001 -&gt; {previewVersionIds[0]}</div>
+              <div>002 -&gt; {previewVersionIds[1]}</div>
+              <div>003 -&gt; {previewVersionIds[2]}</div>
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              Saving storage layout changes migrates managed document folders
+              and version files. Version document ID changes apply to new
+              versions going forward.
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {showDefaultCompany || showDefaultDepartment ? (
@@ -7241,6 +7682,7 @@ function DocumentDialog({
   const showProject = availableColumns.includes("project");
   const showCompany = availableColumns.includes("company");
   const showDepartment = availableColumns.includes("department");
+  const showStartDate = availableColumns.includes("startDate");
   const showRevisionInterval = availableColumns.includes(
     "revisionIntervalMonths",
   );
@@ -7263,7 +7705,7 @@ function DocumentDialog({
           <div
             className={cn(
               "grid gap-4",
-              showAuthor ? "md:grid-cols-2" : "md:grid-cols-1",
+              showAuthor || showStartDate ? "md:grid-cols-3" : "md:grid-cols-1",
             )}
           >
             <Field label="Title">
@@ -7287,6 +7729,20 @@ function DocumentDialog({
                     onStateChange((current) => ({
                       ...current,
                       author: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+            {showStartDate ? (
+              <Field label="Start Date">
+                <Input
+                  type="date"
+                  value={state.startDate}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      startDate: event.target.value,
                     }))
                   }
                 />
@@ -7509,10 +7965,10 @@ function VersionDialog({
 
         {documentDetail ? (
           <div className="rounded-xl border border-border bg-background p-3 text-[13px]">
-            <div className="font-mono text-xs text-primary">
+            <div className="copyable-text font-mono text-xs text-primary">
               {documentDetail.documentId}
             </div>
-            <div className="mt-1.5 text-base font-semibold">
+            <div className="copyable-text mt-1.5 text-base font-semibold">
               {documentDetail.title}
             </div>
             <div className="mt-1 text-muted-foreground">
@@ -7589,30 +8045,42 @@ function LatestVersionDialog({
   availableColumns: DocumentTableColumn[];
 }) {
   const showReleasedDate = availableColumns.includes("releasedDate");
+  const showReviewedBy = availableColumns.includes("reviewedBy");
   const showApprovedBy = availableColumns.includes("approvedBy");
   const showRevisionDescription = availableColumns.includes(
     "revisionDescription",
   );
-  const detailFieldCount = Number(showReleasedDate) + Number(showApprovedBy);
+  const detailFieldCount =
+    Number(showReleasedDate) +
+    Number(showReviewedBy) +
+    Number(showApprovedBy);
+  const title =
+    state.mode === "latest"
+      ? "Edit Latest Version"
+      : `Edit Version ${state.versionLabel}`;
+  const description =
+    state.mode === "latest"
+      ? "Update the current latest version without creating a new version entry."
+      : "Adjust the metadata stored for this specific version.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit Latest Version</DialogTitle>
-          <DialogDescription>
-            Update the current latest version without creating a new version
-            entry.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         {documentDetail ? (
           <div className="rounded-xl border border-border bg-background p-3">
-            <div className="font-mono text-xs text-primary">
+            <div className="copyable-text font-mono text-xs text-primary">
               {documentDetail.documentId}
             </div>
-            <div className="mt-1.5 text-base font-semibold">
+            <div className="copyable-text mt-1.5 text-base font-semibold">
               {documentDetail.title}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Version {state.versionLabel}
             </div>
           </div>
         ) : null}
@@ -7653,6 +8121,21 @@ function LatestVersionDialog({
                     onStateChange((current) => ({
                       ...current,
                       releasedDate: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+
+            {showReviewedBy ? (
+              <Field label="Reviewed By">
+                <Input
+                  placeholder="Morgan Patel"
+                  value={state.reviewedBy}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      reviewedBy: event.target.value,
                     }))
                   }
                 />
@@ -7701,7 +8184,7 @@ function LatestVersionDialog({
             ) : (
               <CircleDot className="h-4 w-4" />
             )}
-            Save Latest Version
+            {state.mode === "latest" ? "Save Latest Version" : "Save Version"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -8012,11 +8495,41 @@ function VersionFilesDialog({
   ) => Promise<void>;
 }) {
   const [isDropTargetActive, setIsDropTargetActive] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const groupedFiles = DOCUMENT_VERSION_FILE_ROLES.map((role) => ({
+    role,
+    files: version?.files.filter((file) => file.role === role) ?? [],
+  })).filter((group) => group.files.length > 0);
+
+  useEffect(() => {
+    if (!open) {
+      setIsExpanded(false);
+    }
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[760px]">
-        <DialogHeader>
+      <DialogContent
+        className={cn(
+          "grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+          isExpanded
+            ? "h-[92vh] w-[min(96vw,1380px)]"
+            : "max-h-[88vh] w-[min(94vw,920px)]",
+        )}
+      >
+        <button
+          type="button"
+          className="absolute left-3 top-3 rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          aria-label={isExpanded ? "Restore modal size" : "Expand modal"}
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          {isExpanded ? (
+            <Minimize2 className="h-4 w-4" />
+          ) : (
+            <Maximize2 className="h-4 w-4" />
+          )}
+        </button>
+        <DialogHeader className="pl-9">
           <DialogTitle>Show Files</DialogTitle>
           <DialogDescription>
             Browse the physical files for one version, open them directly, or
@@ -8025,7 +8538,8 @@ function VersionFilesDialog({
         </DialogHeader>
 
         {version ? (
-          <div className="grid gap-4">
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="grid gap-4">
             <div className="rounded-xl border border-border bg-background p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -8034,6 +8548,14 @@ function VersionFilesDialog({
                   </div>
                   <div className="mt-1 text-[13px] text-muted-foreground">
                     {version.files.length} files tracked in this version
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {groupedFiles.map((group) => (
+                      <Badge key={group.role} variant="outline">
+                        {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}{" "}
+                        {group.files.length}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -8248,7 +8770,7 @@ function VersionFilesDialog({
                       key={relativePath}
                       className="rounded-xl border border-border bg-background p-3"
                     >
-                      <div className="font-mono text-xs text-primary">
+                      <div className="copyable-text font-mono text-xs text-primary">
                         {relativePath}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -8294,91 +8816,104 @@ function VersionFilesDialog({
               </div>
             ) : null}
 
-            <div className="max-h-[360px] space-y-2 overflow-auto rounded-xl border border-border bg-background p-3">
+            <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl border border-border bg-background p-3">
               {version.files.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
                   No files in this version yet.
                 </div>
               ) : (
-                version.files.map((file) => (
-                  <div
-                    key={file.id}
-                    className="rounded-xl border border-border bg-card p-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">
-                          {file.fileName}
+                groupedFiles.map((group) => (
+                  <section key={group.role} className="space-y-2">
+                    <div className="sticky top-0 z-10 rounded-lg border border-border bg-card px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold">
+                          {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {formatFileSize(file.fileSize)} • Modified{" "}
-                          {formatDateTime(file.modifiedDate)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canEdit ? (
-                          <Select
-                            value={file.role}
-                            onChange={(event) =>
-                              void onChangeRole(
-                                file,
-                                event.target.value as DocumentVersionFileRole,
-                              )
-                            }
-                          >
-                            {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
-                              <option key={role} value={role}>
-                                {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <Badge variant="outline">
-                            {DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}
-                          </Badge>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onOpenFile(file.id)}
-                        >
-                          Open
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void onPreviewFile(file.id)}
-                        >
-                          <Search className="h-4 w-4" />
-                          Preview
-                        </Button>
-                        {canEdit ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void onRenameFile(file)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Rename
-                          </Button>
-                        ) : null}
-                        {canEdit ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void onDeleteFile(file)}
-                          >
-                            Delete
-                          </Button>
-                        ) : null}
+                        <Badge variant="outline">{group.files.length}</Badge>
                       </div>
                     </div>
-                    <div className="mt-3 rounded-lg bg-background px-2.5 py-2 text-xs text-primary">
-                      {file.filePath}
-                    </div>
-                  </div>
+                    {group.files.map((file) => (
+                      <div
+                        key={file.id}
+                        className="rounded-xl border border-border bg-card p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold">
+                              {file.fileName}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {formatFileSize(file.fileSize)} • Modified{" "}
+                              {formatDateTime(file.modifiedDate)}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {canEdit ? (
+                              <Select
+                                value={file.role}
+                                onChange={(event) =>
+                                  void onChangeRole(
+                                    file,
+                                    event.target.value as DocumentVersionFileRole,
+                                  )
+                                }
+                              >
+                                {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                                  <option key={role} value={role}>
+                                    {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                                  </option>
+                                ))}
+                              </Select>
+                            ) : (
+                              <Badge variant="outline">
+                                {DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}
+                              </Badge>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onOpenFile(file.id)}
+                            >
+                              Open
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void onPreviewFile(file.id)}
+                            >
+                              <Search className="h-4 w-4" />
+                              Preview
+                            </Button>
+                            {canEdit ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void onRenameFile(file)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Rename
+                              </Button>
+                            ) : null}
+                            {canEdit ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void onDeleteFile(file)}
+                              >
+                                Delete
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-3 rounded-lg bg-background px-2.5 py-2 text-xs text-primary">
+                          {file.filePath}
+                        </div>
+                      </div>
+                    ))}
+                  </section>
                 ))
               )}
+            </div>
             </div>
           </div>
         ) : (
@@ -8500,6 +9035,119 @@ function DeleteRecordsDialog({
             {isDocument ? "Delete Document" : "Delete Version"}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ConfirmationDialog({
+  state,
+  onOpenChange,
+  onConfirm,
+}: {
+  state: ConfirmationDialogState;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => Promise<void>;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{state.title}</DialogTitle>
+          <DialogDescription>{state.description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div
+            className={cn(
+              "rounded-xl border p-4",
+              state.tone === "destructive"
+                ? "border-destructive/40 bg-destructive/5"
+                : "border-border bg-background",
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle
+                className={cn(
+                  "mt-0.5 h-4 w-4",
+                  state.tone === "destructive"
+                    ? "text-destructive"
+                    : "text-foreground",
+                )}
+              />
+              <div className="text-[13px] text-muted-foreground">
+                Review the details below before continuing.
+              </div>
+            </div>
+          </div>
+
+          {state.detailLines.length > 0 ? (
+            <div className="rounded-xl border border-border bg-background p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Details
+              </div>
+              <div className="mt-3 space-y-2">
+                {state.detailLines.map((line) => (
+                  <div
+                    key={line}
+                    className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-primary"
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={state.isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant={state.tone === "destructive" ? "destructive" : "default"}
+            onClick={() => void onConfirm()}
+            disabled={state.isSubmitting}
+          >
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : state.tone === "destructive" ? (
+              <Trash2 className="h-4 w-4" />
+            ) : (
+              <CircleDot className="h-4 w-4" />
+            )}
+            {state.confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RevisionDescriptionDialog({
+  state,
+  onOpenChange,
+}: {
+  state: RevisionDescriptionDialogState;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(92vw,760px)] max-h-[80vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>{state.title}</DialogTitle>
+          <DialogDescription>
+            Full revision description for this version.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="copyable-text min-h-0 overflow-y-auto rounded-xl border border-border bg-background p-4 text-[13px] leading-6">
+          {state.content.trim() || "No revision description."}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -8799,9 +9447,10 @@ function FilePreviewDialog({
               Loading preview...
             </div>
           ) : state.preview?.kind === "pdf" && state.preview.previewUrl ? (
-            <iframe
+            <embed
               className="h-[70vh] w-full rounded-lg border border-border bg-card"
               src={state.preview.previewUrl}
+              type="application/pdf"
               title={state.preview.fileName}
             />
           ) : state.preview?.kind === "image" && state.preview.previewUrl ? (
@@ -9002,10 +9651,10 @@ function StatusChangeDialog({
 
         {document ? (
           <div className="rounded-xl border border-border bg-background p-3">
-            <div className="font-mono text-xs text-primary">
+            <div className="copyable-text font-mono text-xs text-primary">
               {document.documentId}
             </div>
-            <div className="mt-1.5 text-base font-semibold">
+            <div className="copyable-text mt-1.5 text-base font-semibold">
               {document.title}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
@@ -9060,7 +9709,53 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </div>
-      <div className="mt-1.5 text-[13px]">{value}</div>
+      <div className="copyable-text mt-1.5 text-[13px]">{value}</div>
+    </div>
+  );
+}
+
+function ExpandableInfoCard({
+  label,
+  value,
+  emptyValue,
+  onShowMore,
+}: {
+  label: string;
+  value: string;
+  emptyValue: string;
+  onShowMore: () => void;
+}) {
+  const trimmedValue = value.trim();
+  const hasValue = trimmedValue.length > 0;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </div>
+      {hasValue ? (
+        <>
+          <div
+            className="copyable-text mt-1.5 overflow-hidden text-[13px]"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {trimmedValue}
+          </div>
+          <button
+            type="button"
+            className="mt-2 text-[13px] font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+            onClick={onShowMore}
+          >
+            Show More
+          </button>
+        </>
+      ) : (
+        <div className="copyable-text mt-1.5 text-[13px]">{emptyValue}</div>
+      )}
     </div>
   );
 }

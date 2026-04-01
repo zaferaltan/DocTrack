@@ -468,6 +468,17 @@ export class WorkspaceService {
     }));
     const documentMoveById = new Map(documentMoves.map((move) => [move.documentId, move]));
     const versionById = new Map(dbVersionRows.map((versionRow) => [versionRow.Id, versionRow]));
+    const versionFolderPaths = dbVersionRows.map((versionRow) => {
+      const documentMove = documentMoveById.get(versionRow.DocumentId);
+      if (!documentMove) {
+        throw new Error('A version is missing its document record.');
+      }
+
+      return this.fileStorageService.getVersionFolderRelativePath(
+        documentMove.nextFolderPath,
+        versionRow.VersionLabel
+      );
+    });
     const fileMoves = fileRows.map((fileRow) => {
       const versionRow = versionById.get(fileRow.DocumentVersionId);
       if (!versionRow) {
@@ -540,6 +551,15 @@ export class WorkspaceService {
           move.nextFilePath
         );
         appliedFileMoves.push(move);
+      }
+
+      if (nextSettings.fileOrganizationMode === 'flat') {
+        for (const versionFolderPath of versionFolderPaths) {
+          this.fileStorageService.cleanupEmptyRoleDirectoriesInVersionFolder(
+            context.rootPath,
+            versionFolderPath
+          );
+        }
       }
 
       context.db.transaction(() => {
@@ -727,9 +747,10 @@ export class WorkspaceService {
             CreatedDate,
             ModifiedDate,
             Author,
+            StartDate,
             Company,
             Department
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -741,6 +762,7 @@ export class WorkspaceService {
         createdDate,
         createdDate,
         input.author,
+        createdDate.slice(0, 10),
         company,
         department
       );
@@ -754,9 +776,10 @@ export class WorkspaceService {
           SequenceNumber,
           VersionLabel,
           Status,
+          ReviewedBy,
           CreatedDate,
           Notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `
     );
     const insertFile = context.db.prepare(
@@ -802,6 +825,7 @@ export class WorkspaceService {
         version.sequenceNumber,
         version.versionLabel,
         version.status,
+        '',
         createdDate,
         version.notes
       );

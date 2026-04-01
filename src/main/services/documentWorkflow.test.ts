@@ -471,6 +471,63 @@ describe('document workflow integration', () => {
     expect(existsSync(workingStoredPath)).toBe(true);
   });
 
+  it('removes empty role folders when migrating from role subfolders to flat layout', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'role-subfolders'
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Cleanup Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Cleanup version'
+    });
+    const workingFile = path.join(tempRoot, 'incoming', 'cleanup.docx');
+    const conceptPdf = path.join(tempRoot, 'incoming', 'cleanup.pdf');
+    mkdirSync(path.dirname(workingFile), { recursive: true });
+    writeFileSync(workingFile, 'working', 'utf8');
+    writeFileSync(conceptPdf, 'concept', 'utf8');
+
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [workingFile]
+    });
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'concept-pdf',
+      sourceFilePaths: [conceptPdf]
+    });
+
+    const migrated = workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'flat'
+    });
+    const migratedDetail = documentService.getDetail(workspaceRootPath, created.id);
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+
+    expect(migrated.summary.settings.fileOrganizationMode).toBe('flat');
+    expect(migratedDetail.versions[0]?.files.map((file) => file.filePath)).toEqual([
+      'Documents/Procedure/02202600001/001/cleanup.docx',
+      'Documents/Procedure/02202600001/001/cleanup.pdf'
+    ]);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'working'))).toBe(false);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'concept-pdf'))).toBe(false);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'final-pdf'))).toBe(false);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'other'))).toBe(false);
+  });
+
   it('applies workspace defaults and updates document metadata fields', () => {
     workspaceService.updateSettings(workspaceRootPath, {
       ...DEFAULT_WORKSPACE_SETTINGS,
@@ -551,6 +608,7 @@ describe('document workflow integration', () => {
       documentRecordId: created.id,
       status: 'Released',
       releasedDate: '2026-03-28',
+      reviewedBy: 'Parker Lin',
       approvedBy: 'Avery Chen',
       revisionDescription: 'Approved first release'
     });
@@ -592,6 +650,7 @@ describe('document workflow integration', () => {
       documentRecordId: created.id,
       status: 'Released',
       releasedDate: '2026-03-29',
+      reviewedBy: 'Morgan Ellis',
       approvedBy: 'Jordan Singh',
       revisionDescription: 'Released without auto obsolete'
     });
@@ -629,6 +688,7 @@ describe('document workflow integration', () => {
       documentRecordId: created.id,
       status: 'Released',
       releasedDate: '2026-01-01',
+      reviewedBy: 'Taylor Reed',
       approvedBy: 'Jordan Singh',
       revisionDescription: 'Approved release'
     });

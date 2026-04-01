@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type Database from 'better-sqlite3';
 import { shell } from 'electron';
 import type { WorkspaceManager } from '@main/database/workspaceManager';
@@ -34,6 +33,7 @@ import type {
   FilePreviewResult,
   RenameDocumentVersionFileInput,
   UpdateDocumentInput,
+  UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
   VersionComparisonResult,
   VersionFileDelta,
@@ -63,9 +63,11 @@ interface DocumentListRow {
   ProjectName: string | null;
   Company: string;
   Department: string;
+  StartDate: string;
   RevisionIntervalMonths: number | null;
   LatestVersionId: number | null;
   ReviewBaselineReleasedDate: string | null;
+  ReviewedBy: string;
 }
 
 interface DocumentRow {
@@ -88,6 +90,7 @@ interface DocumentRow {
   ProjectName: string | null;
   Company: string;
   Department: string;
+  StartDate: string;
   RevisionIntervalMonths: number | null;
 }
 
@@ -99,6 +102,7 @@ interface VersionRow {
   VersionLabel: string;
   Status: DocumentStatus;
   ReleasedDate: string | null;
+  ReviewedBy: string;
   ApprovedBy: string;
   CreatedDate: string;
   Notes: string;
@@ -176,8 +180,10 @@ export class DocumentService {
             p.Name AS ProjectName,
             d.Company,
             d.Department,
+            d.StartDate,
             d.RevisionIntervalMonths,
             dv.Id AS LatestVersionId,
+            dv.ReviewedBy,
             (
               SELECT released.ReleasedDate
               FROM DocumentVersions released
@@ -236,6 +242,7 @@ export class DocumentService {
         projectName: row.ProjectName,
         company: row.Company,
         department: row.Department,
+        startDate: row.StartDate || row.CreatedDate.slice(0, 10),
         revisionIntervalMonths: row.RevisionIntervalMonths,
         nextReviewDate,
         isOverdue,
@@ -247,7 +254,8 @@ export class DocumentService {
           isOverdue
         }),
         latestVersionFileCount,
-        lastActivityDate: row.ModifiedDate
+        lastActivityDate: row.ModifiedDate,
+        reviewedBy: row.ReviewedBy ?? ''
       };
     });
   }
@@ -298,6 +306,7 @@ export class DocumentService {
       const projectName = this.getLookupValue(context.db, 'Projects', 'Name', projectId);
       const company = (input.company ?? context.settings.defaultCompany).trim();
       const department = (input.department ?? context.settings.defaultDepartment).trim();
+      const startDate = this.normalizeDocumentStartDate(input.startDate, createdDate);
       const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
       const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
         numberPrefix: type.NumberPrefix,
@@ -330,13 +339,14 @@ export class DocumentService {
               CreatedDate,
               ModifiedDate,
               Author,
+              StartDate,
               LanguageId,
               ConfidentialityClassId,
               ProjectId,
               Company,
               Department,
               RevisionIntervalMonths
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -348,6 +358,7 @@ export class DocumentService {
           createdDate,
           createdDate,
           author,
+          startDate,
           languageId,
           confidentialityClassId,
           projectId,
@@ -411,10 +422,11 @@ export class DocumentService {
               VersionLabel,
               Status,
               ReleasedDate,
+              ReviewedBy,
               ApprovedBy,
               CreatedDate,
               Notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -424,6 +436,7 @@ export class DocumentService {
           versionLabel,
           'Draft',
           null,
+          '',
           '',
           createdDate,
           input.revisionDescription.trim()
@@ -722,6 +735,8 @@ export class DocumentService {
     const fileRow = this.getVersionFileContextRow(context.db, fileId);
     const absolutePath = this.fileStorageService.resolveStoredFilePath(context.rootPath, fileRow.FilePath);
     const extension = path.extname(fileRow.FileName).toLowerCase();
+    const buildDataPreviewUrl = (mimeType: string): string =>
+      `data:${mimeType};base64,${readFileSync(absolutePath).toString('base64')}`;
 
     if (extension === '.pdf') {
       return {
@@ -731,7 +746,7 @@ export class DocumentService {
         absolutePath,
         kind: 'pdf',
         isSupported: true,
-        previewUrl: pathToFileURL(absolutePath).toString(),
+        previewUrl: buildDataPreviewUrl('application/pdf'),
         textContent: null,
         warning: null
       };
@@ -745,7 +760,7 @@ export class DocumentService {
         absolutePath,
         kind: 'image',
         isSupported: true,
-        previewUrl: pathToFileURL(absolutePath).toString(),
+        previewUrl: buildDataPreviewUrl(this.getPreviewMimeType(extension)),
         textContent: null,
         warning: null
       };
@@ -1101,6 +1116,7 @@ export class DocumentService {
       );
       const company = (input.company ?? '').trim();
       const department = (input.department ?? '').trim();
+      const startDate = this.normalizeDocumentStartDate(input.startDate, document.CreatedDate);
       const revisionIntervalMonths = this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
 
       context.db.transaction(() => {
@@ -1112,6 +1128,7 @@ export class DocumentService {
                 Title = ?,
                 ModifiedDate = ?,
                 Author = ?,
+                StartDate = ?,
                 LanguageId = ?,
                 ConfidentialityClassId = ?,
                 ProjectId = ?,
@@ -1126,6 +1143,7 @@ export class DocumentService {
             nextTitle,
             changedDate,
             input.author.trim(),
+            startDate,
             languageId,
             confidentialityClassId,
             projectId,
@@ -1172,14 +1190,29 @@ export class DocumentService {
 
   updateLatestVersion(rootPath: string, input: UpdateLatestVersionInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
-    this.assertStatus(input.status);
-
     const latestVersion = this.getLatestVersion(context.db, input.documentRecordId);
     if (!latestVersion) {
       throw new Error('Create a version before editing the latest version.');
     }
 
+    return this.updateVersion(rootPath, {
+      documentVersionId: latestVersion.Id,
+      status: input.status,
+      releasedDate: input.releasedDate,
+      reviewedBy: input.reviewedBy,
+      approvedBy: input.approvedBy,
+      revisionDescription: input.revisionDescription
+    });
+  }
+
+  updateVersion(rootPath: string, input: UpdateDocumentVersionInput): DocumentDetail {
+    const context = this.workspaceManager.getContext(rootPath);
+    this.assertStatus(input.status);
+
+    const version = this.getVersionRow(context.db, input.documentVersionId);
+    const document = this.getDocumentRow(context.db, version.DocumentId);
     const releasedDate = this.normalizeOptionalDateString(input.releasedDate);
+    const reviewedBy = input.reviewedBy.trim();
     const approvedBy = input.approvedBy.trim();
     const revisionDescription = input.revisionDescription.trim();
 
@@ -1188,21 +1221,28 @@ export class DocumentService {
         .prepare(
           `
             UPDATE DocumentVersions
-            SET Status = ?, ReleasedDate = ?, ApprovedBy = ?, Notes = ?
+            SET Status = ?, ReleasedDate = ?, ReviewedBy = ?, ApprovedBy = ?, Notes = ?
             WHERE Id = ?
           `
         )
-        .run(input.status, releasedDate, approvedBy, revisionDescription, latestVersion.Id);
-      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(nowIso(), input.documentRecordId);
+        .run(
+          input.status,
+          releasedDate,
+          reviewedBy,
+          approvedBy,
+          revisionDescription,
+          version.Id
+        );
+      context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(nowIso(), document.Id);
       this.activityLogService.log(context.db, {
         eventType: 'document.version.updated',
-        message: `Updated version ${latestVersion.VersionLabel} to ${input.status}.`,
-        documentRecordId: input.documentRecordId,
-        documentVersionId: latestVersion.Id
+        message: `Updated version ${version.VersionLabel} to ${input.status}.`,
+        documentRecordId: document.Id,
+        documentVersionId: version.Id
       });
     })();
 
-    return this.getDetail(rootPath, input.documentRecordId);
+    return this.getDetail(rootPath, document.Id);
   }
 
   openVersionFile(rootPath: string, fileId: number): void {
@@ -1265,6 +1305,7 @@ export class DocumentService {
             VersionLabel,
             Status,
             ReleasedDate,
+            ReviewedBy,
             ApprovedBy,
             CreatedDate,
             Notes
@@ -1458,6 +1499,7 @@ export class DocumentService {
             VersionLabel,
             Status,
             ReleasedDate,
+            ReviewedBy,
             ApprovedBy,
             CreatedDate,
             Notes
@@ -1503,6 +1545,7 @@ export class DocumentService {
       versionLabel: row.VersionLabel,
       status: row.Status,
       releasedDate: row.ReleasedDate,
+      reviewedBy: row.ReviewedBy,
       approvedBy: row.ApprovedBy,
       createdDate: row.CreatedDate,
       revisionDescription: row.Notes,
@@ -1529,6 +1572,7 @@ export class DocumentService {
       projectName: document.ProjectName,
       company: document.Company,
       department: document.Department,
+      startDate: document.StartDate || document.CreatedDate.slice(0, 10),
       revisionIntervalMonths: document.RevisionIntervalMonths,
       versions
     };
@@ -1550,6 +1594,7 @@ export class DocumentService {
       versionLabel: version.VersionLabel,
       status: version.Status,
       releasedDate: version.ReleasedDate,
+      reviewedBy: version.ReviewedBy,
       approvedBy: version.ApprovedBy,
       createdDate: version.CreatedDate,
       revisionDescription: version.Notes,
@@ -1616,6 +1661,7 @@ export class DocumentService {
             p.Name AS ProjectName,
             d.Company,
             d.Department,
+            d.StartDate,
             d.RevisionIntervalMonths
           FROM Documents d
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
@@ -1646,6 +1692,7 @@ export class DocumentService {
             VersionLabel,
             Status,
             ReleasedDate,
+            ReviewedBy,
             ApprovedBy,
             CreatedDate,
             Notes
@@ -1674,6 +1721,7 @@ export class DocumentService {
             VersionLabel,
             Status,
             ReleasedDate,
+            ReviewedBy,
             ApprovedBy,
             CreatedDate,
             Notes
@@ -1931,6 +1979,7 @@ export class DocumentService {
       throw new Error('Choose a version scheme for this document.');
     }
 
+    this.normalizeDocumentStartDate(input.startDate, nowIso());
     this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
   }
 
@@ -1947,6 +1996,7 @@ export class DocumentService {
       throw new Error('Author is required.');
     }
 
+    this.normalizeDocumentStartDate(input.startDate, nowIso());
     this.normalizeRevisionIntervalMonths(input.revisionIntervalMonths);
   }
 
@@ -2020,6 +2070,24 @@ export class DocumentService {
     return row?.Value ?? null;
   }
 
+  private normalizeDocumentStartDate(value: string | null | undefined, fallbackDate: string): string {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return fallbackDate.slice(0, 10);
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      throw new Error('Start date must use the YYYY-MM-DD format.');
+    }
+
+    const parsed = new Date(`${trimmed}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error('Start date is invalid.');
+    }
+
+    return trimmed;
+  }
+
   private normalizeRevisionIntervalMonths(value: number | null | undefined): number | null {
     if (value === undefined || value === null || value === 0) {
       return null;
@@ -2039,6 +2107,26 @@ export class DocumentService {
 
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private getPreviewMimeType(extension: string): string {
+    switch (extension) {
+      case '.png':
+        return 'image/png';
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.gif':
+        return 'image/gif';
+      case '.webp':
+        return 'image/webp';
+      case '.bmp':
+        return 'image/bmp';
+      case '.svg':
+        return 'image/svg+xml';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   private rewriteRelativePathPrefix(

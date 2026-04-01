@@ -51,6 +51,8 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentsDeleteVersion, filePath, input),
     updateLatestVersion: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateLatestVersion, filePath, input),
+    updateVersion: (filePath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.documentsUpdateVersion, filePath, input),
     addVersionFiles: (filePath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.documentsAddVersionFiles, filePath, input),
     renameVersionFile: (filePath, input) =>

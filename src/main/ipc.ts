@@ -129,6 +129,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.documentsUpdateLatestVersion, (_event, rootPath: string, input) =>
     services.documentService.updateLatestVersion(rootPath, input)
   );
+  ipcMain.handle(IPC_CHANNELS.documentsUpdateVersion, (_event, rootPath: string, input) =>
+    services.documentService.updateVersion(rootPath, input)
+  );
   ipcMain.handle(IPC_CHANNELS.documentsAddVersionFiles, (_event, rootPath: string, input) =>
     services.documentService.addVersionFiles(rootPath, input)
   );
