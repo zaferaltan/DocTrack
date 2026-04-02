@@ -387,6 +387,10 @@ export class FileStorageService {
     const entries = readdirSync(versionFolderAbsolutePath, { withFileTypes: true });
 
     for (const entry of entries) {
+      if (this.isHiddenFilesystemEntryName(entry.name)) {
+        continue;
+      }
+
       const entryRelativePath = this.normalizeRelativePath(
         path.posix.join(normalizedVersionFolderPath, entry.name)
       );
@@ -416,6 +420,10 @@ export class FileStorageService {
 
       const roleEntries = readdirSync(entryAbsolutePath, { withFileTypes: true });
       for (const roleEntry of roleEntries) {
+        if (this.isHiddenFilesystemEntryName(roleEntry.name)) {
+          continue;
+        }
+
         const roleRelativePath = this.normalizeRelativePath(
           path.posix.join(entryRelativePath, roleEntry.name)
         );
@@ -446,6 +454,10 @@ export class FileStorageService {
     const nestedPaths: string[] = [];
 
     for (const entry of readdirSync(directoryAbsolutePath, { withFileTypes: true })) {
+      if (this.isHiddenFilesystemEntryName(entry.name)) {
+        continue;
+      }
+
       nestedPaths.push(
         this.normalizeRelativePath(path.posix.join(directoryRelativePath, entry.name))
       );
@@ -780,5 +792,9 @@ export class FileStorageService {
         throw new Error('Managed paths cannot use symbolic links or junctions.');
       }
     }
+  }
+
+  private isHiddenFilesystemEntryName(name: string): boolean {
+    return name.startsWith('.') && name !== '.' && name !== '..';
   }
 }

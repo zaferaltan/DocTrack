@@ -108,8 +108,16 @@ describe('FileStorageService', () => {
     );
 
     writeFileSync(path.join(versionAbsolutePath, 'procedure.docx'), 'working', 'utf8');
+    writeFileSync(path.join(versionAbsolutePath, '.DS_Store'), 'hidden metadata', 'utf8');
     mkdirSync(path.join(versionAbsolutePath, 'concept-pdf'), { recursive: true });
     writeFileSync(path.join(versionAbsolutePath, 'concept-pdf', 'procedure.pdf'), 'concept', 'utf8');
+    writeFileSync(
+      path.join(versionAbsolutePath, 'concept-pdf', '.DS_Store'),
+      'hidden metadata',
+      'utf8'
+    );
+    mkdirSync(path.join(versionAbsolutePath, '.appledouble'), { recursive: true });
+    writeFileSync(path.join(versionAbsolutePath, '.appledouble', 'ignored.txt'), 'ignored', 'utf8');
     mkdirSync(path.join(versionAbsolutePath, 'nested', 'deep'), { recursive: true });
     writeFileSync(path.join(versionAbsolutePath, 'nested', 'deep', 'ignored.txt'), 'ignored', 'utf8');
     mkdirSync(path.join(versionAbsolutePath, 'working', 'drafts'), { recursive: true });
@@ -126,6 +134,7 @@ describe('FileStorageService', () => {
     ]);
     expect(scan.unmanagedPaths).toEqual([
       'Documents/Procedure/01202600001/001/nested',
+      'Documents/Procedure/01202600001/001/nested/deep',
       'Documents/Procedure/01202600001/001/working/drafts'
     ]);
   });

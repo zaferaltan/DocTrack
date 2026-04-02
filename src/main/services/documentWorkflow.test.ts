@@ -1028,4 +1028,32 @@ describe('document workflow integration', () => {
     );
     expect(afterIgnore.unmanagedPaths).toHaveLength(0);
   });
+
+  it('ignores hidden files during version filesystem checks', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'macOS Hidden Metadata Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+    const versionFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      '001'
+    );
+
+    writeFileSync(path.join(versionFolderAbsolutePath, '.DS_Store'), 'finder metadata', 'utf8');
+    mkdirSync(path.join(versionFolderAbsolutePath, 'working'), { recursive: true });
+    writeFileSync(path.join(versionFolderAbsolutePath, 'working', '.DS_Store'), 'finder metadata', 'utf8');
+
+    const afterSync = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+
+    expect(afterSync.unmanagedPaths).toHaveLength(0);
+    expect(afterSync.filesystemState).toBe('clean');
+    expect(afterSync.filesystemChanges).toHaveLength(0);
+  });
 });

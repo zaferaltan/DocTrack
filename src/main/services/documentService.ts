@@ -2291,16 +2291,16 @@ export class DocumentService {
   private collectFilesFromPath(absolutePath: string): string[] {
     const stats = statSync(absolutePath);
     if (stats.isFile()) {
-      return [absolutePath];
+      return this.isHiddenFilesystemEntryName(path.basename(absolutePath)) ? [] : [absolutePath];
     }
 
     if (!stats.isDirectory()) {
       return [];
     }
 
-    return readdirSync(absolutePath).flatMap((entry) =>
-      this.collectFilesFromPath(path.join(absolutePath, entry))
-    );
+    return readdirSync(absolutePath)
+      .filter((entry) => !this.isHiddenFilesystemEntryName(entry))
+      .flatMap((entry) => this.collectFilesFromPath(path.join(absolutePath, entry)));
   }
 
   private assertTemplateFilesFitVersionLayout(
@@ -2552,6 +2552,10 @@ export class DocumentService {
 
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private isHiddenFilesystemEntryName(name: string): boolean {
+    return name.startsWith('.') && name !== '.' && name !== '..';
   }
 
   private getPreviewMimeType(extension: string): string {

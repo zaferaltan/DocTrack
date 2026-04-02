@@ -758,6 +758,73 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('prompts to install after a launch-discovered update finishes downloading', async () => {
+    let appUpdateStateListener: ((state: AppUpdateState) => void) | undefined;
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'available',
+        message: 'DocTrack 0.2.0 is available to download.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        },
+        lastCheckedAt: '2026-04-02T10:00:00.000Z',
+        lastCheckSource: 'launch'
+      }
+    );
+    docTrack.appUpdates.onStateChange = vi.fn().mockImplementation((listener) => {
+      appUpdateStateListener = listener;
+      return () => undefined;
+    });
+    docTrack.appUpdates.downloadUpdate = vi.fn().mockImplementation(async () => {
+      const downloadedState: AppUpdateState = {
+        ...defaultAppUpdateState,
+        status: 'downloaded',
+        currentVersion: '0.1.0',
+        isSupported: true,
+        message: 'DocTrack 0.2.0 is ready to install.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        },
+        progress: null,
+        lastCheckedAt: '2026-04-02T10:00:00.000Z',
+        lastCheckSource: 'launch',
+        lastUpdatedAt: '2026-04-02T10:01:00.000Z'
+      };
+      await act(async () => {
+        appUpdateStateListener?.(downloadedState);
+      });
+      return downloadedState;
+    });
+    const view = await renderApp();
+
+    await click(getButton('Download Update', getLastDialog()));
+
+    const dialog = getLastDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Install Update');
+    expect(normalizeText(dialog.textContent)).toContain(
+      'DocTrack 0.2.0 has finished downloading. Restart and install it now?'
+    );
+
+    await click(getButton('Install and Restart', dialog));
+
+    expect(docTrack.appUpdates.downloadUpdate).toHaveBeenCalledTimes(1);
+    expect(docTrack.appUpdates.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
   it('installs a downloaded application update from the settings dialog', async () => {
     const docTrack = buildDocTrackMock(
       {

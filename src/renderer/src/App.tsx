@@ -1350,6 +1350,7 @@ function App() {
   );
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const launchUpdatePromptKeyRef = useRef<string | null>(null);
+  const downloadedLaunchUpdatePromptKeyRef = useRef<string | null>(null);
 
   const workspaceTabs = Object.values(openWorkspaces);
   const activeWorkspace = activeWorkspacePath
@@ -1819,6 +1820,39 @@ function App() {
       ],
       onConfirm: async () => {
         await window.docTrack.appUpdates.downloadUpdate();
+      },
+    });
+  }, [appUpdateState, openConfirmationDialog]);
+
+  useEffect(() => {
+    if (
+      !appUpdateState ||
+      appUpdateState.status !== "downloaded" ||
+      appUpdateState.lastCheckSource !== "launch"
+    ) {
+      return;
+    }
+
+    const promptKey = buildAppUpdatePromptKey(appUpdateState);
+    if (
+      !promptKey ||
+      downloadedLaunchUpdatePromptKeyRef.current === promptKey
+    ) {
+      return;
+    }
+
+    downloadedLaunchUpdatePromptKeyRef.current = promptKey;
+    openConfirmationDialog({
+      title: "Install Update",
+      description: `DocTrack ${appUpdateState.release?.version ?? ""} has finished downloading. Restart and install it now?`,
+      confirmLabel: "Install and Restart",
+      tone: "default",
+      detailLines: [
+        `Current version: ${appUpdateState.currentVersion}`,
+        `Downloaded version: ${appUpdateState.release?.version ?? "Unknown"}`,
+      ],
+      onConfirm: async () => {
+        await window.docTrack.appUpdates.quitAndInstall();
       },
     });
   }, [appUpdateState, openConfirmationDialog]);
@@ -3675,17 +3709,27 @@ function App() {
   };
 
   const handleConfirmActionDialog = async () => {
-    if (!confirmationDialog.onConfirm) {
+    const currentOnConfirm = confirmationDialog.onConfirm;
+
+    if (!currentOnConfirm) {
       return;
     }
 
     try {
       setConfirmationDialog((state) => ({ ...state, isSubmitting: true }));
-      await confirmationDialog.onConfirm();
-      setConfirmationDialog(defaultConfirmationDialogState);
+      await currentOnConfirm();
+      setConfirmationDialog((state) =>
+        state.onConfirm === currentOnConfirm
+          ? defaultConfirmationDialogState
+          : state,
+      );
     } catch (error) {
       notifyError(error, "Unable to complete the requested action.");
-      setConfirmationDialog((state) => ({ ...state, isSubmitting: false }));
+      setConfirmationDialog((state) =>
+        state.onConfirm === currentOnConfirm
+          ? { ...state, isSubmitting: false }
+          : state,
+      );
     }
   };
 
