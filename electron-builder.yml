@@ -3,6 +3,7 @@ productName: DocTrack
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: release
+  buildResources: build
 electronUpdaterCompatibility: ">=2.16"
 publish:
   provider: github
@@ -15,6 +16,12 @@ win:
       arch:
         - x64
 mac:
+  forceCodeSigning: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
   target:
     - target: dmg
       arch:

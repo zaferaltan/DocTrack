@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version that must match package.json
+        required: true
+        type: string
+      publish_windows:
+        description: Build and publish the unsigned Windows installer
+        required: true
+        default: true
+        type: boolean
+      publish_macos:
+        description: Build, sign, notarize, and publish the macOS release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  verify-version:
+    name: Verify Version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Verify package version matches workflow input
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$package_version" != "${{ inputs.version }}" ]; then
+            echo "package.json version is $package_version but workflow input is ${{ inputs.version }}."
+            exit 1
+          fi
+
+  windows:
+    name: Windows Release
+    needs: verify-version
+    if: ${{ inputs.publish_windows }}
+    runs-on: windows-latest
+    environment: release-windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build and publish Windows release
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows release artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctrack-windows-${{ inputs.version }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS Release
+    needs: verify-version
+    if: ${{ inputs.publish_macos }}
+    runs-on: macos-latest
+    environment: release-macos
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Prepare notarization API key
+        shell: bash
+        run: |
+          key_dir="$RUNNER_TEMP/private_keys"
+          mkdir -p "$key_dir"
+          key_path="$key_dir/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+          cat > "$key_path" <<'EOF'
+          ${{ secrets.APPLE_API_KEY_P8 }}
+          EOF
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build, sign, notarize, and publish macOS release
+        run: npm run release:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Upload macOS release artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctrack-macos-${{ inputs.version }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
