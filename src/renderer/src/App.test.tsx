@@ -156,6 +156,7 @@ const defaultAppUpdateState: AppUpdateState = {
   release: null,
   progress: null,
   lastCheckedAt: null,
+  lastCheckSource: null,
   lastUpdatedAt: '2026-04-02T10:00:00.000Z'
 };
 
@@ -715,6 +716,42 @@ describe('App', () => {
 
     await click(getButton('Settings'));
     await click(getButton('Download Update', getDialog()));
+
+    expect(docTrack.appUpdates.downloadUpdate).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
+  it('prompts to download an update discovered during the launch check', async () => {
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'available',
+        message: 'DocTrack 0.2.0 is available to download.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        },
+        lastCheckedAt: '2026-04-02T10:00:00.000Z',
+        lastCheckSource: 'launch'
+      }
+    );
+    const view = await renderApp();
+
+    const dialog = getLastDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Update Available');
+    expect(normalizeText(dialog.textContent)).toContain(
+      'DocTrack 0.2.0 is available. Download it now?'
+    );
+
+    await click(getButton('Download Update', dialog));
 
     expect(docTrack.appUpdates.downloadUpdate).toHaveBeenCalledTimes(1);
 

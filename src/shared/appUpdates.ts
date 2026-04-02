@@ -12,6 +12,11 @@ export const APP_UPDATE_STATUSES = [
 
 export type AppUpdateStatus = (typeof APP_UPDATE_STATUSES)[number];
 
+export const APP_UPDATE_CHECK_SOURCES = ["launch", "manual"] as const;
+
+export type AppUpdateCheckSource =
+  (typeof APP_UPDATE_CHECK_SOURCES)[number];
+
 export interface AppUpdateRelease {
   version: string;
   releaseName: string | null;
@@ -34,5 +39,6 @@ export interface AppUpdateState {
   release: AppUpdateRelease | null;
   progress: AppUpdateProgress | null;
   lastCheckedAt: string | null;
+  lastCheckSource: AppUpdateCheckSource | null;
   lastUpdatedAt: string | null;
 }

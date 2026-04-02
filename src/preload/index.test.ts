@@ -83,6 +83,7 @@ describe("preload app updates bridge", () => {
       release: null,
       progress: null,
       lastCheckedAt: null,
+      lastCheckSource: null,
       lastUpdatedAt: "2026-04-02T10:00:00.000Z",
     });
 

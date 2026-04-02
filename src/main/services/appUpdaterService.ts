@@ -5,7 +5,11 @@ import electronUpdater, {
 } from "electron-updater";
 import { app } from "electron";
 import type { ApplicationSettings } from "@shared/applicationSettings";
-import type { AppUpdateRelease, AppUpdateState } from "@shared/appUpdates";
+import type {
+  AppUpdateCheckSource,
+  AppUpdateRelease,
+  AppUpdateState,
+} from "@shared/appUpdates";
 
 type UpdaterSettings = Pick<
   ApplicationSettings,
@@ -96,6 +100,7 @@ export class AppUpdaterService {
   private readonly listeners = new Set<(state: AppUpdateState) => void>();
   private settings: UpdaterSettings = { ...DEFAULT_SETTINGS };
   private launchCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+  private activeCheckSource: AppUpdateCheckSource | null = null;
   private state: AppUpdateState;
 
   constructor({
@@ -185,11 +190,13 @@ export class AppUpdaterService {
 
     this.launchCheckTimeout = this.setTimeoutFn(() => {
       this.launchCheckTimeout = null;
-      void this.checkForUpdates().catch(() => undefined);
+      void this.checkForUpdates("launch").catch(() => undefined);
     }, this.launchCheckDelayMs);
   }
 
-  async checkForUpdates(): Promise<AppUpdateState> {
+  async checkForUpdates(
+    source: AppUpdateCheckSource = "manual"
+  ): Promise<AppUpdateState> {
     if (!this.isSupported()) {
       return this.getState();
     }
@@ -204,6 +211,7 @@ export class AppUpdaterService {
     }
 
     try {
+      this.activeCheckSource = source;
       await this.updater.checkForUpdates();
       return this.getState();
     } catch (error) {
@@ -211,8 +219,10 @@ export class AppUpdaterService {
         status: "error",
         message: formatErrorMessage(error),
         lastCheckedAt: this.now(),
+        lastCheckSource: this.activeCheckSource ?? source,
         progress: null,
       });
+      this.activeCheckSource = null;
       throw error;
     }
   }
@@ -275,6 +285,7 @@ export class AppUpdaterService {
       release: null,
       progress: null,
       lastCheckedAt: null,
+      lastCheckSource: null,
       lastUpdatedAt: this.now(),
       ...overrides,
     };
@@ -319,6 +330,7 @@ export class AppUpdaterService {
       this.setState({
         status: "checking",
         message: "Checking for updates...",
+        lastCheckSource: this.activeCheckSource,
         progress: null,
       });
     });
@@ -329,8 +341,10 @@ export class AppUpdaterService {
         message: `DocTrack ${info.version} is available to download.`,
         release: toRelease(info),
         lastCheckedAt: this.now(),
+        lastCheckSource: this.activeCheckSource,
         progress: null,
       });
+      this.activeCheckSource = null;
     });
 
     this.updater.on("update-not-available", (info) => {
@@ -339,8 +353,10 @@ export class AppUpdaterService {
         message: "DocTrack is up to date.",
         release: toRelease(info),
         lastCheckedAt: this.now(),
+        lastCheckSource: this.activeCheckSource,
         progress: null,
       });
+      this.activeCheckSource = null;
     });
 
     this.updater.on("download-progress", (progress) => {
@@ -371,8 +387,10 @@ export class AppUpdaterService {
       this.setState({
         status: "error",
         message: formatErrorMessage(error),
+        lastCheckSource: this.activeCheckSource ?? this.state.lastCheckSource,
         progress: null,
       });
+      this.activeCheckSource = null;
     });
   }
 }

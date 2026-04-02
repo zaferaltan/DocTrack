@@ -71,6 +71,35 @@ describe("AppUpdaterService", () => {
           version: "0.2.0",
         }),
         lastCheckedAt: "2026-04-02T10:00:00.000Z",
+        lastCheckSource: "manual",
+      })
+    );
+  });
+
+  it("marks launch-triggered update checks with the launch source", async () => {
+    const updater = new FakeAutoUpdater();
+    const scheduledCallbacks: Array<() => void> = [];
+    const service = new AppUpdaterService({
+      updater,
+      currentVersion: "0.1.0",
+      isPackaged: true,
+      platform: "win32",
+      now: () => "2026-04-02T10:00:00.000Z",
+      setTimeoutFn: ((callback: () => void) => {
+        scheduledCallbacks.push(callback);
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimeoutFn: vi.fn(),
+    });
+
+    service.start();
+    scheduledCallbacks[0]?.();
+    await Promise.resolve();
+
+    expect(service.getState()).toEqual(
+      expect.objectContaining({
+        status: "available",
+        lastCheckSource: "launch",
       })
     );
   });
@@ -126,6 +155,7 @@ describe("AppUpdaterService", () => {
       expect.objectContaining({
         status: "not-available",
         message: "DocTrack is up to date.",
+        lastCheckSource: "manual",
       })
     );
   });
@@ -150,6 +180,7 @@ describe("AppUpdaterService", () => {
       expect.objectContaining({
         status: "error",
         message: "Network unavailable",
+        lastCheckSource: "manual",
       })
     );
   });

@@ -192,6 +192,14 @@ const ACTIVITY_LOG_DISABLED_MESSAGE =
 const APP_UPDATE_MANUAL_ACTION_MESSAGE =
   "Save updater preference changes before checking for updates.";
 
+const buildAppUpdatePromptKey = (state: AppUpdateState): string | null => {
+  if (!state.release) {
+    return null;
+  }
+
+  return `${state.release.version}:${state.lastCheckSource ?? "unknown"}:${state.lastCheckedAt ?? ""}`;
+};
+
 const getSystemTheme = (): ThemeMode =>
   window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
@@ -1341,6 +1349,7 @@ function App() {
     null,
   );
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const launchUpdatePromptKeyRef = useRef<string | null>(null);
 
   const workspaceTabs = Object.values(openWorkspaces);
   const activeWorkspace = activeWorkspacePath
@@ -1783,6 +1792,36 @@ function App() {
       notifyError(error, "Unable to install the downloaded update.");
     }
   });
+
+  useEffect(() => {
+    if (
+      !appUpdateState ||
+      appUpdateState.status !== "available" ||
+      appUpdateState.lastCheckSource !== "launch"
+    ) {
+      return;
+    }
+
+    const promptKey = buildAppUpdatePromptKey(appUpdateState);
+    if (!promptKey || launchUpdatePromptKeyRef.current === promptKey) {
+      return;
+    }
+
+    launchUpdatePromptKeyRef.current = promptKey;
+    openConfirmationDialog({
+      title: "Update Available",
+      description: `DocTrack ${appUpdateState.release?.version ?? ""} is available. Download it now?`,
+      confirmLabel: "Download Update",
+      tone: "default",
+      detailLines: [
+        `Current version: ${appUpdateState.currentVersion}`,
+        `Available version: ${appUpdateState.release?.version ?? "Unknown"}`,
+      ],
+      onConfirm: async () => {
+        await window.docTrack.appUpdates.downloadUpdate();
+      },
+    });
+  }, [appUpdateState, openConfirmationDialog]);
 
   const saveApplicationSettingsPartial = async (
     nextPartial: Partial<ApplicationSettings>,
