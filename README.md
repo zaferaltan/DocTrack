@@ -1,102 +1,197 @@
 # DocTrack
 
-DocTrack is a cross-platform desktop application for managing document shells, document versions, statuses, and workspace files.
+DocTrack is an offline-first desktop application for managing controlled document workspaces. It combines a local SQLite database with a predictable folder structure so document metadata, version history, managed files, templates, and recovery snapshots stay together in a single portable workspace.
 
-It is built with:
+The application is built with Electron, React, TypeScript, and SQLite. Packaged releases are configured for Windows and macOS, and the source code can be run locally for development with Node.js.
 
-- Electron for the desktop shell
-- React + TypeScript for the UI
-- SQLite for offline workspace data
-- `better-sqlite3` for fast local database access
+## Contents
+
+- [Overview](#overview)
+- [Current Scope](#current-scope)
+- [Core Capabilities](#core-capabilities)
+- [Technology Stack](#technology-stack)
+- [Workspace Model](#workspace-model)
+- [Document Model](#document-model)
+- [Document IDs, Versions, and Storage Layout](#document-ids-versions-and-storage-layout)
+- [File Tracking and Reconciliation](#file-tracking-and-reconciliation)
+- [Catalogs, Templates, Dashboards, and Exports](#catalogs-templates-dashboards-and-exports)
+- [Backups, Restore, and Integrity Checks](#backups-restore-and-integrity-checks)
+- [Requirements](#requirements)
+- [Development Quick Start](#development-quick-start)
+- [Available Scripts](#available-scripts)
+- [Repository Structure](#repository-structure)
+- [Architecture Notes](#architecture-notes)
+- [Database and Migrations](#database-and-migrations)
+- [Packaging and Updates](#packaging-and-updates)
+- [Contributor Notes](#contributor-notes)
+- [Troubleshooting](#troubleshooting)
+
+## Overview
+
+DocTrack is designed for teams or individuals who need structured document control without depending on a hosted service. Each workspace is stored as a normal folder on disk and can be copied, backed up, inspected, or archived with standard file system tools.
+
+The application separates document metadata from document files:
+
+- The SQLite database stores document records, version history, file tracking, workspace settings, catalogs, and recovery metadata.
+- The workspace folders store the actual managed files, templates, and snapshots.
+- The user interface keeps multiple workspaces open at the same time in separate tabs.
+
+This model keeps the product simple to deploy, easy to back up, and practical for environments where documents must remain local.
+
+## Current Scope
+
+DocTrack currently provides:
+
+- Offline local workspaces
+- Desktop application packaging for Windows and macOS
+- A single-user local workflow
+- No central server, user accounts, cloud sync, or multi-user concurrency layer
+
+That scope is intentional and is worth understanding before adopting the source code. The application is optimized for portable local workspaces, not for hosted document management.
+
+## Core Capabilities
+
+- Create and open multiple workspaces in parallel
+- Track document shells separately from versioned files
+- Generate document IDs from configurable presets or custom templates
+- Support multiple version schemes: `001`, `v1`, and `1.0`
+- Manage file roles such as working files, concept PDFs, and final PDFs
+- Detect and reconcile file system drift inside managed folders
+- Track document metadata including project, language, confidentiality class, company, department, and review interval
+- Provide dashboards, recent activity, health flags, and filtered document tables
+- Reuse template folders when creating documents
+- Export document overviews to CSV or PDF
+- Create manual or safety backups and restore them with diff previews
+- Run integrity checks against the workspace database and managed files
+- Store application-level preferences such as theme, shortcuts, table density, and update settings
+
+## Technology Stack
+
+- Electron for the desktop runtime
+- React 19 and TypeScript for the renderer
+- `electron-vite` and Vite for development and build orchestration
+- SQLite and `better-sqlite3` for local persistence
 - Tailwind CSS for styling
-- Zustand for UI state
+- Zustand for renderer state
 - TanStack Table for the document overview grid
+- Chokidar for workspace file system watching
+- `electron-updater` for packaged update support
+- Vitest for automated testing
 
-The app is designed to work fully offline. Each workspace is its own SQLite file, and each open workspace appears in its own tab.
+## Workspace Model
 
-## What DocTrack Does
-
-DocTrack lets you:
-
-- Create a new workspace
-- Open an existing workspace
-- Keep multiple workspaces open at the same time
-- Create documents with configurable document ID formats
-- Create document shells before the actual files exist
-- Add new versions to existing documents with configurable version label formats
-- Change document status
-- Manage document types and their number prefixes
-- Search, sort, and filter documents in a table view
-- Store and reconcile document files locally next to the workspace
-
-## How Workspaces Work
-
-A workspace is a folder on disk that contains a SQLite database plus managed document folders.
-
-Example:
+Each workspace is self-contained. By default, a new workspace uses the following root layout:
 
 ```text
-Quality/
-  Database/workspace.sqlite
+<Workspace>/
+  Database/
+    workspace.sqlite
   Documents/
+  Templates/
+  Backups/
 ```
 
-The SQLite database stores metadata such as:
+Those root directory names are configurable in workspace settings, but the default layout is a good mental model for understanding the application.
 
-- documents
-- document versions
-- document version files
-- document types
-- statuses
-- workspace information
+### What lives where
 
-The `Documents/` tree stores the physical files for that workspace.
+- `Database/workspace.sqlite`
+  Stores the document register, versions, tracked files, workspace settings, catalogs, activity log, and migration history.
+- `Documents/`
+  Stores managed document folders and version folders.
+- `Templates/`
+  Stores reusable template folders that can seed a document with initial files.
+- `Backups/`
+  Stores manual snapshots and safety snapshots created before high-risk operations such as migration or restore.
 
-Example managed file path:
+### Example
 
 ```text
-Quality/Documents/Procedure/02202600001/001/procedure.docx
+Quality-System/
+  Database/
+    workspace.sqlite
+  Documents/
+    Procedure/
+      02202600001/
+        001/
+          audit-procedure.docx
+  Templates/
+    Procedure Starter/
+      audit-template.docx
+  Backups/
+    <backup-id>/
+      manifest.json
+      ...
 ```
 
-This means:
+## Document Model
 
-- the workspace stays portable
-- the app works offline
-- file paths inside the database can stay relative
-- users can still work in the folders outside the app
+DocTrack treats a document as a long-lived record that may or may not already have files.
 
-## Document ID Format
+### Document shell
 
-Each workspace can choose how document IDs are generated.
+A document can be created as a shell first. The shell stores core metadata such as:
 
-The default preset keeps the legacy numeric format:
+- title
+- document type
+- author
+- project
+- language
+- confidentiality class
+- company
+- department
+- start date
+- revision interval in months
 
-```text
-<docTypePrefix><year><sequence:5>
-```
+This allows the register to exist before a first deliverable is ready.
 
-Examples:
+### Version history
 
-```text
-01202600001
-01202600002
-02202600001
-```
+Each document can then accumulate versions. A version stores:
 
-Workspaces can also switch to readable presets such as:
+- version label
+- version-specific document ID
+- status
+- release date
+- reviewer
+- approver
+- revision description
+- tracked files
 
-```text
-<docType>-<year>-<sequence:4>
-<docType>-<language>-<year>-<sequence:4>
-```
+The latest version is what drives the status shown in the main document overview.
 
-Or define a fully custom template with placeholders like:
+### Status workflow
 
-```text
-<docType>-<year>-<author>-<sequence:3>
-```
+The current status set is fixed in the application and database:
 
-Supported placeholders include:
+- `Draft`
+- `In Review`
+- `Released`
+- `Archived`
+- `Obsolete`
+
+### Starter data
+
+New workspaces are initialized with:
+
+- starter document types: `Specification (01)`, `Procedure (02)`, `Report (03)`
+- starter language codes: `NL`, `EN`, `DE`
+- optional example documents when example data is enabled during workspace creation
+
+## Document IDs, Versions, and Storage Layout
+
+DocTrack lets each workspace define how document IDs and file paths should behave.
+
+### Document ID formats
+
+Built-in presets include:
+
+- `legacy-numeric`: `<docTypePrefix><year><sequence:5>`
+- `type-year-sequence`: `<docType>-<year>-<sequence:4>`
+- `type-language-year-sequence`: `<docType>-<language>-<year>-<sequence:4>`
+- `custom`: user-defined template
+
+Custom templates support placeholders such as:
 
 - `<docTypePrefix>`
 - `<docType>`
@@ -108,65 +203,208 @@ Supported placeholders include:
 - `<department>`
 - `<project>`
 - `<title>`
-- `<sequence>` or `<sequence:5>`
+- `<sequence>` or `<sequence:n>`
 
-Important rules:
+Template validation is enforced in the main process. A valid template must include exactly one sequence placeholder.
 
-- document IDs are generated automatically
-- document IDs are unique within the rendered format prefix
-- placeholder names are case-insensitive
-- every template must include exactly one `<sequence>` placeholder
-- document IDs can stay the same across versions or change per version, depending on workspace settings
-- version labels still change when you create a new version
+### Version schemes
 
-## Versioning Model
+Supported version label schemes are:
 
-DocTrack separates the document record from the version records.
+- `numeric-3`: `001`, `002`, `003`
+- `v-prefix`: `v1`, `v2`, `v3`
+- `major-minor`: `1.0`, `1.1`, `2.0`
 
-At a high level:
+### Version management modes
 
-- `Documents` stores the main identity and folder for a document shell
-- `DocumentVersions` stores each logical revision of that document
-- `DocumentVersionFiles` stores the actual physical files discovered for each version
+The workspace can also decide how document IDs behave across versions:
 
-That means:
+- `shared-document-id`
+  Every version in the history keeps the same document ID.
+- `version-specific-document-id`
+  Each new version receives a new document ID while remaining linked to the same document record.
 
-- one document can have many versions
-- one version can have many files
-- files can live flat in the version folder or inside role subfolders, depending on workspace settings
-- creating a new version adds a new row to `DocumentVersions`
-- changing status updates the latest version
-- changing status does not create a new version
+### Storage layout options
 
-## Project Status
+Workspace settings control both the folder naming strategy and the version file organization:
 
-This repository currently includes:
+| Setting | Options | Effect |
+| --- | --- | --- |
+| Storage layout preset | `stable-id`, `friendly-id` | Chooses whether document folders are based on the document ID alone or on the document ID plus title |
+| File organization mode | `flat`, `role-subfolders` | Chooses whether version files are stored directly in the version folder or grouped by role |
 
-- the desktop app shell
-- workspace creation and opening
-- document overview screen
-- document type management
-- version management logic
-- theme switching
-- seeded example data
-- automated backend and workflow tests
+Examples:
 
-This repository now includes `electron-builder` packaging for Windows and macOS, plus `electron-updater` wiring for packaged builds. Public rollout still has important limitations:
+```text
+Documents/Procedure/02202600001/001/audit-procedure.docx
+Documents/Procedure/02202600001 - Internal Audit Procedure/001/final-pdf/audit-procedure.pdf
+```
 
-- macOS auto-update should be treated as production-ready only after signing and notarization are configured
-- unsigned Windows builds can trigger SmartScreen or other trust warnings
-- release builds should be produced and smoke-tested on the target operating system because the app uses `better-sqlite3`
+### Automatic status handling
+
+When `autoMarkPreviousVersionObsolete` is enabled in workspace settings, creating a new version automatically marks the previous version as `Obsolete`.
+
+## File Tracking and Reconciliation
+
+DocTrack does more than store files. It also tracks the state of version folders relative to the database.
+
+### Supported file roles
+
+- `working`
+- `concept-pdf`
+- `final-pdf`
+- `other`
+
+These roles influence how files are stored and displayed. Template imports also use file name and extension heuristics to suggest a role.
+
+### File operations
+
+For each version, the application can:
+
+- import files into managed storage
+- rename tracked files
+- change file roles
+- delete tracked files
+- open files or containing folders in the operating system
+- preview supported local files
+
+Preview support currently includes:
+
+- PDF
+- images
+- text
+- CSV
+
+### Drift detection
+
+The application watches the workspace `Documents` and `Templates` roots and emits file system drift events when managed paths change outside the app.
+
+Each version can be evaluated as:
+
+- `clean`
+- `dirty`
+- `ambiguous`
+
+Detected changes include:
+
+- missing tracked files
+- new unmanaged files or folders
+- renamed files
+- role moves
+- content changes
+- collisions
+- nested unmanaged paths
+
+The reconciliation workflow lets the user inspect those differences and apply selected fixes back to the tracked metadata.
+
+### Version comparison
+
+Adjacent versions can be compared by tracked files, file paths, roles, and content hashes. This gives contributors a lightweight way to inspect what changed between revisions without leaving the app.
+
+## Catalogs, Templates, Dashboards, and Exports
+
+### Catalogs
+
+Each workspace maintains local catalogs for:
+
+- document types
+- projects
+- confidentiality classes
+- languages
+
+These values are stored in the workspace database and referenced by documents.
+
+### Templates
+
+Templates are stored as folders inside the workspace `Templates` directory. A template can contain one or more files and can be selected during document creation to seed the first version automatically.
+
+### Dashboard and health signals
+
+The workspace dashboard summarizes:
+
+- document counts by status
+- document counts by type
+- document counts by project
+- recent activity
+- health insights
+
+Current document health flags include:
+
+- `overdueReview`
+- `missingFiles`
+- `unversionedShell`
+- `unmanagedPaths`
+- `staleDocument`
+
+### Activity log
+
+When activity logging is enabled, DocTrack records workspace and document events such as creation, opening, settings changes, version creation, and backup activity. Retention is configurable per workspace through `activityLogMaxRows`.
+
+### Exports
+
+The document table can be exported as:
+
+- CSV
+- PDF
+
+Export scope can be either the current filtered table or the whole workspace. PDF exports support grouping by metadata such as document type, status, project, language, confidentiality class, company, department, or author. If a company logo is configured for the workspace, it can be included in the report.
+
+## Backups, Restore, and Integrity Checks
+
+DocTrack includes built-in recovery tooling because each workspace is treated as a durable local asset.
+
+### Backups
+
+Two backup types exist:
+
+| Type | When it is created |
+| --- | --- |
+| `manual` | Created explicitly by the user |
+| `safety` | Created automatically before migration or restore operations that could alter the live workspace |
+
+Each snapshot contains:
+
+- the workspace database directory
+- the managed documents directory
+- the templates directory when present
+- a manifest with summary metadata
+
+### Restore options
+
+Backups can be restored in two ways:
+
+- overwrite the current workspace database and managed content
+- export the backup into a brand-new restored workspace folder
+
+Before restoring, the application can generate:
+
+- a destination preview
+- a structured diff of workspace settings
+- diffs for document types, projects, classifications, languages, documents, versions, and tracked files
+
+### Integrity checks
+
+The integrity checker verifies that tracked workspace assets still exist and can be read. It reports issues such as:
+
+- missing database file
+- missing document folder
+- missing version folder
+- missing managed file
+- unreadable path
 
 ## Requirements
 
-Recommended:
+Recommended local environment:
 
-- Node.js 20+  
-- npm 10+
+- Node.js 20 or later
+- npm 10 or later
 
-This project was developed and verified with a modern Node environment and uses native SQLite bindings through `better-sqlite3`.
+Additional notes:
 
-## Getting Started
+- `better-sqlite3` uses native bindings and must match the runtime it is built for.
+- Packaging is most reliable on the target operating system because Electron bundles a native SQLite dependency.
+
+## Development Quick Start
 
 ### 1. Install dependencies
 
@@ -174,500 +412,269 @@ This project was developed and verified with a modern Node environment and uses 
 npm install
 ```
 
-### 2. Start the app in development mode
+### 2. Start the application in development mode
 
 ```bash
 npm run dev
 ```
 
-This starts:
+This command rebuilds `better-sqlite3` for Electron and then starts:
 
-- an Electron-targeted rebuild of `better-sqlite3`
 - the Electron main process
 - the preload script
 - the React renderer
 
-### 3. Build the app
-
-```bash
-npm run build
-```
-
-This creates a production build in:
-
-```text
-out/
-```
-
-### 4. Preview the production build
-
-```bash
-npm run preview
-```
-
-### 5. Run tests
+### 3. Run the test suite
 
 ```bash
 npm test
 ```
 
-### 6. Run type checking
+### 4. Run type checking
 
 ```bash
 npm run typecheck
 ```
 
+### 5. Build production bundles
+
+```bash
+npm run build
+```
+
+Build output is written to `out/`.
+
+### 6. Package installers
+
+```bash
+npm run dist
+```
+
+Packaged artifacts are written to `release/`.
+
 ## Available Scripts
 
-| Command | What it does |
+| Command | Description |
 | --- | --- |
-| `npm run dev` | Starts the Electron app in development mode |
-| `npm run build` | Rebuilds native Electron modules and builds the main, preload, and renderer bundles |
-| `npm run preview` | Rebuilds native Electron modules and runs a local preview |
-| `npm run dist` | Rebuilds native Electron modules, creates production bundles, and packages the app |
-| `npm run dist:win` | Builds and packages a Windows NSIS installer |
-| `npm run dist:win:compat` | Windows packaging fallback for machines that cannot unpack `winCodeSign` symlinks |
-| `npm run dist:mac` | Builds and packages a macOS DMG + ZIP |
-| `npm run release` | Builds and publishes installers to the configured release provider |
-| `npm run release:win` | Builds and publishes a Windows NSIS release |
-| `npm run release:win:compat` | Windows publish fallback that disables executable resource editing |
-| `npm run release:mac` | Builds and publishes a macOS release |
-| `npm test` | Rebuilds `better-sqlite3` for plain Node and runs the Vitest test suite |
-| `npm run test:watch` | Rebuilds `better-sqlite3` for plain Node and runs tests in watch mode |
-| `npm run typecheck` | Runs strict TypeScript checking |
+| `npm run dev` | Rebuilds native Electron modules and starts the app in development mode |
+| `npm run build` | Rebuilds native Electron modules and creates production bundles in `out/` |
+| `npm run preview` | Rebuilds native Electron modules and previews the built application |
+| `npm run dist` | Builds the app and packages installers without publishing |
+| `npm run dist:win` | Builds and packages a Windows NSIS x64 installer |
+| `npm run dist:win:compat` | Windows packaging fallback that disables executable resource editing |
+| `npm run dist:mac` | Builds and packages macOS universal DMG and ZIP artifacts |
+| `npm run release` | Builds and publishes to the configured release provider |
+| `npm run release:win` | Publishes a Windows release |
+| `npm run release:win:compat` | Publishes a Windows release with compatibility packaging settings |
+| `npm run release:mac` | Publishes a macOS release |
 | `npm run rebuild:native` | Rebuilds `better-sqlite3` for Electron |
 | `npm run rebuild:node` | Rebuilds `better-sqlite3` for the local Node.js runtime |
+| `npm test` | Rebuilds `better-sqlite3` for Node.js and runs the Vitest suite |
+| `npm run test:watch` | Rebuilds `better-sqlite3` for Node.js and runs Vitest in watch mode |
+| `npm run typecheck` | Runs TypeScript checks for the app and Node-side configs |
 
-## How To Use The App
+## Repository Structure
 
-### Create a workspace
+| Path | Purpose |
+| --- | --- |
+| `src/main/` | Electron main process, database access, services, file operations, IPC handlers |
+| `src/preload/` | Safe bridge between Electron and the renderer |
+| `src/renderer/src/` | React application, UI components, local utilities, and client-side state |
+| `src/shared/` | Shared domain types, settings models, and IPC contracts |
+| `migrations/` | Numbered SQL migrations applied to workspace databases |
+| `build/` | Icons and macOS entitlements used by packaging |
+| `electron-builder.yml` | Packaging and publish configuration |
 
-1. Launch the app
-2. Click `New Workspace`
-3. Enter a workspace name
-4. Choose where to save the workspace folder
-5. Optionally keep example data enabled
-6. Create the workspace
+## Architecture Notes
 
-When a workspace is created:
+### Process boundaries
 
-- the workspace folder is created
-- the SQLite file is created inside `Database/`
-- the database schema is initialized
-- the four fixed statuses are seeded
-- starter document types are seeded
-- optional sample documents are added
+DocTrack follows the standard Electron split:
 
-### Open an existing workspace
+- `main`
+  Owns SQLite access, file system access, migrations, backup logic, updater logic, and all business rules
+- `preload`
+  Exposes a typed and limited API to the renderer through `window.docTrack`
+- `renderer`
+  Renders the React interface and calls the preload API instead of touching Node.js directly
 
-1. Click `Open Workspace`
-2. Choose an existing workspace folder
-3. The workspace opens in a new tab
+This is an important rule for contributors: database and file system code belongs in the main process, not in React components.
 
-### Create a document
+### Shared contracts
 
-1. Open a workspace
-2. Click `New Document`
-3. Enter:
-   - title
-   - author
-   - document type
-   - version scheme
-4. Save
+The main process and renderer share their contracts through `src/shared/`. In practice, the most important shared files are:
 
-DocTrack will:
+- `src/shared/types.ts`
+- `src/shared/workspaceLayout.ts`
+- `src/shared/applicationSettings.ts`
+- `src/shared/ipc.ts`
 
-- generate a new `DocumentID`
-- create the document record
-- create the physical document folder on disk
-- leave the document in a `Not started` state until the first version exists
+### Application catalog vs workspace data
 
-### Create a new version
+Workspace data lives inside each workspace folder. Application-level state does not.
 
-1. Select an existing document
-2. Click `New Version`
-3. Add notes
-4. If needed, choose the major/minor bump for `1.0` style documents
-5. Save
+Recent workspaces and global application settings are stored in a catalog file under Electron `userData`:
 
-DocTrack will:
+- recent workspace list
+- theme and layout preferences
+- keyboard shortcuts
+- launch behavior
+- updater preferences
 
-- keep the same document ID
-- create the next version label and physical version folder
-- create a new `DocumentVersions` row
+This distinction matters when debugging. If a setting seems global across workspaces, it is probably coming from the application catalog rather than the workspace database.
 
-### Show files for a version
+### Typical data flow
 
-1. Select a document
-2. Click `Show Files`
-3. Open files, open the folder, refresh disk state, or add files
+Creating a document follows this path:
 
-DocTrack will:
+1. The renderer collects form input.
+2. The renderer calls `window.docTrack.documents.create(...)`.
+3. The preload layer forwards the request over IPC.
+4. `src/main/ipc.ts` routes the request to `DocumentService`.
+5. The service validates input, generates the document ID, creates folders, writes database rows, and records activity.
+6. The updated document detail is returned to the renderer.
 
-- rescan the version folder and recognized role subfolders
-- import new files found on disk
-- remove deleted files from the database view
-- preserve file metadata across manual renames and moves when possible
+Most features follow that same pattern.
 
-### Change document status
+## Database and Migrations
 
-1. Select a document
-2. Click `Change Status`
-3. Pick a new status
-4. Save
+Workspace schema changes are handled through numbered SQL migrations in `migrations/`.
 
-The latest version is updated in place.
+Current migration chain:
 
-### Manage document types
+- `001_initial.sql`
+- `002_workspace_layout.sql`
+- `003_document_metadata.sql`
+- `004_version_management.sql`
+- `005_document_id_format.sql`
+- `006_workspace_branding.sql`
+- `007_activity_log.sql`
+- `008_document_review_metadata.sql`
+- `009_workspace_root_directories.sql`
+- `010_activity_log_settings.sql`
 
-1. Open a workspace
-2. Go to `Document Types`
-3. Add, edit, or delete document types
+### Migration behavior
 
-Each type needs:
+- New workspaces are created with the full migration chain applied.
+- Existing workspaces are checked for pending migrations when opened.
+- If pending migrations exist, DocTrack creates a safety snapshot before applying them.
+- Database connections are configured with foreign keys enabled and SQLite WAL mode.
 
-- a name
-- a unique 2-digit numeric prefix
+### Main tables
 
-## Default Seed Data
-
-New workspaces are seeded with these statuses:
-
-- `Draft`
-- `In Review`
-- `Released`
-- `Archived`
-
-New workspaces are also seeded with starter document types:
-
-- `01` Specification
-- `02` Procedure
-- `03` Report
-
-If example data is enabled, sample documents are created automatically.
-
-## Tech Stack Explained
-
-If you are new to this stack, this is the most important part:
-
-### Electron
-
-Electron lets us build a desktop app using web technologies.
-
-In this app, Electron has 3 important layers:
-
-- `main` process
-- `preload` script
-- `renderer` app
-
-### React
-
-React builds the user interface.
-
-In DocTrack, React renders:
-
-- the top toolbar
-- workspace tabs
-- the sidebar
-- the documents table
-- modal dialogs
-- the document details panel
-
-### TypeScript
-
-TypeScript adds types on top of JavaScript so the code is safer and easier to understand.
-
-### SQLite
-
-SQLite is a single-file local database. It is a great fit here because:
-
-- it works offline
-- it is fast
-- it is easy to copy and back up
-- each workspace can be its own file
-
-### better-sqlite3
-
-`better-sqlite3` is the library used by the Electron main process to read and write SQLite data.
-
-### Zustand
-
-Zustand is a lightweight state management library. It stores UI state like:
-
-- which workspaces are open
-- which workspace is active
-- the current theme
-- notifications
-
-### TanStack Table
-
-TanStack Table powers the document overview table:
-
-- sorting
-- filtering
-- searching
-- table row rendering
-
-### Tailwind CSS
-
-Tailwind is the utility CSS framework used to style the app.
-
-## How The Codebase Works
-
-The project is split into clear layers:
-
-```text
-src/
-  main/       Electron main process, SQLite, services, IPC handlers
-  preload/    Safe API bridge from Electron to the UI
-  renderer/   React app and UI components
-  shared/     Shared TypeScript types and IPC contracts
-migrations/   SQL schema files
-```
-
-### `src/main`
-
-This is the backend of the desktop app.
-
-It handles:
-
-- opening windows
-- registering IPC handlers
-- managing workspace connections
-- reading and writing SQLite data
-- copying files into managed storage
-
-Important files:
-
-- `src/main/index.ts`  
-  App startup and service wiring
-
-- `src/main/ipc.ts`  
-  Connects UI requests to backend services
-
-- `src/main/database/workspaceManager.ts`  
-  Opens, caches, and closes workspace database connections
-
-- `src/main/services/workspaceService.ts`  
-  Workspace creation, opening, summaries, and seed data
-
-- `src/main/services/documentService.ts`  
-  Document creation, version creation, status updates, file opening
-
-- `src/main/services/documentTypeService.ts`  
-  CRUD operations for document types
-
-- `src/main/services/documentIdGeneratorService.ts`  
-  Generates document IDs from workspace presets or custom templates
-
-- `src/main/services/fileStorageService.ts`  
-  Calculates workspace file paths and copies files
-
-### `src/preload`
-
-This is the safe bridge between the Electron backend and the React frontend.
-
-Why it exists:
-
-- the UI should not directly access Node.js APIs
-- the UI should only get a limited, typed API
-
-`src/preload/index.ts` exposes `window.docTrack`.
-
-That API includes methods like:
-
-- `workspace.create`
-- `workspace.open`
-- `documents.create`
-- `documents.createVersion`
-- `documents.updateStatus`
-- `documentTypes.create`
-
-### `src/renderer`
-
-This is the frontend React app.
-
-Main areas:
-
-- `src/renderer/src/App.tsx`  
-  Main UI shell and feature screens
-
-- `src/renderer/src/store/useAppStore.ts`  
-  Global UI state with Zustand
-
-- `src/renderer/src/components/ui/`  
-  Reusable UI building blocks like buttons, dialogs, inputs, badges
-
-- `src/renderer/src/lib/utils.ts`  
-  Small frontend helpers
-
-### `src/shared`
-
-This folder contains types shared between the frontend and backend.
-
-Important files:
-
-- `src/shared/types.ts`  
-  Domain models and DTOs
-
-- `src/shared/ipc.ts`  
-  IPC channel names and the typed preload API contract
-
-This helps keep the app consistent because both sides agree on the same types.
-
-## How Data Flows Through The App
-
-This is the most useful mental model for understanding the project.
-
-### Example: creating a document shell
-
-1. The user fills in the `Create Document` dialog in React
-2. React calls `window.docTrack.documents.create(...)`
-3. The preload script forwards that request through Electron IPC
-4. `src/main/ipc.ts` receives the request
-5. `DocumentService` runs the business logic
-6. `DocumentIdGeneratorService` generates the new document ID
-7. `FileStorageService` creates the physical document folder
-8. SQLite rows are inserted into `Documents`
-9. The updated document list is returned to the UI
-10. React refreshes the table and detail panel
-
-That same pattern is used for other actions too.
-
-## Database Schema
-
-The initial schema lives in:
-
-```text
-migrations/001_initial.sql
-```
-
-Main tables:
+The most important workspace tables are:
 
 - `Workspaces`
 - `Statuses`
 - `DocumentTypes`
+- `Projects`
+- `ConfidentialityClasses`
+- `Languages`
 - `Documents`
 - `DocumentVersions`
 - `DocumentVersionFiles`
+- `ActivityLog`
+- `__Migrations`
 
-High-level relationships:
+## Packaging and Updates
 
-- one workspace database contains many documents
-- one document type can be used by many documents
-- one document can have many versions
+DocTrack uses `electron-builder` for packaging.
 
-## Tests
+### Current packaging targets
 
-The repository includes automated tests for core business rules:
+- Windows: NSIS x64 installer
+- macOS: universal `dmg` and `zip`
+
+Linux packaging is not configured in the current release setup.
+
+### Output locations
+
+- `npm run build` writes compiled bundles to `out/`
+- `npm run dist*` writes packaged artifacts to `release/`
+
+### Release publishing
+
+The release configuration is currently set to publish draft GitHub releases for:
+
+- repository: `zaferaltan/DocTrack`
+
+Publishing is driven by the `release*` scripts and requires appropriate credentials such as `GH_TOKEN`.
+
+### Auto-update behavior
+
+Packaged Windows and macOS builds include updater wiring through `electron-updater`.
+
+Current behavior:
+
+- updates are only supported in packaged Windows and macOS builds
+- the updater can check automatically on launch when enabled in settings
+- updates are not auto-downloaded
+- users must explicitly download the update
+- installation happens through a separate quit-and-install step after download completes
+- unpackaged development runs do not use the production update feed
+
+### Release hardening notes
+
+- Public macOS releases require working code signing and notarization credentials
+- Unsigned Windows builds may show SmartScreen or trust warnings
+- Release builds should be generated and smoke-tested on the target operating system
+
+## Contributor Notes
+
+### Good to know before changing storage code
+
+- The workspace layout is configurable. Avoid hard-coding `Database`, `Documents`, `Templates`, or `Backups` unless the code is intentionally using the default fallback.
+- File paths stored in the database are relative to the workspace root.
+- Storage layout changes can require both file moves on disk and path rewrites in SQLite.
+- File system watcher behavior matters when moving or reconciling managed files. Suppression and pause/resume logic already exists for this.
+
+### Good to know before changing schema or persistence
+
+- Add a new migration instead of rewriting an old one that may already exist in user workspaces.
+- Review backup, restore, and integrity behavior when changing database tables or stored path semantics.
+- If the change affects document identity, versioning, or file layout, update the relevant service tests.
+
+### Testing coverage
+
+The repository already includes tests for:
 
 - document ID generation
-- file storage path behavior
-- workspace lifecycle
-- document shell creation
-- version creation
-- version file sync and migration
-- status updates
+- document workflows
+- file storage
+- workspace creation and migration behavior
+- backup and restore flows
+- updater logic
+- IPC contracts
+- preload behavior
+- renderer helpers and store behavior
 
-Test files live under:
-
-```text
-src/main/services/*.test.ts
-```
-
-## Common Beginner Questions
-
-### Why is database logic not inside React?
-
-Because React is only the UI layer.
-
-In Electron apps, file system access and database access are safer in the main process. That is why DocTrack keeps SQLite and file operations in `src/main`.
-
-### Why is there a preload script?
-
-Electron apps can expose too much power to the UI if you are not careful.
-
-The preload script gives the UI only the specific methods it needs.
-
-### Why are types shared?
-
-So the frontend and backend agree on the same data shapes.
-
-That reduces bugs and makes refactoring easier.
-
-### Why use SQLite workspaces instead of one central database?
-
-Because the product is workspace-based and offline-first:
-
-- each workspace is portable
-- users can keep multiple separate databases
-- backup is simple
-- sharing a workspace file is easy
+When changing business rules in `src/main/services/`, extending the corresponding tests should be part of the same change.
 
 ## Troubleshooting
 
-### `npm install` fails on `better-sqlite3`
+### `better-sqlite3` runtime mismatch
 
-This package uses native bindings.
-
-Usually it installs fine with prebuilt binaries, but if it does not:
-
-- make sure Node.js is installed correctly
-- update npm
-- try again after clearing old installs
-
-If you are on Windows and a native build is required, you may need local C++ build tools.
-
-### I get a `NODE_MODULE_VERSION` error from `better-sqlite3`
-
-That means the native SQLite binding was compiled for the wrong runtime.
-
-Common cases:
-
-- Electron needs one binary
-- plain Node.js tests need another binary
-
-DocTrack includes helper scripts for this:
+If the native module was built for the wrong runtime, rebuild it for the environment you are using:
 
 ```bash
 npm run rebuild:native
 ```
 
-Use that before running the Electron app if needed.
+Use that for Electron development and packaging.
 
 ```bash
 npm run rebuild:node
 ```
 
-Use that before running Node-based tests if needed.
+Use that for Node.js test runs.
 
-Normally you do not need to remember this manually because:
+### `npm install` fails on native dependencies
 
-- `npm run dev` rebuilds for Electron
-- `npm run build` rebuilds for Electron
-- `npm run preview` rebuilds for Electron
-- `npm test` rebuilds for Node
+`better-sqlite3` may require local native build tooling if a prebuilt binary is unavailable. On Windows, that can mean C++ build tools depending on the environment.
 
-### Electron starts in the terminal but behaves like plain Node
+### `npm run build` did not create an installer
 
-If the environment variable below is set:
-
-```bash
-ELECTRON_RUN_AS_NODE=1
-```
-
-Electron will not behave like the desktop runtime.
-
-If that happens in zsh or bash:
-
-```bash
-unset ELECTRON_RUN_AS_NODE
-npm run dev
-```
-
-### The app builds but does not create an installer
-
-Use one of the packaging commands instead of `npm run build`:
+`npm run build` only creates application bundles in `out/`. Use a packaging command such as:
 
 ```bash
 npm run dist
@@ -675,88 +682,10 @@ npm run dist:win
 npm run dist:mac
 ```
 
-Those commands compile the Electron app and then package it with `electron-builder`.
+### Electron behaves like plain Node.js
 
-Notes and limitations:
+If `ELECTRON_RUN_AS_NODE=1` is set in the shell environment, Electron will not start as the desktop runtime. Clear that variable and run the app again.
 
-- `npm run build` still only creates the application bundles in `out/`
-- packaged artifacts are written to `release/`
-- Windows packages target `NSIS x64`
-- macOS packages target `dmg + zip` universal builds
-- build on the target OS for the most reliable native-module results
-- branded `.ico` / `.icns` assets have not been added yet, so public releases still need final packaging polish
+### Auto-updates do not work in development mode
 
-### How to publish a release manually
-
-For a local release upload to GitHub Releases, set `GH_TOKEN` and run:
-
-```bash
-npm run release
-npm run release:win
-npm run release:mac
-```
-
-If the Windows build machine fails while unpacking `winCodeSign` with an error like `A required privilege is not held by the client`, either enable Windows Developer Mode or use the fallback command:
-
-```bash
-npm run release:win:compat
-```
-
-That compatibility path disables executable resource editing during packaging. It is a practical workaround for unsigned internal builds, but it remains a limitation and should not be treated as the preferred long-term release setup.
-
-Current release defaults:
-
-- release host: public GitHub repository `zaferaltan/DocTrack`
-- channel: stable only
-- release workflow: local/manual for now, no GitHub Actions publishing yet
-- updater metadata is generated by `electron-builder` for `electron-updater`
-
-### Automatic update behavior
-
-Packaged builds now expose an Updates section in the application settings screen.
-
-- DocTrack checks once on launch when automatic updates and launch checks are enabled
-- it does **not** auto-download updates; users must click `Download Update`
-- once a download finishes, users can click `Install and Restart`
-- unpackaged development runs do not hit the production update feed
-- Linux packaging and updater rollout are out of scope in the current setup
-
-## Suggested Learning Order
-
-If you are new to the stack, read the code in this order:
-
-1. `package.json`
-2. `src/main/index.ts`
-3. `src/shared/types.ts`
-4. `src/shared/ipc.ts`
-5. `src/preload/index.ts`
-6. `src/main/ipc.ts`
-7. `src/main/services/workspaceService.ts`
-8. `src/main/services/documentService.ts`
-9. `src/renderer/src/store/useAppStore.ts`
-10. `src/renderer/src/App.tsx`
-
-That order usually makes the architecture click faster.
-
-## Next Steps You Could Add Later
-
-- Windows code signing
-- macOS signing and notarization hardening
-- branded installer icons and packaging assets
-- richer metadata fields
-- file attachments per version
-- import/export tools
-- audit trail/history screens
-- user preferences
-- stronger end-to-end UI automation
-
----
-
-If you are new to Electron or React, the big idea is:
-
-- React renders the UI
-- preload exposes a safe API
-- Electron main runs the backend logic
-- SQLite stores the workspace data
-
-That is the core architecture of DocTrack.
+That is expected. The updater is only supported in packaged Windows and macOS builds.
