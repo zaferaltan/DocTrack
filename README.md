@@ -224,6 +224,14 @@ npm run typecheck
 | `npm run dev` | Starts the Electron app in development mode |
 | `npm run build` | Rebuilds native Electron modules and builds the main, preload, and renderer bundles |
 | `npm run preview` | Rebuilds native Electron modules and runs a local preview |
+| `npm run dist` | Rebuilds native Electron modules, creates production bundles, and packages the app |
+| `npm run dist:win` | Builds and packages a Windows NSIS installer |
+| `npm run dist:win:compat` | Windows packaging fallback for machines that cannot unpack `winCodeSign` symlinks |
+| `npm run dist:mac` | Builds and packages a macOS DMG + ZIP |
+| `npm run release` | Builds and publishes installers to the configured release provider |
+| `npm run release:win` | Builds and publishes a Windows NSIS release |
+| `npm run release:win:compat` | Windows publish fallback that disables executable resource editing |
+| `npm run release:mac` | Builds and publishes a macOS release |
 | `npm test` | Rebuilds `better-sqlite3` for plain Node and runs the Vitest test suite |
 | `npm run test:watch` | Rebuilds `better-sqlite3` for plain Node and runs tests in watch mode |
 | `npm run typecheck` | Runs strict TypeScript checking |
@@ -687,6 +695,14 @@ npm run release
 npm run release:win
 npm run release:mac
 ```
+
+If the Windows build machine fails while unpacking `winCodeSign` with an error like `A required privilege is not held by the client`, either enable Windows Developer Mode or use the fallback command:
+
+```bash
+npm run release:win:compat
+```
+
+That compatibility path disables executable resource editing during packaging. It is a practical workaround for unsigned internal builds, but it remains a limitation and should not be treated as the preferred long-term release setup.
 
 Current release defaults:
 
