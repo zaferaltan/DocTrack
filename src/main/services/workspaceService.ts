@@ -23,6 +23,7 @@ import type {
   RestoreBackupDiffResult,
   RestoreBackupInput,
   RestoreBackupPreview,
+  RecentActivityItem,
   WorkspaceBackupSummary,
   WorkspaceCreateInput,
   WorkspaceDashboardSummary,
@@ -42,6 +43,7 @@ import {
   isWorkspaceStorageLayoutPreset,
   isWorkspaceVersionManagementMode,
   normalizeVisibleDocumentColumns,
+  normalizeWorkspaceActivityLogMaxRows,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -255,16 +257,27 @@ export class WorkspaceService {
     }
 
     const finalContext = this.workspaceManager.getContext(rootPath);
-    this.activityLogService.log(finalContext.db, {
-      eventType: 'workspace.settings.updated',
-      message: `Workspace settings were updated for "${finalContext.workspace.name}".`
-    });
+    if (finalContext.settings.activityLogEnabled) {
+      this.activityLogService.log(finalContext.db, {
+        eventType: 'workspace.settings.updated',
+        message: `Workspace settings were updated for "${finalContext.workspace.name}".`
+      });
+    } else {
+      this.activityLogService.prune(finalContext.db, finalContext.settings.activityLogMaxRows);
+    }
     return this.getSummary(rootPath, warnings);
   }
 
   getDashboard(rootPath: string): WorkspaceDashboardSummary {
     const context = this.workspaceManager.getContext(rootPath);
     return this.buildDashboardSummary(context, this.documentService.list(rootPath));
+  }
+
+  listActivity(rootPath: string): RecentActivityItem[] {
+    const context = this.workspaceManager.getContext(rootPath);
+    return context.settings.activityLogEnabled
+      ? this.activityLogService.listAll(context.db)
+      : [];
   }
 
   listBackups(rootPath: string): WorkspaceBackupSummary[] {
@@ -409,7 +422,9 @@ export class WorkspaceService {
             DefaultCompany = ?,
             DefaultDepartment = ?,
             CompanyLogoPath = ?,
-            AutoMarkPreviousVersionObsolete = ?
+            AutoMarkPreviousVersionObsolete = ?,
+            ActivityLogEnabled = ?,
+            ActivityLogMaxRows = ?
           WHERE Id = 1
         `
       )
@@ -427,7 +442,9 @@ export class WorkspaceService {
         settings.defaultCompany,
         settings.defaultDepartment,
         settings.companyLogoPath,
-        settings.autoMarkPreviousVersionObsolete ? 1 : 0
+        settings.autoMarkPreviousVersionObsolete ? 1 : 0,
+        settings.activityLogEnabled ? 1 : 0,
+        settings.activityLogMaxRows
       );
   }
 
@@ -506,7 +523,9 @@ export class WorkspaceService {
       countsByType,
       countsByProject,
       healthInsights,
-      recentActivity: this.activityLogService.listRecent(context.db)
+      recentActivity: context.settings.activityLogEnabled
+        ? this.activityLogService.listRecent(context.db)
+        : []
     };
   }
 
@@ -540,6 +559,8 @@ export class WorkspaceService {
       left.defaultDepartment === right.defaultDepartment &&
       left.companyLogoPath === right.companyLogoPath &&
       left.autoMarkPreviousVersionObsolete === right.autoMarkPreviousVersionObsolete &&
+      left.activityLogEnabled === right.activityLogEnabled &&
+      left.activityLogMaxRows === right.activityLogMaxRows &&
       left.visibleDocumentColumns.length === right.visibleDocumentColumns.length &&
       left.visibleDocumentColumns.every((column, index) => column === right.visibleDocumentColumns[index])
     );
@@ -1071,7 +1092,12 @@ export class WorkspaceService {
       autoMarkPreviousVersionObsolete:
         typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
           ? settings.autoMarkPreviousVersionObsolete
-          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
+          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete,
+      activityLogEnabled:
+        typeof settings.activityLogEnabled === 'boolean'
+          ? settings.activityLogEnabled
+          : DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled,
+      activityLogMaxRows: normalizeWorkspaceActivityLogMaxRows(settings.activityLogMaxRows)
     };
   }
 

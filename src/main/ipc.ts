@@ -39,6 +39,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.workspaceGetDashboard, (_event, rootPath: string) =>
     services.workspaceService.getDashboard(rootPath)
   );
+  ipcMain.handle(IPC_CHANNELS.workspaceListActivity, (_event, rootPath: string) =>
+    services.workspaceService.listActivity(rootPath)
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, input) =>
     services.workspaceService.updateSettings(rootPath, input)
   );

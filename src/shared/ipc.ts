@@ -44,6 +44,7 @@ import type {
   WorkspaceLanguageInput,
   WorkspaceCreateInput,
   WorkspaceInfo,
+  RecentActivityItem,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
@@ -57,6 +58,7 @@ export const IPC_CHANNELS = {
   workspaceDismissRecent: 'workspace:dismissRecent',
   workspaceGetSummary: 'workspace:getSummary',
   workspaceGetDashboard: 'workspace:getDashboard',
+  workspaceListActivity: 'workspace:listActivity',
   workspaceUpdateSettings: 'workspace:updateSettings',
   workspaceListBackups: 'workspace:listBackups',
   workspaceCreateBackup: 'workspace:createBackup',
@@ -129,6 +131,7 @@ export interface DocTrackApi {
     dismissRecent: (rootPath: string) => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
     getDashboard: (rootPath: string) => Promise<WorkspaceDashboardSummary>;
+    listActivity: (rootPath: string) => Promise<RecentActivityItem[]>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
     listBackups: (rootPath: string) => Promise<WorkspaceBackupSummary[]>;
     createBackup: (rootPath: string) => Promise<CreateBackupResult>;

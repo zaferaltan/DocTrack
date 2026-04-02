@@ -105,6 +105,8 @@ describe('workspace integration', () => {
       DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns
     );
     expect(result.summary.settings.autoMarkPreviousVersionObsolete).toBe(true);
+    expect(result.summary.settings.activityLogEnabled).toBe(true);
+    expect(result.summary.settings.activityLogMaxRows).toBe(5000);
     expect(result.summary.documentTypes.map((item) => item.numberPrefix)).toEqual(['01', '02', '03']);
     expect(result.summary.languages.map((item) => item.code)).toEqual(['DE', 'EN', 'NL']);
     expect(result.summary.statuses).toContain('Obsolete');
@@ -331,6 +333,92 @@ describe('workspace integration', () => {
     expect(result.summary.settings.documentIdFormatTemplate).toBe(
       '<docType>-<language>-<year>-<sequence:3>'
     );
+  });
+
+  it('prunes activity log rows to the configured workspace retention limit', () => {
+    const created = workspaceService.create({
+      name: 'Retention Test',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        activityLogMaxRows: 5
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+
+    for (let index = 1; index <= 7; index += 1) {
+      documentService.create(workspaceRootPath, {
+        title: `Retention Procedure ${index}`,
+        documentTypeId: 2,
+        author: 'Taylor Reed',
+        versionScheme: 'numeric-3'
+      });
+    }
+
+    const db = workspaceManager.getContext(workspaceRootPath).db;
+    const countRow = db
+      .prepare('SELECT COUNT(*) AS Count FROM ActivityLog')
+      .get() as { Count: number };
+    const activity = workspaceService.listActivity(workspaceRootPath);
+
+    expect(countRow.Count).toBe(5);
+    expect(activity).toHaveLength(5);
+    expect(activity[0]?.message).toContain('Retention Procedure 7');
+    expect(activity.some((item) => item.message.includes('Retention Procedure 1'))).toBe(false);
+    expect(activity.some((item) => item.message.includes('Workspace "Retention Test" was created.'))).toBe(
+      false
+    );
+  });
+
+  it('stops recording new activity after the workspace activity log is disabled', () => {
+    const created = workspaceService.create({
+      name: 'Disabled Activity',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+
+    documentService.create(workspaceRootPath, {
+      title: 'Logged Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+
+    const db = workspaceManager.getContext(workspaceRootPath).db;
+    const beforeDisableCount = (
+      db.prepare('SELECT COUNT(*) AS Count FROM ActivityLog').get() as {
+        Count: number;
+      }
+    ).Count;
+
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...created.summary.settings,
+      activityLogEnabled: false
+    });
+
+    documentService.create(workspaceRootPath, {
+      title: 'Unlogged Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+
+    const afterDisableCount = (
+      db.prepare('SELECT COUNT(*) AS Count FROM ActivityLog').get() as {
+        Count: number;
+      }
+    ).Count;
+    const summary = workspaceService.getSummary(workspaceRootPath);
+
+    expect(afterDisableCount).toBe(beforeDisableCount);
+    expect(workspaceService.listActivity(workspaceRootPath)).toEqual([]);
+    expect(summary.summary.dashboard.recentActivity).toEqual([]);
+    expect(summary.summary.settings.activityLogEnabled).toBe(false);
   });
 
   it('creates workspace snapshots and reports integrity issues for missing managed files', () => {

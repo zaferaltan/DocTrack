@@ -139,6 +139,7 @@ import type {
   FilePreviewResult,
   IntegrityCheckResult,
   Project,
+  RecentActivityItem,
   RestoreBackupDiffChangeType,
   RestoreBackupDiffItem,
   RestoreBackupDiffResult,
@@ -184,6 +185,8 @@ const THEME_MODE_ICONS: Record<ThemeMode, typeof Sun> = {
 };
 
 const SUCCESS_NOTIFICATION_TIMEOUT_MS = 3500;
+const ACTIVITY_LOG_DISABLED_MESSAGE =
+  "This feature has been disabled in the workspace settings.";
 
 const getSystemTheme = (): ThemeMode =>
   window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -433,6 +436,14 @@ interface FilePreviewDialogState {
   isLoading: boolean;
 }
 
+interface ActivityLogDialogState {
+  open: boolean;
+  workspaceRootPath?: string;
+  workspaceName: string;
+  items: RecentActivityItem[];
+  isLoading: boolean;
+}
+
 interface VersionComparisonDialogState {
   open: boolean;
   result: VersionComparisonResult | null;
@@ -654,6 +665,14 @@ const defaultBackupDialogState: BackupDialogState = {
 const defaultFilePreviewDialogState: FilePreviewDialogState = {
   open: false,
   preview: null,
+  isLoading: false,
+};
+
+const defaultActivityLogDialogState: ActivityLogDialogState = {
+  open: false,
+  workspaceRootPath: undefined,
+  workspaceName: "",
+  items: [],
   isLoading: false,
 };
 
@@ -1107,6 +1126,14 @@ const validateWorkspaceSettings = (
       "Enable at least one workspace field before saving.";
   }
 
+  if (
+    !Number.isInteger(settings.activityLogMaxRows) ||
+    settings.activityLogMaxRows <= 0
+  ) {
+    errors.activityLogMaxRows =
+      "Activity log max rows must be a whole number greater than zero.";
+  }
+
   return errors;
 };
 
@@ -1280,6 +1307,9 @@ function App() {
   const [backupDialog, setBackupDialog] = useState(defaultBackupDialogState);
   const [filePreviewDialog, setFilePreviewDialog] = useState(
     defaultFilePreviewDialogState,
+  );
+  const [activityLogDialog, setActivityLogDialog] = useState(
+    defaultActivityLogDialogState,
   );
   const [versionComparisonDialog, setVersionComparisonDialog] = useState(
     defaultVersionComparisonDialogState,
@@ -1733,6 +1763,36 @@ function App() {
       validationErrors: {},
       isAdvancedSettingsOpen: false,
     });
+  };
+
+  const openActivityLogDialog = async (): Promise<void> => {
+    if (!activeWorkspace) {
+      return;
+    }
+
+    const workspaceRootPath = activeWorkspace.workspace.rootPath;
+    const workspaceName = activeWorkspace.workspace.name;
+    setActivityLogDialog({
+      open: true,
+      workspaceRootPath,
+      workspaceName,
+      items: activeWorkspace.dashboard.recentActivity,
+      isLoading: true,
+    });
+
+    try {
+      const items = await window.docTrack.workspace.listActivity(workspaceRootPath);
+      setActivityLogDialog({
+        open: true,
+        workspaceRootPath,
+        workspaceName,
+        items,
+        isLoading: false,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to load the workspace activity log.");
+      setActivityLogDialog(defaultActivityLogDialogState);
+    }
   };
 
   useEffect(() => {
@@ -3548,6 +3608,9 @@ function App() {
           setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
           setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId);
         }}
+        onShowAllActivity={() => {
+          void openActivityLogDialog();
+        }}
       />
     );
   } else if (
@@ -4510,6 +4573,24 @@ function App() {
         }
       />
 
+      <ActivityLogDialog
+        state={activityLogDialog}
+        onOpenChange={(open) =>
+          setActivityLogDialog(
+            open ? { ...activityLogDialog, open } : defaultActivityLogDialogState,
+          )
+        }
+        onOpenDocument={(documentRecordId) => {
+          if (!activeWorkspacePath) {
+            return;
+          }
+
+          setActivityLogDialog(defaultActivityLogDialogState);
+          setWorkspaceView(activeWorkspacePath, "documents");
+          setSelectedDocument(activeWorkspacePath, documentRecordId);
+        }}
+      />
+
       <VersionComparisonDialog
         state={versionComparisonDialog}
         onOpenChange={(open) =>
@@ -5255,6 +5336,7 @@ function DashboardView({
   workspace,
   onOpenDocuments,
   onOpenDocument,
+  onShowAllActivity,
 }: {
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onOpenDocuments: (drilldown: {
@@ -5263,157 +5345,153 @@ function DashboardView({
     healthFlag?: DocumentHealthFlag;
   }) => void;
   onOpenDocument: (documentRecordId: number) => void;
+  onShowAllActivity: () => void;
 }) {
-  const overdueDocuments = workspace.documents.filter(
-    (document) => document.isOverdue,
-  );
   const filesystemAttention = getWorkspaceFilesystemAttentionCounts(workspace);
   const hasFilesystemAttention = filesystemAttention.totalAttentionCount > 0;
 
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="min-h-0 space-y-3">
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-lg font-semibold">
-                {workspace.workspace.name}
-              </div>
-              <div className="mt-1 text-[13px] text-muted-foreground">
-                Dashboard refreshed{" "}
-                {formatDateTime(workspace.dashboard.generatedDate)}
-              </div>
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold">
+              {workspace.workspace.name}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {hasFilesystemAttention ? (
-                <Badge variant="destructive" className="gap-1.5">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Action required
-                </Badge>
-              ) : null}
-              <Badge variant="outline">
-                {workspace.dashboard.totalDocuments} documents
-              </Badge>
+            <div className="mt-1 text-[13px] text-muted-foreground">
+              Dashboard refreshed {formatDateTime(workspace.dashboard.generatedDate)}
             </div>
           </div>
-
-          {hasFilesystemAttention ? (
-            <div className="mt-4 rounded-2xl border border-destructive/50 bg-destructive/10 p-4 text-destructive">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <AlertTriangle className="h-4 w-4" />
-                    Fix filesystem issues before they spread
-                  </div>
-                  <div className="mt-1 text-[13px] text-destructive/90">
-                    {filesystemAttention.totalAttentionCount} document
-                    {filesystemAttention.totalAttentionCount === 1 ? "" : "s"}{" "}
-                    need attention because files changed outside DocTrack. Open
-                    the affected documents table, then use{" "}
-                    <span className="font-semibold">Review Files</span> on the
-                    highlighted rows.
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() =>
-                      onOpenDocuments({
-                        healthFlag: "unmanagedPaths",
-                      })
-                    }
-                  >
-                    Open affected documents
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {workspace.dashboard.countsByStatus.map((item) => (
-              <button
-                key={item.id}
-                className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
-                onClick={() =>
-                  onOpenDocuments({
-                    status: item.status,
-                  })
-                }
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  {item.label}
-                </div>
-                <div className="mt-2 text-2xl font-semibold">{item.count}</div>
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasFilesystemAttention ? (
+              <Badge variant="destructive" className="gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Action required
+              </Badge>
+            ) : null}
+            <Badge variant="outline">
+              {workspace.dashboard.totalDocuments} documents
+            </Badge>
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">Document Health</div>
-                <div className="mt-1 text-[13px] text-muted-foreground">
-                  Review the highest-signal issues in this workspace.
+        {hasFilesystemAttention ? (
+          <div className="mt-4 rounded-2xl border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <AlertTriangle className="h-4 w-4" />
+                  Fix filesystem issues before they spread
+                </div>
+                <div className="mt-1 text-[13px] text-destructive/90">
+                  {filesystemAttention.totalAttentionCount} document
+                  {filesystemAttention.totalAttentionCount === 1 ? "" : "s"}{" "}
+                  need attention because files changed outside DocTrack. Open the
+                  affected documents table, then use{" "}
+                  <span className="font-semibold">Review Files</span> on the
+                  highlighted rows.
                 </div>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() =>
+                    onOpenDocuments({
+                      healthFlag: "unmanagedPaths",
+                    })
+                  }
+                >
+                  Open affected documents
+                </Button>
+              </div>
             </div>
-            <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
-              {workspace.dashboard.healthInsights.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                  No document health issues detected right now.
-                </div>
-              ) : (
-                workspace.dashboard.healthInsights.map((item) => (
-                  <button
-                    key={item.id}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-xl border bg-background px-3 py-3 text-left transition",
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {workspace.dashboard.countsByStatus.map((item) => (
+            <button
+              key={item.id}
+              className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
+              onClick={() =>
+                onOpenDocuments({
+                  status: item.status,
+                })
+              }
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {item.label}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{item.count}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Document Health</div>
+              <div className="mt-1 text-[13px] text-muted-foreground">
+                Review the highest-signal issues in this workspace.
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 h-[320px] space-y-2 overflow-y-auto pr-1">
+            {workspace.dashboard.healthInsights.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                No document health issues detected right now.
+              </div>
+            ) : (
+              workspace.dashboard.healthInsights.map((item) => (
+                <button
+                  key={item.id}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border bg-background px-3 py-3 text-left transition",
+                    item.tone === "danger"
+                      ? "border-destructive/35 hover:bg-destructive/5"
+                      : "border-border hover:bg-accent",
+                  )}
+                  onClick={() =>
+                    onOpenDocuments({
+                      healthFlag: item.healthFlag,
+                    })
+                  }
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{item.label}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Open the filtered documents table
+                    </div>
+                  </div>
+                  <Badge
+                    variant={
                       item.tone === "danger"
-                        ? "border-destructive/35 hover:bg-destructive/5"
-                        : "border-border hover:bg-accent",
-                    )}
-                    onClick={() =>
-                      onOpenDocuments({
-                        healthFlag: item.healthFlag,
-                      })
+                        ? "destructive"
+                        : item.tone === "warning"
+                          ? "warning"
+                          : "outline"
                     }
                   >
-                    <div>
-                      <div className="text-sm font-semibold">{item.label}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Open the filtered documents table
-                      </div>
-                    </div>
-                    <Badge
-                      variant={
-                        item.tone === "danger"
-                          ? "destructive"
-                          : item.tone === "warning"
-                            ? "warning"
-                            : "outline"
-                      }
-                    >
-                      {item.count}
-                    </Badge>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
+                    {item.count}
+                  </Badge>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
 
-          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="text-sm font-semibold">Groupings</div>
-            <div className="mt-1 text-[13px] text-muted-foreground">
-              Open focused document slices by type or project.
-            </div>
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="text-sm font-semibold">Groupings</div>
+          <div className="mt-1 text-[13px] text-muted-foreground">
+            Open focused document slices by type or project.
+          </div>
 
-            <div className="mt-4 max-h-[320px] space-y-4 overflow-y-auto pr-1">
-              <div className="space-y-2">
-                {workspace.dashboard.countsByType.map((item) => (
+          <div className="mt-4 h-[320px] space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              {workspace.dashboard.countsByType.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5"
@@ -5421,11 +5499,11 @@ function DashboardView({
                   <span className="text-[13px]">{item.label}</span>
                   <Badge variant="outline">{item.count}</Badge>
                 </div>
-                ))}
-              </div>
+              ))}
+            </div>
 
-              <div className="space-y-2">
-                {workspace.dashboard.countsByProject.map((item) => (
+            <div className="space-y-2">
+              {workspace.dashboard.countsByProject.map((item) => (
                 <button
                   key={item.id}
                   className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
@@ -5439,14 +5517,11 @@ function DashboardView({
                   <span className="text-[13px]">{item.label}</span>
                   <Badge variant="outline">{item.count}</Badge>
                 </button>
-                ))}
-              </div>
+              ))}
             </div>
-          </section>
-        </div>
-      </div>
+          </div>
+        </section>
 
-      <div className="min-h-0 space-y-3">
         <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -5455,10 +5530,25 @@ function DashboardView({
                 Latest tracked changes from the workspace history.
               </div>
             </div>
-            <History className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-3">
+              {workspace.settings.activityLogEnabled ? (
+                <button
+                  type="button"
+                  className="text-[13px] font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+                  onClick={onShowAllActivity}
+                >
+                  Show all
+                </button>
+              ) : null}
+              <History className="h-4 w-4 text-muted-foreground" />
+            </div>
           </div>
-          <div className="mt-4 max-h-[396px] space-y-2 overflow-y-auto pr-1">
-            {workspace.dashboard.recentActivity.length === 0 ? (
+          <div className="mt-4 h-[320px] space-y-2 overflow-y-auto pr-1">
+            {!workspace.settings.activityLogEnabled ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                {ACTIVITY_LOG_DISABLED_MESSAGE}
+              </div>
+            ) : workspace.dashboard.recentActivity.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
                 No recent activity has been recorded yet.
               </div>
@@ -5471,10 +5561,15 @@ function DashboardView({
                     item.documentRecordId && onOpenDocument(item.documentRecordId)
                   }
                 >
-                  <div className="text-[13px] font-medium">{item.message}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {formatDateTime(item.createdDate)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {formatActivityEventTypeLabel(item.eventType)}
+                    </Badge>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDateTime(item.createdDate)}
+                    </div>
                   </div>
+                  <div className="mt-2 text-[13px] font-medium">{item.message}</div>
                 </button>
               ))
             )}
@@ -5484,6 +5579,13 @@ function DashboardView({
     </div>
   );
 }
+
+const formatActivityEventTypeLabel = (eventType: string): string =>
+  eventType
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
 
 function DocumentsView({
   workspace,
@@ -8936,11 +9038,53 @@ function WorkspaceAdvancedSettingsDialog({
         <DialogHeader>
           <DialogTitle>Advanced Settings</DialogTitle>
           <DialogDescription>
-            Configure the root folder names used inside this workspace.
+            Configure workspace internals like folder naming and activity log
+            retention.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
+          <ToggleSetting
+            title="Enable activity log"
+            description="Record workspace and document events for the dashboard activity feed."
+            checked={settings.activityLogEnabled}
+            onChange={(checked) =>
+              onSettingsChange({
+                ...settings,
+                activityLogEnabled: checked,
+              })
+            }
+          />
+
+          <Field
+            label="Activity Log Max Rows"
+            error={validationErrors.activityLogMaxRows}
+          >
+            <Input
+              aria-invalid={Boolean(validationErrors.activityLogMaxRows)}
+              min={1}
+              step={1}
+              type="number"
+              value={
+                Number.isFinite(settings.activityLogMaxRows)
+                  ? String(settings.activityLogMaxRows)
+                  : ""
+              }
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  activityLogMaxRows: event.target.value.trim()
+                    ? Number(event.target.value)
+                    : Number.NaN,
+                })
+              }
+            />
+            <div className="text-xs text-muted-foreground">
+              Older activity rows are pruned automatically after new activity is
+              recorded.
+            </div>
+          </Field>
+
           {WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS.map((key) => {
             const fieldKey = `rootDirectory.${key}`;
 
@@ -8967,7 +9111,8 @@ function WorkspaceAdvancedSettingsDialog({
 
           <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px] text-muted-foreground">
             Folder names must be non-empty, filesystem-safe, and unique within
-            the workspace root.
+            the workspace root. Activity log retention applies per workspace
+            database.
           </div>
         </div>
 
@@ -11438,6 +11583,142 @@ function FilePreviewDialog({
             </div>
           )}
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ActivityLogDialog({
+  state,
+  onOpenChange,
+  onOpenDocument,
+}: {
+  state: ActivityLogDialogState;
+  onOpenChange: (open: boolean) => void;
+  onOpenDocument: (documentRecordId: number) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
+  const deferredSearch = useDeferredValue(search);
+  const eventTypeOptions = useMemo(
+    () =>
+      [...new Set(state.items.map((item) => item.eventType))]
+        .sort((left, right) => left.localeCompare(right))
+        .map((eventType) => ({
+          value: eventType,
+          label: formatActivityEventTypeLabel(eventType),
+        })),
+    [state.items],
+  );
+  const filteredItems = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+
+    return state.items.filter((item) => {
+      if (eventTypeFilter !== "all" && item.eventType !== eventTypeFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return [item.message, item.eventType, formatActivityEventTypeLabel(item.eventType)]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [deferredSearch, eventTypeFilter, state.items]);
+
+  useEffect(() => {
+    if (!state.open) {
+      setSearch("");
+      setEventTypeFilter("all");
+    }
+  }, [state.open]);
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,1040px)] max-h-[85vh] grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Activity Log</DialogTitle>
+          <DialogDescription>
+            Browse the full workspace activity history and filter it by event or
+            text.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-[minmax(0,1fr)_220px]">
+          <Field label="Search">
+            <Input
+              placeholder="Filter by message or event type"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </Field>
+
+          <Field label="Event Type">
+            <Select
+              value={eventTypeFilter}
+              onChange={(event) => setEventTypeFilter(event.target.value)}
+            >
+              <option value="all">All activity</option>
+              {eventTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <div className="md:col-span-2 text-xs text-muted-foreground">
+            {state.isLoading
+              ? "Loading activity log..."
+              : `Showing ${filteredItems.length} of ${state.items.length} activity record${state.items.length === 1 ? "" : "s"}.`}
+          </div>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          {state.isLoading ? (
+            <div className="flex h-[420px] items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading activity log...
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+              {state.items.length === 0
+                ? "No activity has been recorded yet."
+                : "No activity matches the current filters."}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredItems.map((item) => (
+                <button
+                  key={item.id}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-left transition hover:bg-accent"
+                  onClick={() =>
+                    item.documentRecordId && onOpenDocument(item.documentRecordId)
+                  }
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {formatActivityEventTypeLabel(item.eventType)}
+                    </Badge>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDateTime(item.createdDate)}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm font-medium">{item.message}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

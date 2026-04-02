@@ -504,7 +504,7 @@ export class DocumentService {
 
           this.activityLogService.log(context.db, {
             eventType: 'document.version.created',
-            message: `Created version ${versionLabel} from template "${template.name}".`,
+            message: `Created ${this.describeVersionActivity(documentId, versionLabel)} from template "${template.name}".`,
             documentRecordId,
             documentVersionId
           });
@@ -596,7 +596,7 @@ export class DocumentService {
       );
       this.activityLogService.log(context.db, {
         eventType: 'document.version.created',
-        message: `Created version ${versionLabel}.`,
+        message: `Created ${this.describeVersionActivity(versionDocumentId, versionLabel)}.`,
         documentRecordId: document.Id,
         documentVersionId
       });
@@ -640,7 +640,10 @@ export class DocumentService {
     context.db.transaction(() => {
       this.activityLogService.log(context.db, {
         eventType: 'document.version.deleted',
-        message: `Deleted version ${version.VersionLabel}.`,
+        message: `Deleted ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -714,7 +717,10 @@ export class DocumentService {
         );
         this.activityLogService.log(context.db, {
           eventType: 'document.files.added',
-          message: `Added ${newFiles.length} file${newFiles.length === 1 ? '' : 's'} to version ${version.VersionLabel}.`,
+          message: `Added ${newFiles.length} file${newFiles.length === 1 ? '' : 's'} to ${this.describeVersionActivity(
+            version.VersionDocumentID?.trim() || document.DocumentID,
+            version.VersionLabel
+          )}.`,
           documentRecordId: document.Id,
           documentVersionId: version.Id
         });
@@ -775,7 +781,10 @@ export class DocumentService {
       );
       this.activityLogService.log(context.db, {
         eventType: 'document.file.renamed',
-        message: `Renamed a file in version ${version.VersionLabel} to "${updatedFile.fileName}".`,
+        message: `Renamed a file in ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )} to "${updatedFile.fileName}".`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -788,6 +797,7 @@ export class DocumentService {
     const context = this.workspaceManager.getContext(rootPath);
     const fileRow = this.getVersionFileContextRow(context.db, input.fileId);
     const version = this.getVersionRow(context.db, fileRow.VersionId);
+    const document = this.getDocumentRow(context.db, fileRow.DocumentId);
     this.assertVersionIsMutable(context.db, version);
 
     this.fileStorageService.deleteManagedFile(context.rootPath, fileRow.FilePath);
@@ -799,7 +809,10 @@ export class DocumentService {
       );
       this.activityLogService.log(context.db, {
         eventType: 'document.file.deleted',
-        message: `Deleted "${fileRow.FileName}" from version ${version.VersionLabel}.`,
+        message: `Deleted "${fileRow.FileName}" from ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )}.`,
         documentRecordId: fileRow.DocumentId,
         documentVersionId: version.Id
       });
@@ -857,7 +870,10 @@ export class DocumentService {
       );
       this.activityLogService.log(context.db, {
         eventType: 'document.file.roleChanged',
-        message: `Moved "${fileRow.FileName}" to the ${input.role} role in version ${version.VersionLabel}.`,
+        message: `Moved "${fileRow.FileName}" to the ${input.role} role in ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -995,7 +1011,10 @@ export class DocumentService {
       context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(now, document.Id);
       this.activityLogService.log(context.db, {
         eventType: 'document.files.reconciled',
-        message: `Applied ${selectedChanges.length} filesystem change${selectedChanges.length === 1 ? '' : 's'} to version ${version.VersionLabel}.`,
+        message: `Applied ${selectedChanges.length} filesystem change${selectedChanges.length === 1 ? '' : 's'} to ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -1323,7 +1342,10 @@ export class DocumentService {
         .run(version.Id, this.fileStorageService.normalizeRelativePath(relativePath));
       this.activityLogService.log(context.db, {
         eventType: 'document.unmanaged.imported',
-        message: `Imported unmanaged path "${relativePath}" into version ${version.VersionLabel}.`,
+        message: `Imported unmanaged path "${relativePath}" into ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -1544,7 +1566,10 @@ export class DocumentService {
       context.db.prepare('UPDATE Documents SET ModifiedDate = ? WHERE Id = ?').run(nowIso(), document.Id);
       this.activityLogService.log(context.db, {
         eventType: 'document.version.updated',
-        message: `Updated version ${version.VersionLabel} to ${input.status}.`,
+        message: `Updated ${this.describeVersionActivity(
+          version.VersionDocumentID?.trim() || document.DocumentID,
+          version.VersionLabel
+        )} to ${input.status}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -2370,6 +2395,10 @@ export class DocumentService {
     const major = Number(match[1]);
     const minor = Number(match[2]);
     return bumpType === 'major' ? `${major + 1}.0` : `${major}.${minor + 1}`;
+  }
+
+  private describeVersionActivity(documentId: string, versionLabel: string): string {
+    return `version ${versionLabel} for document ${documentId}`;
   }
 
   private assertVersionIsMutable(db: Database.Database, version: VersionRow): void {

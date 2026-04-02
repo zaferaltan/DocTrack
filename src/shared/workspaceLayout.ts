@@ -5,6 +5,7 @@ export const WORKSPACE_DATABASE_FILE_NAME = 'workspace.sqlite';
 export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
 export const WORKSPACE_TEMPLATES_DIRECTORY_NAME = 'Templates';
 export const WORKSPACE_BACKUPS_DIRECTORY_NAME = 'Backups';
+export const DEFAULT_ACTIVITY_LOG_MAX_ROWS = 5000;
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
 export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
@@ -70,6 +71,8 @@ export interface WorkspaceSettings {
   defaultDepartment: string;
   companyLogoPath: string;
   autoMarkPreviousVersionObsolete: boolean;
+  activityLogEnabled: boolean;
+  activityLogMaxRows: number;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
@@ -86,7 +89,9 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   defaultCompany: '',
   defaultDepartment: '',
   companyLogoPath: '',
-  autoMarkPreviousVersionObsolete: true
+  autoMarkPreviousVersionObsolete: true,
+  activityLogEnabled: true,
+  activityLogMaxRows: DEFAULT_ACTIVITY_LOG_MAX_ROWS
 };
 
 export const WORKSPACE_STORAGE_LAYOUT_OPTIONS: Array<{
@@ -379,6 +384,22 @@ export const normalizeVisibleDocumentColumns = (value: unknown): DocumentTableCo
 
   const normalized = DOCUMENT_TABLE_COLUMNS.filter((column) => selected.has(column));
   return normalized.length > 0 ? normalized : [...DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns];
+};
+
+export const normalizeWorkspaceActivityLogMaxRows = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const parsed = Number(trimmed);
+    if (trimmed && Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return DEFAULT_WORKSPACE_SETTINGS.activityLogMaxRows;
 };
 
 export const getWorkspaceDatabaseDirectoryRelativePath = (

@@ -29,6 +29,7 @@ import {
   DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DATABASE_FILE_NAME,
   normalizeWorkspaceRootDirectoryNames,
+  normalizeWorkspaceActivityLogMaxRows,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -589,6 +590,9 @@ export class WorkspaceBackupService {
       workspaceColumns.has('DocumentsDirectoryName') &&
       workspaceColumns.has('TemplatesDirectoryName') &&
       workspaceColumns.has('BackupsDirectoryName');
+    const hasActivityLogColumns =
+      workspaceColumns.has('ActivityLogEnabled') &&
+      workspaceColumns.has('ActivityLogMaxRows');
     const row = db
       .prepare(
         `
@@ -606,7 +610,9 @@ export class WorkspaceBackupService {
             DefaultCompany,
             DefaultDepartment,
             CompanyLogoPath,
-            AutoMarkPreviousVersionObsolete
+            AutoMarkPreviousVersionObsolete,
+            ${hasActivityLogColumns ? 'ActivityLogEnabled' : `${DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled ? 1 : 0} AS ActivityLogEnabled`},
+            ${hasActivityLogColumns ? 'ActivityLogMaxRows' : `${DEFAULT_WORKSPACE_SETTINGS.activityLogMaxRows} AS ActivityLogMaxRows`}
           FROM Workspaces
           WHERE Id = 1
         `
@@ -627,6 +633,8 @@ export class WorkspaceBackupService {
           DefaultDepartment: string;
           CompanyLogoPath: string;
           AutoMarkPreviousVersionObsolete: number;
+          ActivityLogEnabled: number;
+          ActivityLogMaxRows: number;
         }
       | undefined;
 
@@ -650,7 +658,9 @@ export class WorkspaceBackupService {
       defaultCompany: row.DefaultCompany ?? '',
       defaultDepartment: row.DefaultDepartment ?? '',
       companyLogoPath: row.CompanyLogoPath ?? '',
-      autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete)
+      autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete),
+      activityLogEnabled: Boolean(row.ActivityLogEnabled),
+      activityLogMaxRows: normalizeWorkspaceActivityLogMaxRows(row.ActivityLogMaxRows)
     };
   }
 
@@ -697,7 +707,9 @@ export class WorkspaceBackupService {
       'Default Company': formatFieldValue(settings.defaultCompany),
       'Default Department': formatFieldValue(settings.defaultDepartment),
       'Company Logo': formatFieldValue(settings.companyLogoPath),
-      'Auto Mark Previous Version Obsolete': formatFieldValue(settings.autoMarkPreviousVersionObsolete)
+      'Auto Mark Previous Version Obsolete': formatFieldValue(settings.autoMarkPreviousVersionObsolete),
+      'Activity Log Enabled': formatFieldValue(settings.activityLogEnabled),
+      'Activity Log Max Rows': formatFieldValue(settings.activityLogMaxRows)
     };
   }
 

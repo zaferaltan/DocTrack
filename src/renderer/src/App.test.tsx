@@ -203,6 +203,7 @@ const buildDocTrackMock = (
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
       ,
       getDashboard: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard),
+      listActivity: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard.recentActivity),
       listBackups: vi.fn().mockResolvedValue([]),
       createBackup: vi.fn().mockResolvedValue({
         backup: {
@@ -1168,6 +1169,148 @@ describe('App', () => {
         companyLogoSourceFilePath: null,
         clearCompanyLogo: true
       })
+    );
+
+    await view.unmount();
+  });
+
+  it('saves activity log retention and disable settings from workspace settings', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    await click(getButton('Advanced Settings', getDialog()));
+
+    let dialog = getLastDialog();
+    await changeCheckbox(
+      getLabeledControl(
+        dialog,
+        'Enable activity log',
+        'input[type="checkbox"]'
+      ) as HTMLInputElement,
+      false
+    );
+    await changeInput(
+      getLabeledControl(dialog, 'Activity Log Max Rows', 'input') as HTMLInputElement,
+      '2500'
+    );
+    await click(getButton('Done', dialog));
+
+    dialog = getDialog();
+    await click(getButton('Save Settings', dialog));
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          activityLogEnabled: false,
+          activityLogMaxRows: 2500
+        })
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('shows a disabled message instead of recent activity when activity log is turned off', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      activityLogEnabled: false
+    };
+    workspaceResult.summary.dashboard.recentActivity = [
+      {
+        id: 1,
+        eventType: 'document.updated',
+        message: 'Updated document "Operating Procedure".',
+        createdDate: '2026-03-31T10:00:00.000Z',
+        documentRecordId: 101,
+        documentVersionId: null
+      }
+    ];
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light',
+        defaultWorkspaceView: 'dashboard'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    expect(normalizeText(document.body.textContent)).toContain(
+      'This feature has been disabled in the workspace settings.'
+    );
+    expect(normalizeText(document.body.textContent)).not.toContain('Show all');
+
+    await view.unmount();
+  });
+
+  it('opens the full activity log modal and filters activity records', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.dashboard.recentActivity = [
+      {
+        id: 1,
+        eventType: 'document.updated',
+        message: 'Updated document "Operating Procedure".',
+        createdDate: '2026-03-31T10:00:00.000Z',
+        documentRecordId: 101,
+        documentVersionId: null
+      }
+    ];
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light',
+        defaultWorkspaceView: 'dashboard'
+      },
+      workspaceResult
+    );
+    docTrack.workspace.listActivity = vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        eventType: 'document.updated',
+        message: 'Updated document "Operating Procedure".',
+        createdDate: '2026-03-31T10:00:00.000Z',
+        documentRecordId: 101,
+        documentVersionId: null
+      },
+      {
+        id: 2,
+        eventType: 'workspace.backup.created',
+        message: 'Created a manual snapshot.',
+        createdDate: '2026-03-31T11:00:00.000Z',
+        documentRecordId: null,
+        documentVersionId: null
+      }
+    ]);
+
+    const view = await renderApp();
+
+    await click(getButton('Show all'));
+
+    expect(docTrack.workspace.listActivity).toHaveBeenCalledWith(workspaceInfo.rootPath);
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Activity Log');
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Showing 2 of 2 activity records.'
+    );
+
+    await changeInput(
+      getLabeledControl(dialog, 'Search', 'input') as HTMLInputElement,
+      'snapshot'
+    );
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Showing 1 of 2 activity records.'
+    );
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Created a manual snapshot.'
+    );
+    expect(normalizeText(dialog.textContent)).not.toContain(
+      'Updated document "Operating Procedure".'
     );
 
     await view.unmount();

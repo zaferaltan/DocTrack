@@ -24,6 +24,7 @@ import {
   isWorkspaceStorageLayoutPreset,
   isWorkspaceVersionManagementMode,
   normalizeVisibleDocumentColumns,
+  normalizeWorkspaceActivityLogMaxRows,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -122,8 +123,10 @@ export class WorkspaceManager {
             DefaultCompany,
             DefaultDepartment,
             CompanyLogoPath,
-            AutoMarkPreviousVersionObsolete
-          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            AutoMarkPreviousVersionObsolete,
+            ActivityLogEnabled,
+            ActivityLogMaxRows
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -143,7 +146,9 @@ export class WorkspaceManager {
         settings.defaultCompany,
         settings.defaultDepartment,
         settings.companyLogoPath,
-        settings.autoMarkPreviousVersionObsolete ? 1 : 0
+        settings.autoMarkPreviousVersionObsolete ? 1 : 0,
+        settings.activityLogEnabled ? 1 : 0,
+        settings.activityLogMaxRows
       );
 
       const context = this.buildContext(db, resolvedRootPath);
@@ -289,6 +294,9 @@ export class WorkspaceManager {
       workspaceColumns.has('DocumentsDirectoryName') &&
       workspaceColumns.has('TemplatesDirectoryName') &&
       workspaceColumns.has('BackupsDirectoryName');
+    const hasActivityLogColumns =
+      workspaceColumns.has('ActivityLogEnabled') &&
+      workspaceColumns.has('ActivityLogMaxRows');
     const row = db
       .prepare(
         `
@@ -306,7 +314,9 @@ export class WorkspaceManager {
             DefaultCompany,
             DefaultDepartment,
             CompanyLogoPath,
-            AutoMarkPreviousVersionObsolete
+            AutoMarkPreviousVersionObsolete,
+            ${hasActivityLogColumns ? 'ActivityLogEnabled' : `${DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled ? 1 : 0} AS ActivityLogEnabled`},
+            ${hasActivityLogColumns ? 'ActivityLogMaxRows' : `${DEFAULT_WORKSPACE_SETTINGS.activityLogMaxRows} AS ActivityLogMaxRows`}
           FROM Workspaces
           WHERE Id = 1
         `
@@ -327,6 +337,8 @@ export class WorkspaceManager {
           DefaultDepartment: string;
           CompanyLogoPath: string;
           AutoMarkPreviousVersionObsolete: number;
+          ActivityLogEnabled?: number;
+          ActivityLogMaxRows?: number;
         }
       | undefined;
 
@@ -361,7 +373,12 @@ export class WorkspaceManager {
       defaultCompany: row.DefaultCompany,
       defaultDepartment: row.DefaultDepartment,
       companyLogoPath: row.CompanyLogoPath ?? '',
-      autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete)
+      autoMarkPreviousVersionObsolete: Boolean(row.AutoMarkPreviousVersionObsolete),
+      activityLogEnabled:
+        typeof row.ActivityLogEnabled === 'number'
+          ? Boolean(row.ActivityLogEnabled)
+          : DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled,
+      activityLogMaxRows: normalizeWorkspaceActivityLogMaxRows(row.ActivityLogMaxRows)
     };
   }
 
@@ -394,7 +411,12 @@ export class WorkspaceManager {
       autoMarkPreviousVersionObsolete:
         typeof settings.autoMarkPreviousVersionObsolete === 'boolean'
           ? settings.autoMarkPreviousVersionObsolete
-          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete
+          : DEFAULT_WORKSPACE_SETTINGS.autoMarkPreviousVersionObsolete,
+      activityLogEnabled:
+        typeof settings.activityLogEnabled === 'boolean'
+          ? settings.activityLogEnabled
+          : DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled,
+      activityLogMaxRows: normalizeWorkspaceActivityLogMaxRows(settings.activityLogMaxRows)
     };
   }
 
