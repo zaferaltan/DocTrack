@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronLeft,
   CircleDot,
+  Download,
   FilePlus2,
   FileStack,
   FolderOpen,
@@ -90,6 +91,7 @@ import {
   type KeyboardShortcutValue,
   type ThemeMode,
 } from "@shared/applicationSettings";
+import type { AppUpdateState } from "@shared/appUpdates";
 import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
@@ -187,6 +189,8 @@ const THEME_MODE_ICONS: Record<ThemeMode, typeof Sun> = {
 const SUCCESS_NOTIFICATION_TIMEOUT_MS = 3500;
 const ACTIVITY_LOG_DISABLED_MESSAGE =
   "This feature has been disabled in the workspace settings.";
+const APP_UPDATE_MANUAL_ACTION_MESSAGE =
+  "Save updater preference changes before checking for updates.";
 
 const getSystemTheme = (): ThemeMode =>
   window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -1333,6 +1337,9 @@ function App() {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(
+    null,
+  );
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
 
   const workspaceTabs = Object.values(openWorkspaces);
@@ -1474,6 +1481,40 @@ function App() {
 
     return unsubscribe;
   }, [handleWorkspaceFilesystemDrift]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void window.docTrack.appUpdates
+      .getState()
+      .then((state) => {
+        if (isMounted) {
+          setAppUpdateState(state);
+        }
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setNotification({
+          tone: "error",
+          message: getErrorMessage(
+            error,
+            "Unable to load the application update status.",
+          ),
+        });
+      });
+
+    const unsubscribe = window.docTrack.appUpdates.onStateChange((state) => {
+      setAppUpdateState(state);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     applyTheme(previewThemeMode);
@@ -1705,6 +1746,43 @@ function App() {
       buildApplicationSettingsDialogState(applicationSettings),
     );
   };
+
+  const handleCheckForUpdates = useEffectEvent(async (): Promise<void> => {
+    if (
+      applicationSettingsDialog.settings.autoUpdateEnabled !==
+        applicationSettings.autoUpdateEnabled ||
+      applicationSettingsDialog.settings.checkForUpdatesOnLaunch !==
+        applicationSettings.checkForUpdatesOnLaunch
+    ) {
+      setNotification({
+        tone: "error",
+        message: APP_UPDATE_MANUAL_ACTION_MESSAGE,
+      });
+      return;
+    }
+
+    try {
+      await window.docTrack.appUpdates.checkForUpdates();
+    } catch (error) {
+      notifyError(error, "Unable to check for application updates.");
+    }
+  });
+
+  const handleDownloadUpdate = useEffectEvent(async (): Promise<void> => {
+    try {
+      await window.docTrack.appUpdates.downloadUpdate();
+    } catch (error) {
+      notifyError(error, "Unable to download the available update.");
+    }
+  });
+
+  const handleInstallUpdate = useEffectEvent(async (): Promise<void> => {
+    try {
+      await window.docTrack.appUpdates.quitAndInstall();
+    } catch (error) {
+      notifyError(error, "Unable to install the downloaded update.");
+    }
+  });
 
   const saveApplicationSettingsPartial = async (
     nextPartial: Partial<ApplicationSettings>,
@@ -4278,8 +4356,13 @@ function App() {
 
       <ApplicationSettingsDialog
         state={applicationSettingsDialog}
+        persistedSettings={applicationSettings}
+        appUpdateState={appUpdateState}
         onStateChange={setApplicationSettingsDialog}
         onSubmit={handleSaveApplicationSettings}
+        onCheckForUpdates={handleCheckForUpdates}
+        onDownloadUpdate={handleDownloadUpdate}
+        onInstallUpdate={handleInstallUpdate}
         isMacOs={isMacOs}
       />
 
@@ -4657,15 +4740,25 @@ function ThemeToggle({
 
 function ApplicationSettingsDialog({
   state,
+  persistedSettings,
+  appUpdateState,
   onStateChange,
   onSubmit,
+  onCheckForUpdates,
+  onDownloadUpdate,
+  onInstallUpdate,
   isMacOs,
 }: {
   state: ApplicationSettingsDialogState;
+  persistedSettings: ApplicationSettings;
+  appUpdateState: AppUpdateState | null;
   onStateChange: React.Dispatch<
     React.SetStateAction<ApplicationSettingsDialogState>
   >;
   onSubmit: () => Promise<void>;
+  onCheckForUpdates: () => void | Promise<void>;
+  onDownloadUpdate: () => void | Promise<void>;
+  onInstallUpdate: () => void | Promise<void>;
   isMacOs: boolean;
 }) {
   const updateSettings = (partial: Partial<ApplicationSettings>) => {
@@ -4704,6 +4797,24 @@ function ApplicationSettingsDialog({
     state.settings.keyboardShortcuts,
   );
   const hasShortcutConflicts = shortcutConflicts.length > 0;
+  const hasPendingUpdaterPreferenceChanges =
+    state.settings.autoUpdateEnabled !== persistedSettings.autoUpdateEnabled ||
+    state.settings.checkForUpdatesOnLaunch !==
+      persistedSettings.checkForUpdatesOnLaunch;
+  const canCheckForUpdates =
+    persistedSettings.autoUpdateEnabled &&
+    !hasPendingUpdaterPreferenceChanges &&
+    appUpdateState?.isSupported !== false &&
+    appUpdateState?.status !== "checking" &&
+    appUpdateState?.status !== "downloading";
+  const canDownloadUpdate =
+    persistedSettings.autoUpdateEnabled &&
+    !hasPendingUpdaterPreferenceChanges &&
+    appUpdateState?.status === "available";
+  const canInstallUpdate =
+    persistedSettings.autoUpdateEnabled &&
+    !hasPendingUpdaterPreferenceChanges &&
+    appUpdateState?.status === "downloaded";
 
   return (
     <Dialog
@@ -4966,6 +5077,141 @@ function ApplicationSettingsDialog({
                   updateSettings({ autoDismissSuccessNotifications: checked })
                 }
               />
+            </SettingsSection>
+
+            <SettingsSection
+              title="Updates"
+              description="Manage packaged app updates and choose when DocTrack checks for new releases."
+            >
+              <ToggleSetting
+                title="Enable automatic updates"
+                description="Allow DocTrack to look for packaged app updates."
+                checked={state.settings.autoUpdateEnabled}
+                onChange={(checked) =>
+                  updateSettings({ autoUpdateEnabled: checked })
+                }
+              />
+
+              <ToggleSetting
+                title="Check for updates on launch"
+                description="Packaged builds check once shortly after startup and still ask before downloading."
+                checked={state.settings.checkForUpdatesOnLaunch}
+                onChange={(checked) =>
+                  updateSettings({ checkForUpdatesOnLaunch: checked })
+                }
+              />
+
+              <div className="rounded-xl border border-border bg-card p-3 text-[13px]">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="font-medium text-foreground">
+                      Current version{" "}
+                      <span className="font-mono">
+                        {appUpdateState?.currentVersion ?? "Loading..."}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-muted-foreground">
+                      {appUpdateState?.message ??
+                        "Loading the application update status."}
+                    </div>
+                    {appUpdateState?.release ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Available release{" "}
+                        <span className="font-medium text-foreground">
+                          {appUpdateState.release.releaseName ??
+                            appUpdateState.release.version}
+                        </span>
+                        {appUpdateState.release.releaseDate
+                          ? ` • ${formatDateTime(appUpdateState.release.releaseDate)}`
+                          : ""}
+                      </div>
+                    ) : null}
+                    {appUpdateState?.progress ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Download progress {Math.round(appUpdateState.progress.percent)}%
+                        {" • "}
+                        {appUpdateState.progress.transferred.toLocaleString()} /{" "}
+                        {appUpdateState.progress.total.toLocaleString()} bytes
+                      </div>
+                    ) : null}
+                    {appUpdateState?.lastCheckedAt ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Last checked {formatDateTime(appUpdateState.lastCheckedAt)}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={!canCheckForUpdates}
+                      onClick={() => void onCheckForUpdates()}
+                    >
+                      {appUpdateState?.status === "checking" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-4 w-4" />
+                      )}
+                      Check for Updates
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!canDownloadUpdate}
+                      onClick={() => void onDownloadUpdate()}
+                    >
+                      {appUpdateState?.status === "downloading" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                      Download Update
+                    </Button>
+                    <Button
+                      disabled={!canInstallUpdate}
+                      onClick={() => onInstallUpdate()}
+                    >
+                      <RefreshCcw className="h-4 w-4" />
+                      Install and Restart
+                    </Button>
+                  </div>
+                </div>
+
+                {!persistedSettings.autoUpdateEnabled ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Automatic updates are disabled in the saved settings. Enable
+                    them and save before checking for new builds.
+                  </div>
+                ) : null}
+
+                {hasPendingUpdaterPreferenceChanges ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    {APP_UPDATE_MANUAL_ACTION_MESSAGE}
+                  </div>
+                ) : null}
+
+                {appUpdateState?.release?.releaseNotes ? (
+                  <div className="mt-3 rounded-lg border border-border/80 bg-background px-3 py-2">
+                    <div className="text-xs font-medium text-foreground">
+                      Release notes
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {appUpdateState.release.releaseNotes}
+                    </div>
+                  </div>
+                ) : null}
+
+                {isMacOs ? (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    macOS auto-updates require a signed and notarized build for
+                    public release validation.
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    Unsigned Windows builds may still trigger SmartScreen or
+                    other trust prompts until code signing is added.
+                  </div>
+                )}
+              </div>
             </SettingsSection>
           </div>
         </div>

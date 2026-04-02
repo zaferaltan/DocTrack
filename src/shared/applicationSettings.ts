@@ -78,6 +78,8 @@ export interface ApplicationSettings {
   defaultDocumentVersionScheme: DocumentVersionScheme;
   confirmDestructiveActions: boolean;
   autoDismissSuccessNotifications: boolean;
+  autoUpdateEnabled: boolean;
+  checkForUpdatesOnLaunch: boolean;
 }
 
 export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
@@ -95,6 +97,8 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   defaultDocumentVersionScheme: "numeric-3",
   confirmDestructiveActions: true,
   autoDismissSuccessNotifications: true,
+  autoUpdateEnabled: true,
+  checkForUpdatesOnLaunch: true,
 };
 
 export const THEME_MODE_OPTIONS: Array<{

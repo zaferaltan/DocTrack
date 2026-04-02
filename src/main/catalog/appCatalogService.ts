@@ -179,7 +179,15 @@ export class AppCatalogService {
       autoDismissSuccessNotifications:
         typeof nextSettings.autoDismissSuccessNotifications === 'boolean'
           ? nextSettings.autoDismissSuccessNotifications
-          : DEFAULT_APPLICATION_SETTINGS.autoDismissSuccessNotifications
+          : DEFAULT_APPLICATION_SETTINGS.autoDismissSuccessNotifications,
+      autoUpdateEnabled:
+        typeof nextSettings.autoUpdateEnabled === 'boolean'
+          ? nextSettings.autoUpdateEnabled
+          : DEFAULT_APPLICATION_SETTINGS.autoUpdateEnabled,
+      checkForUpdatesOnLaunch:
+        typeof nextSettings.checkForUpdatesOnLaunch === 'boolean'
+          ? nextSettings.checkForUpdatesOnLaunch
+          : DEFAULT_APPLICATION_SETTINGS.checkForUpdatesOnLaunch
     };
   }
 

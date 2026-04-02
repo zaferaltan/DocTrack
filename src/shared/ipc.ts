@@ -1,4 +1,5 @@
 import type { ApplicationSettings } from '@shared/applicationSettings';
+import type { AppUpdateState } from '@shared/appUpdates';
 import type {
   AddTemplateFilesInput,
   AddDocumentVersionFilesInput,
@@ -118,7 +119,12 @@ export const IPC_CHANNELS = {
   languagesUpdate: 'languages:update',
   languagesDelete: 'languages:delete',
   appSettingsGet: 'appSettings:get',
-  appSettingsUpdate: 'appSettings:update'
+  appSettingsUpdate: 'appSettings:update',
+  appUpdatesGetState: 'appUpdates:getState',
+  appUpdatesCheckForUpdates: 'appUpdates:checkForUpdates',
+  appUpdatesDownloadUpdate: 'appUpdates:downloadUpdate',
+  appUpdatesQuitAndInstall: 'appUpdates:quitAndInstall',
+  appUpdatesStateChanged: 'appUpdates:stateChanged'
 } as const;
 
 export interface DocTrackApi {
@@ -252,5 +258,12 @@ export interface DocTrackApi {
   appSettings: {
     get: () => Promise<ApplicationSettings>;
     update: (settings: ApplicationSettings) => Promise<ApplicationSettings>;
+  };
+  appUpdates: {
+    getState: () => Promise<AppUpdateState>;
+    checkForUpdates: () => Promise<AppUpdateState>;
+    downloadUpdate: () => Promise<AppUpdateState>;
+    quitAndInstall: () => Promise<void>;
+    onStateChange: (listener: (state: AppUpdateState) => void) => () => void;
   };
 }

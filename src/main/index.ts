@@ -3,6 +3,7 @@ import { app, BrowserWindow, type BrowserWindow as BrowserWindowType } from 'ele
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
 import { registerIpcHandlers } from '@main/ipc';
+import { AppUpdaterService } from '@main/services/appUpdaterService';
 import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentExportService } from '@main/services/documentExportService';
@@ -51,6 +52,7 @@ const createWindow = async (): Promise<void> => {
 
 app.whenReady().then(async () => {
   const catalogService = new AppCatalogService(path.join(app.getPath('userData'), 'catalog.json'));
+  const appUpdaterService = new AppUpdaterService();
   const workspaceManager = new WorkspaceManager();
   const workspaceFilesystemWatcherService = new WorkspaceFilesystemWatcherService((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -86,6 +88,22 @@ app.whenReady().then(async () => {
     workspaceFilesystemWatcherService
   );
 
+  appUpdaterService.syncSettings(catalogService.getApplicationSettings());
+
+  let isShuttingDown = false;
+  let unsubscribeUpdater: () => void = () => {};
+  const disposeServices = () => {
+    if (isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
+    unsubscribeUpdater();
+    appUpdaterService.dispose();
+    workspaceFilesystemWatcherService.dispose();
+    workspaceManager.dispose();
+  };
+
   registerIpcHandlers({
     workspaceService,
     documentService,
@@ -93,21 +111,33 @@ app.whenReady().then(async () => {
     documentTypeService,
     workspaceCatalogService,
     templateService,
-    catalogService
+    catalogService,
+    appUpdaterService,
+    prepareForAppQuit: disposeServices
+  });
+
+  const broadcastAppUpdateState = (): void => {
+    const state = appUpdaterService.getState();
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.appUpdatesStateChanged, state);
+    }
+  };
+  unsubscribeUpdater = appUpdaterService.subscribe(() => {
+    broadcastAppUpdateState();
   });
 
   await createWindow();
+  broadcastAppUpdateState();
+  appUpdaterService.start();
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
+      broadcastAppUpdateState();
     }
   });
 
-  app.on('before-quit', () => {
-    workspaceFilesystemWatcherService.dispose();
-    workspaceManager.dispose();
-  });
+  app.on('before-quit', disposeServices);
 });
 
 app.on('window-all-closed', () => {

@@ -6,6 +6,7 @@ import {
   DEFAULT_APPLICATION_SETTINGS,
   type ApplicationSettings
 } from '@shared/applicationSettings';
+import type { AppUpdateState } from '@shared/appUpdates';
 import type { DocTrackApi } from '@shared/ipc';
 import type { DocumentDetail, OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
@@ -147,6 +148,17 @@ const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentD
 const normalizeText = (value: string | null | undefined): string =>
   (value ?? '').replace(/\s+/g, ' ').trim();
 
+const defaultAppUpdateState: AppUpdateState = {
+  status: 'idle',
+  currentVersion: '0.1.0',
+  isSupported: true,
+  message: 'Ready to check for updates.',
+  release: null,
+  progress: null,
+  lastCheckedAt: null,
+  lastUpdatedAt: '2026-04-02T10:00:00.000Z'
+};
+
 const resetStore = () => {
   useAppStore.setState({
     openWorkspaces: {},
@@ -181,9 +193,13 @@ const buildDocTrackMock = (
     ...DEFAULT_APPLICATION_SETTINGS,
     themeMode: 'light'
   },
-  workspaceResult: OpenWorkspaceResult = openWorkspaceResult
+  workspaceResult: OpenWorkspaceResult = openWorkspaceResult,
+  initialAppUpdateState: AppUpdateState = defaultAppUpdateState
 ) => {
   let persistedSettings = { ...initialSettings };
+  let persistedAppUpdateState = JSON.parse(
+    JSON.stringify(initialAppUpdateState)
+  ) as AppUpdateState;
 
   const docTrack: DocTrackApi = {
     workspace: {
@@ -365,6 +381,22 @@ const buildDocTrackMock = (
         persistedSettings = { ...settings };
         return { ...persistedSettings };
       })
+    },
+    appUpdates: {
+      getState: vi.fn().mockImplementation(
+        async () =>
+          JSON.parse(JSON.stringify(persistedAppUpdateState)) as AppUpdateState
+      ),
+      checkForUpdates: vi.fn().mockImplementation(
+        async () =>
+          JSON.parse(JSON.stringify(persistedAppUpdateState)) as AppUpdateState
+      ),
+      downloadUpdate: vi.fn().mockImplementation(
+        async () =>
+          JSON.parse(JSON.stringify(persistedAppUpdateState)) as AppUpdateState
+      ),
+      quitAndInstall: vi.fn().mockResolvedValue(undefined),
+      onStateChange: vi.fn().mockImplementation(() => () => undefined)
     }
   };
 
@@ -613,6 +645,122 @@ describe('App', () => {
 
     const firstHeaderCell = document.querySelector('thead th');
     expect(firstHeaderCell?.className).toContain('py-2');
+
+    await view.unmount();
+  });
+
+  it('saves updater preferences through the application settings dialog', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    const dialog = getDialog();
+
+    await changeCheckbox(
+      getLabeledControl(dialog, 'Enable automatic updates', 'input[type="checkbox"]') as HTMLInputElement,
+      false
+    );
+    await changeCheckbox(
+      getLabeledControl(
+        dialog,
+        'Check for updates on launch',
+        'input[type="checkbox"]'
+      ) as HTMLInputElement,
+      false
+    );
+    await click(getButton('Save Settings', dialog));
+
+    expect(docTrack.appSettings.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoUpdateEnabled: false,
+        checkForUpdatesOnLaunch: false
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('checks for application updates from the settings dialog', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    await click(getButton('Check for Updates', getDialog()));
+
+    expect(docTrack.appUpdates.checkForUpdates).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
+  it('downloads an available application update from the settings dialog', async () => {
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'available',
+        message: 'DocTrack 0.2.0 is available to download.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        }
+      }
+    );
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    await click(getButton('Download Update', getDialog()));
+
+    expect(docTrack.appUpdates.downloadUpdate).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
+  it('installs a downloaded application update from the settings dialog', async () => {
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'downloaded',
+        message: 'DocTrack 0.2.0 is ready to install.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        }
+      }
+    );
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    await click(getButton('Install and Restart', getDialog()));
+
+    expect(docTrack.appUpdates.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
+  it('shows updater errors when a manual check fails', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.appUpdates.checkForUpdates = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Network unavailable'));
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    await click(getButton('Check for Updates', getDialog()));
+
+    expect(normalizeText(document.body.textContent)).toContain('Network unavailable');
 
     await view.unmount();
   });

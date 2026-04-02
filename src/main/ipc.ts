@@ -1,6 +1,7 @@
 import { dialog, ipcMain } from 'electron';
 import type { AppCatalogService } from '@main/catalog/appCatalogService';
 import type { DocumentExportService } from '@main/services/documentExportService';
+import type { AppUpdaterService } from '@main/services/appUpdaterService';
 import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
 import type { TemplateService } from '@main/services/templateService';
@@ -16,6 +17,8 @@ interface ServiceContainer {
   workspaceCatalogService: WorkspaceCatalogService;
   templateService: TemplateService;
   catalogService: AppCatalogService;
+  appUpdaterService: AppUpdaterService;
+  prepareForAppQuit: () => void;
 }
 
 export const registerIpcHandlers = (services: ServiceContainer): void => {
@@ -272,7 +275,20 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
 
   ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => services.catalogService.getApplicationSettings());
-  ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, (_event, settings) =>
-    services.catalogService.updateApplicationSettings(settings)
+  ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, (_event, settings) => {
+    const nextSettings = services.catalogService.updateApplicationSettings(settings);
+    services.appUpdaterService.syncSettings(nextSettings);
+    return nextSettings;
+  });
+  ipcMain.handle(IPC_CHANNELS.appUpdatesGetState, () => services.appUpdaterService.getState());
+  ipcMain.handle(IPC_CHANNELS.appUpdatesCheckForUpdates, () =>
+    services.appUpdaterService.checkForUpdates()
   );
+  ipcMain.handle(IPC_CHANNELS.appUpdatesDownloadUpdate, () =>
+    services.appUpdaterService.downloadUpdate()
+  );
+  ipcMain.handle(IPC_CHANNELS.appUpdatesQuitAndInstall, () => {
+    services.prepareForAppQuit();
+    services.appUpdaterService.quitAndInstall();
+  });
 };

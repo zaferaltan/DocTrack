@@ -1,0 +1,27 @@
+appId: com.zaferaltan.doctrack
+productName: DocTrack
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+electronUpdaterCompatibility: ">=2.16"
+publish:
+  provider: github
+  owner: zaferaltan
+  repo: DocTrack
+  releaseType: draft
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

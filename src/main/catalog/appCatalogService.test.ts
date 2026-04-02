@@ -51,7 +51,9 @@ describe('app catalog service', () => {
       defaultDocumentAuthor: 'Taylor Reed',
       defaultDocumentVersionScheme: 'major-minor',
       confirmDestructiveActions: false,
-      autoDismissSuccessNotifications: false
+      autoDismissSuccessNotifications: false,
+      autoUpdateEnabled: false,
+      checkForUpdatesOnLaunch: false
     };
 
     service.touchRecentWorkspace({
@@ -158,6 +160,32 @@ describe('app catalog service', () => {
         newDocument: null,
         focusSearch: 'Mod+F'
       }
+    });
+  });
+
+  it('defaults updater settings when older catalogs do not include them', () => {
+    const service = createService();
+    const catalogPath = path.join(tempRoot, 'catalog.json');
+
+    writeFileSync(
+      catalogPath,
+      JSON.stringify(
+        {
+          applicationSettings: {
+            themeMode: 'dark',
+            autoDismissSuccessNotifications: false
+          }
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    expect(service.getApplicationSettings()).toEqual({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'dark',
+      autoDismissSuccessNotifications: false
     });
   });
 });

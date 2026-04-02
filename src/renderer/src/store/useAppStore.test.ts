@@ -138,6 +138,22 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
     appSettings: {
       get: vi.fn().mockResolvedValue(applicationSettings),
       update: vi.fn().mockImplementation(async (settings: ApplicationSettings) => settings)
+    },
+    appUpdates: {
+      getState: vi.fn().mockResolvedValue({
+        status: 'idle',
+        currentVersion: '0.1.0',
+        isSupported: true,
+        message: 'Ready to check for updates.',
+        release: null,
+        progress: null,
+        lastCheckedAt: null,
+        lastUpdatedAt: '2026-04-02T10:00:00.000Z'
+      }),
+      checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(),
+      quitAndInstall: vi.fn(),
+      onStateChange: vi.fn().mockImplementation(() => () => undefined)
     }
   };
 

@@ -164,6 +164,24 @@ const api: DocTrackApi = {
   appSettings: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.appSettingsGet),
     update: (settings) => ipcRenderer.invoke(IPC_CHANNELS.appSettingsUpdate, settings)
+  },
+  appUpdates: {
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesGetState),
+    checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesCheckForUpdates),
+    downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesDownloadUpdate),
+    quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesQuitAndInstall),
+    onStateChange: (listener) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        payload: Parameters<typeof listener>[0]
+      ) => {
+        listener(payload);
+      };
+      ipcRenderer.on(IPC_CHANNELS.appUpdatesStateChanged, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.appUpdatesStateChanged, wrappedListener);
+      };
+    }
   }
 };
 
