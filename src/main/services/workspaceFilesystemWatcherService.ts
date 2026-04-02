@@ -1,16 +1,20 @@
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import {
+  DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
   WORKSPACE_TEMPLATES_DIRECTORY_NAME
 } from '@shared/workspaceLayout';
+import type { WorkspaceSettings } from '@shared/workspaceLayout';
 import type { WorkspaceFilesystemDriftEvent } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 
 interface WatchRegistration {
-  watcher: FSWatcher;
+  watcher: FSWatcher | null;
   debounceTimer: NodeJS.Timeout | null;
   pendingPaths: Set<string>;
+  settings: Pick<WorkspaceSettings, 'documentsDirectoryName' | 'templatesDirectoryName'>;
+  pauseDepth: number;
 }
 
 export class WorkspaceFilesystemWatcherService {
@@ -22,16 +26,110 @@ export class WorkspaceFilesystemWatcherService {
     private readonly debounceMs = 250
   ) {}
 
-  ensureWatching(rootPath: string): void {
+  ensureWatching(
+    rootPath: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName' | 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
     const resolvedRootPath = path.resolve(rootPath);
-    if (this.registrations.has(resolvedRootPath)) {
+    const existingRegistration = this.registrations.get(resolvedRootPath);
+    if (existingRegistration) {
+      existingRegistration.settings = settings;
+      if (!existingRegistration.watcher && existingRegistration.pauseDepth === 0) {
+        existingRegistration.watcher = this.createWatcher(resolvedRootPath, existingRegistration);
+      }
       return;
     }
 
+    const registration: WatchRegistration = {
+      watcher: null,
+      debounceTimer: null,
+      pendingPaths: new Set<string>(),
+      settings,
+      pauseDepth: 0
+    };
+    registration.watcher = this.createWatcher(resolvedRootPath, registration);
+    this.registrations.set(resolvedRootPath, registration);
+  }
+
+  closeWatching(rootPath: string): void {
+    const resolvedRootPath = path.resolve(rootPath);
+    const registration = this.registrations.get(resolvedRootPath);
+    if (!registration) {
+      return;
+    }
+
+    if (registration.debounceTimer) {
+      clearTimeout(registration.debounceTimer);
+    }
+
+    registration.pendingPaths.clear();
+    registration.watcher?.close();
+    this.registrations.delete(resolvedRootPath);
+    this.suppressedUntilByRootPath.delete(resolvedRootPath);
+  }
+
+  suppressEvents(rootPath: string, durationMs = 750): void {
+    const resolvedRootPath = path.resolve(rootPath);
+    this.suppressedUntilByRootPath.set(
+      resolvedRootPath,
+      Math.max(this.suppressedUntilByRootPath.get(resolvedRootPath) ?? 0, Date.now() + durationMs)
+    );
+  }
+
+  pauseWatching(rootPath: string): void {
+    const resolvedRootPath = path.resolve(rootPath);
+    const registration = this.registrations.get(resolvedRootPath);
+    if (!registration) {
+      return;
+    }
+
+    registration.pauseDepth += 1;
+    if (registration.pauseDepth > 1 || !registration.watcher) {
+      return;
+    }
+
+    if (registration.debounceTimer) {
+      clearTimeout(registration.debounceTimer);
+      registration.debounceTimer = null;
+    }
+
+    registration.pendingPaths.clear();
+    registration.watcher.close();
+    registration.watcher = null;
+  }
+
+  resumeWatching(rootPath: string): void {
+    const resolvedRootPath = path.resolve(rootPath);
+    const registration = this.registrations.get(resolvedRootPath);
+    if (!registration || registration.pauseDepth === 0) {
+      return;
+    }
+
+    registration.pauseDepth -= 1;
+    if (registration.pauseDepth > 0 || registration.watcher) {
+      return;
+    }
+
+    registration.watcher = this.createWatcher(resolvedRootPath, registration);
+  }
+
+  dispose(): void {
+    for (const rootPath of [...this.registrations.keys()]) {
+      this.closeWatching(rootPath);
+    }
+  }
+
+  private createWatcher(resolvedRootPath: string, registration: WatchRegistration): FSWatcher {
     const watcher = chokidar.watch(
       [
-        path.join(resolvedRootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME),
-        path.join(resolvedRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME)
+        path.join(
+          resolvedRootPath,
+          registration.settings.documentsDirectoryName || WORKSPACE_DOCUMENTS_DIRECTORY_NAME
+        ),
+        path.join(
+          resolvedRootPath,
+          registration.settings.templatesDirectoryName || WORKSPACE_TEMPLATES_DIRECTORY_NAME
+        )
       ],
       {
         ignoreInitial: true,
@@ -42,11 +140,6 @@ export class WorkspaceFilesystemWatcherService {
       }
     );
 
-    const registration: WatchRegistration = {
-      watcher,
-      debounceTimer: null,
-      pendingPaths: new Set<string>()
-    };
     const queue = (changedPath: string): void => {
       if (Date.now() < (this.suppressedUntilByRootPath.get(resolvedRootPath) ?? 0)) {
         return;
@@ -78,36 +171,6 @@ export class WorkspaceFilesystemWatcherService {
     watcher.on('change', queue);
     watcher.on('unlink', queue);
     watcher.on('unlinkDir', queue);
-    this.registrations.set(resolvedRootPath, registration);
-  }
-
-  closeWatching(rootPath: string): void {
-    const resolvedRootPath = path.resolve(rootPath);
-    const registration = this.registrations.get(resolvedRootPath);
-    if (!registration) {
-      return;
-    }
-
-    if (registration.debounceTimer) {
-      clearTimeout(registration.debounceTimer);
-    }
-
-    registration.watcher.close();
-    this.registrations.delete(resolvedRootPath);
-    this.suppressedUntilByRootPath.delete(resolvedRootPath);
-  }
-
-  suppressEvents(rootPath: string, durationMs = 750): void {
-    const resolvedRootPath = path.resolve(rootPath);
-    this.suppressedUntilByRootPath.set(
-      resolvedRootPath,
-      Math.max(this.suppressedUntilByRootPath.get(resolvedRootPath) ?? 0, Date.now() + durationMs)
-    );
-  }
-
-  dispose(): void {
-    for (const rootPath of [...this.registrations.keys()]) {
-      this.closeWatching(rootPath);
-    }
+    return watcher;
   }
 }

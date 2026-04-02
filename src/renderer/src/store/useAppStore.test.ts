@@ -64,6 +64,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       listBackups: vi.fn().mockResolvedValue([]),
       createBackup: vi.fn(),
       getRestorePreview: vi.fn(),
+      getRestoreDiff: vi.fn(),
       restoreBackup: vi.fn(),
       integrityCheck: vi.fn(),
       onFilesystemDrift: vi.fn().mockImplementation(() => () => undefined)

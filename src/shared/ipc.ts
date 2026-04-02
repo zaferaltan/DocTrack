@@ -28,6 +28,7 @@ import type {
   ProjectInput,
   RecentWorkspace,
   RenameDocumentVersionFileInput,
+  RestoreBackupDiffResult,
   RestoreBackupInput,
   RestoreBackupPreview,
   TemplateSummary,
@@ -60,6 +61,7 @@ export const IPC_CHANNELS = {
   workspaceListBackups: 'workspace:listBackups',
   workspaceCreateBackup: 'workspace:createBackup',
   workspaceGetRestorePreview: 'workspace:getRestorePreview',
+  workspaceGetRestoreDiff: 'workspace:getRestoreDiff',
   workspaceRestoreBackup: 'workspace:restoreBackup',
   workspaceIntegrityCheck: 'workspace:integrityCheck',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
@@ -136,6 +138,7 @@ export interface DocTrackApi {
       destinationParentPath: string,
       destinationFolderName?: string
     ) => Promise<RestoreBackupPreview>;
+    getRestoreDiff: (rootPath: string, backupId: string) => Promise<RestoreBackupDiffResult>;
     restoreBackup: (rootPath: string, input: RestoreBackupInput) => Promise<OpenWorkspaceResult>;
     integrityCheck: (rootPath: string) => Promise<IntegrityCheckResult>;
     onFilesystemDrift: (

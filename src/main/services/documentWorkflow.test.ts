@@ -34,13 +34,14 @@ describe('document workflow integration', () => {
   let documentTypeService: DocumentTypeService;
   let templateService: TemplateService;
   let workspaceCatalogService: WorkspaceCatalogService;
+  let fileStorageService: FileStorageService;
   let workspaceRootPath: string;
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-docs-'));
     workspaceManager = new WorkspaceManager();
-    const fileStorageService = new FileStorageService();
-    templateService = new TemplateService(fileStorageService);
+    fileStorageService = new FileStorageService();
+    templateService = new TemplateService(fileStorageService, workspaceManager);
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
@@ -557,6 +558,34 @@ describe('document workflow integration', () => {
 
     expect(documentService.list(workspaceRootPath)).toHaveLength(0);
     expect(existsSync(documentFolderAbsolutePath)).toBe(false);
+  });
+
+  it('does not remove the document record when filesystem deletion fails', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Locked Delete Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'numeric-3'
+    });
+
+    const documentFolderAbsolutePath = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/')
+    );
+    expect(existsSync(documentFolderAbsolutePath)).toBe(true);
+
+    vi.spyOn(fileStorageService, 'deleteDocumentFolder').mockImplementation(() => {
+      throw new Error('Permission denied while deleting document folder.');
+    });
+
+    expect(() =>
+      documentService.deleteDocument(workspaceRootPath, {
+        documentRecordId: created.id
+      })
+    ).toThrow('Permission denied while deleting document folder.');
+
+    expect(documentService.list(workspaceRootPath)).toHaveLength(1);
+    expect(existsSync(documentFolderAbsolutePath)).toBe(true);
   });
 
   it('migrates managed files between flat and role-subfolder layouts', () => {

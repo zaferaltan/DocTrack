@@ -23,6 +23,8 @@ const api: DocTrackApi = {
         destinationParentPath,
         destinationFolderName
       ),
+    getRestoreDiff: (rootPath, backupId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceGetRestoreDiff, rootPath, backupId),
     restoreBackup: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceRestoreBackup, rootPath, input),
     integrityCheck: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceIntegrityCheck, rootPath),

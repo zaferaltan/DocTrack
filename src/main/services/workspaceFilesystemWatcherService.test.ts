@@ -76,4 +76,21 @@ describe('WorkspaceFilesystemWatcherService', () => {
 
     expect(emitted).toHaveLength(0);
   });
+
+  it('can pause and resume watching without losing the registration', () => {
+    const emitted: WorkspaceFilesystemDriftEvent[] = [];
+    const service = new WorkspaceFilesystemWatcherService((event) => {
+      emitted.push(event);
+    }, 50);
+
+    service.ensureWatching('/workspace');
+    expect(watchMock).toHaveBeenCalledTimes(1);
+
+    service.pauseWatching('/workspace');
+    expect(closeMock).toHaveBeenCalledTimes(1);
+
+    service.resumeWatching('/workspace');
+    expect(watchMock).toHaveBeenCalledTimes(2);
+    expect(emitted).toHaveLength(0);
+  });
 });

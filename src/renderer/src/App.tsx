@@ -108,14 +108,18 @@ import {
   DOCUMENT_TABLE_COLUMN_OPTIONS,
   DOCUMENT_TABLE_COLUMNS,
   WORKSPACE_FILE_ORGANIZATION_OPTIONS,
+  WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS,
   WORKSPACE_STORAGE_LAYOUT_OPTIONS,
   WORKSPACE_VERSION_MANAGEMENT_OPTIONS,
+  getDefaultWorkspaceRootDirectoryName,
   getDocumentTableColumnLabel,
   getDocumentIdFormatTemplateForPreset,
   getWorkspaceTemplatesRelativePath,
+  isValidWorkspaceRootDirectoryName,
   normalizeDocumentIdFormatTemplate,
   resolveDocumentIdFormatTemplate,
   type DocumentTableColumn,
+  type WorkspaceRootDirectorySettingKey,
   type WorkspaceSettings,
 } from "@shared/workspaceLayout";
 import type {
@@ -135,7 +139,9 @@ import type {
   FilePreviewResult,
   IntegrityCheckResult,
   Project,
-  RestoreBackupPreview,
+  RestoreBackupDiffChangeType,
+  RestoreBackupDiffItem,
+  RestoreBackupDiffResult,
   TemplateSummary,
   UpdateDocumentInput,
   UpdateDocumentVersionInput,
@@ -148,6 +154,17 @@ import type {
 } from "@shared/types";
 
 type NotificationTone = "success" | "error";
+type ValidationErrors = Partial<Record<string, string>>;
+
+const ROOT_DIRECTORY_FIELD_LABELS: Record<
+  WorkspaceRootDirectorySettingKey,
+  string
+> = {
+  databaseDirectoryName: "Database",
+  documentsDirectoryName: "Documents",
+  templatesDirectoryName: "Templates",
+  backupsDirectoryName: "Backups",
+};
 
 const STATUS_VARIANTS: Record<
   DocumentStatus,
@@ -248,6 +265,8 @@ interface WorkspaceDialogState {
   settings: WorkspaceSettings;
   includeExampleData: boolean;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
+  isAdvancedSettingsOpen: boolean;
 }
 
 interface WorkspaceSettingsDialogState {
@@ -258,6 +277,8 @@ interface WorkspaceSettingsDialogState {
   companyLogoSourceFilePath: string | null;
   clearCompanyLogo: boolean;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
+  isAdvancedSettingsOpen: boolean;
 }
 
 interface ApplicationSettingsDialogState {
@@ -270,6 +291,7 @@ interface TableColumnsDialogState {
   open: boolean;
   visibleColumns: DocumentTableColumn[];
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface DocumentDialogState {
@@ -289,6 +311,7 @@ interface DocumentDialogState {
   department: string;
   revisionIntervalMonths: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface VersionDialogState {
@@ -335,6 +358,7 @@ interface TypeDialogState {
   name: string;
   numberPrefix: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface ProjectDialogState {
@@ -342,19 +366,24 @@ interface ProjectDialogState {
   id?: number;
   name: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface TemplateDialogState {
   open: boolean;
   name: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface TemplateFilesDialogState {
   open: boolean;
   templateId?: string;
   templateName: string;
+  pendingSourceFilePaths: string[];
+  isDragActive: boolean;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface ClassificationDialogState {
@@ -362,6 +391,7 @@ interface ClassificationDialogState {
   id?: number;
   name: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface LanguageDialogState {
@@ -369,6 +399,7 @@ interface LanguageDialogState {
   id?: number;
   code: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 type DocumentExportScope = "current-table" | "whole-workspace";
@@ -391,7 +422,7 @@ interface BackupDialogState {
   backups: WorkspaceBackupSummary[];
   integrityCheck: IntegrityCheckResult | null;
   selectedBackupId: string;
-  restorePreview: RestoreBackupPreview | null;
+  restoreDiff: RestoreBackupDiffResult | null;
   isLoading: boolean;
   isSubmitting: boolean;
 }
@@ -413,6 +444,7 @@ interface RenameFileDialogState {
   file?: DocumentVersionFile;
   nextFileName: string;
   isSubmitting: boolean;
+  validationErrors: ValidationErrors;
 }
 
 interface DashboardDrilldownState {
@@ -461,6 +493,8 @@ const defaultWorkspaceDialogState: WorkspaceDialogState = {
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   includeExampleData: true,
   isSubmitting: false,
+  validationErrors: {},
+  isAdvancedSettingsOpen: false,
 };
 
 const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
@@ -471,6 +505,8 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   companyLogoSourceFilePath: null,
   clearCompanyLogo: false,
   isSubmitting: false,
+  validationErrors: {},
+  isAdvancedSettingsOpen: false,
 };
 
 const defaultApplicationSettingsDialogState: ApplicationSettingsDialogState = {
@@ -486,6 +522,7 @@ const defaultTableColumnsDialogState: TableColumnsDialogState = {
   open: false,
   visibleColumns: [...DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS],
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultDocumentDialogState: DocumentDialogState = {
@@ -505,6 +542,7 @@ const defaultDocumentDialogState: DocumentDialogState = {
   department: "",
   revisionIntervalMonths: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultVersionDialogState: VersionDialogState = {
@@ -550,6 +588,7 @@ const defaultTypeDialogState: TypeDialogState = {
   name: "",
   numberPrefix: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultProjectDialogState: ProjectDialogState = {
@@ -557,19 +596,24 @@ const defaultProjectDialogState: ProjectDialogState = {
   id: undefined,
   name: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultTemplateDialogState: TemplateDialogState = {
   open: false,
   name: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultTemplateFilesDialogState: TemplateFilesDialogState = {
   open: false,
   templateId: undefined,
   templateName: "",
+  pendingSourceFilePaths: [],
+  isDragActive: false,
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultClassificationDialogState: ClassificationDialogState = {
@@ -577,6 +621,7 @@ const defaultClassificationDialogState: ClassificationDialogState = {
   id: undefined,
   name: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultLanguageDialogState: LanguageDialogState = {
@@ -584,6 +629,7 @@ const defaultLanguageDialogState: LanguageDialogState = {
   id: undefined,
   code: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultDocumentExportDialogState: DocumentExportDialogState = {
@@ -600,7 +646,7 @@ const defaultBackupDialogState: BackupDialogState = {
   backups: [],
   integrityCheck: null,
   selectedBackupId: "",
-  restorePreview: null,
+  restoreDiff: null,
   isLoading: false,
   isSubmitting: false,
 };
@@ -622,6 +668,7 @@ const defaultRenameFileDialogState: RenameFileDialogState = {
   file: undefined,
   nextFileName: "",
   isSubmitting: false,
+  validationErrors: {},
 };
 
 const defaultDeleteRecordsDialogState: DeleteRecordsDialogState = {
@@ -665,6 +712,33 @@ const parseOptionalPositiveInteger = (value: string): number | null => {
   const parsed = Number(trimmed);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : Number.NaN;
 };
+
+const clearValidationError = (
+  errors: ValidationErrors,
+  field: string,
+): ValidationErrors => {
+  if (!(field in errors)) {
+    return errors;
+  }
+
+  const nextErrors = { ...errors };
+  delete nextErrors[field];
+  return nextErrors;
+};
+
+const applyInputChange = <
+  TState extends {
+    validationErrors: ValidationErrors;
+  },
+>(
+  state: TState,
+  field: string,
+  patch: Partial<TState>,
+): TState => ({
+  ...state,
+  ...patch,
+  validationErrors: clearValidationError(state.validationErrors, field),
+});
 
 const normalizeDocumentIdPreviewSegment = (
   value: string,
@@ -819,6 +893,31 @@ const getDocumentExportScopeLabel = (scope: DocumentExportScope): string =>
 const getPathFileName = (value: string): string =>
   value.split(/[/\\]/).pop() ?? value;
 
+const mergeUniqueFilePaths = (
+  current: string[],
+  incoming: string[],
+): string[] => {
+  const seen = new Set(current.map((value) => value.toLowerCase()));
+  const next = [...current];
+
+  for (const filePath of incoming) {
+    const trimmed = filePath.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const dedupeKey = trimmed.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    next.push(trimmed);
+  }
+
+  return next;
+};
+
 const getFilePathsFromFileList = (files: FileList | File[]): string[] =>
   Array.from(files)
     .map((file) => file.path ?? "")
@@ -956,6 +1055,168 @@ const getShortcutConflictActions = (
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
 const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
   formatUserFacingError(error, fallbackMessage);
+
+const validateWorkspaceRootDirectorySettings = (
+  settings: WorkspaceSettings,
+): ValidationErrors => {
+  const errors: ValidationErrors = {};
+  const seenNames = new Map<string, WorkspaceRootDirectorySettingKey>();
+
+  for (const key of WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS) {
+    const value = settings[key].trim();
+    const fieldKey = `rootDirectory.${key}`;
+
+    if (!value) {
+      errors[fieldKey] = `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name is required.`;
+      continue;
+    }
+
+    if (!isValidWorkspaceRootDirectoryName(value)) {
+      errors[fieldKey] = `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name contains invalid filesystem characters.`;
+      continue;
+    }
+
+    const duplicateKey = seenNames.get(value.toLowerCase());
+    if (duplicateKey) {
+      errors[fieldKey] = "Folder names must be unique.";
+      errors[`rootDirectory.${duplicateKey}`] = "Folder names must be unique.";
+      continue;
+    }
+
+    seenNames.set(value.toLowerCase(), key);
+  }
+
+  return errors;
+};
+
+const validateWorkspaceSettings = (
+  settings: WorkspaceSettings,
+): ValidationErrors => {
+  const errors = validateWorkspaceRootDirectorySettings(settings);
+
+  if (
+    settings.documentIdFormatPreset === "custom" &&
+    !settings.documentIdFormatTemplate.trim()
+  ) {
+    errors.documentIdFormatTemplate =
+      "Document ID template is required for the custom format.";
+  }
+
+  if (settings.visibleDocumentColumns.length === 0) {
+    errors.visibleDocumentColumns =
+      "Enable at least one workspace field before saving.";
+  }
+
+  return errors;
+};
+
+const validateWorkspaceDialogState = (
+  state: WorkspaceDialogState,
+): ValidationErrors => {
+  const errors = validateWorkspaceSettings(state.settings);
+
+  if (!state.name.trim()) {
+    errors.name = "Workspace name is required.";
+  }
+
+  if (state.useCustomFolderName && !state.folderName.trim()) {
+    errors.folderName = "Folder name is required when using a custom folder.";
+  }
+
+  if (!state.parentPath.trim()) {
+    errors.parentPath = "Workspace location is required.";
+  }
+
+  return errors;
+};
+
+const validateWorkspaceSettingsDialogState = (
+  state: WorkspaceSettingsDialogState,
+): ValidationErrors => validateWorkspaceSettings(state.settings);
+
+const validateTableColumnsDialogState = (
+  state: TableColumnsDialogState,
+): ValidationErrors =>
+  state.visibleColumns.length === 0
+    ? { visibleColumns: "Select at least one table column." }
+    : {};
+
+const validateDocumentDialogState = (
+  state: DocumentDialogState,
+): ValidationErrors => {
+  const errors: ValidationErrors = {};
+
+  if (!state.title.trim()) {
+    errors.title = "Document title is required.";
+  }
+
+  if (state.mode === "create" && !state.documentTypeId.trim()) {
+    errors.documentTypeId = "Document type is required.";
+  }
+
+  if (
+    state.revisionIntervalMonths.trim() &&
+    Number.isNaN(parseOptionalPositiveInteger(state.revisionIntervalMonths))
+  ) {
+    errors.revisionIntervalMonths =
+      "Revision interval must be a whole number greater than zero.";
+  }
+
+  return errors;
+};
+
+const validateTypeDialogState = (state: TypeDialogState): ValidationErrors => {
+  const errors: ValidationErrors = {};
+
+  if (!state.name.trim()) {
+    errors.name = "Type name is required.";
+  }
+
+  if (!state.numberPrefix.trim()) {
+    errors.numberPrefix = "Number prefix is required.";
+  } else if (state.numberPrefix.trim().length !== 2) {
+    errors.numberPrefix = "Number prefix must be exactly 2 digits.";
+  }
+
+  return errors;
+};
+
+const validateNameDialogState = (
+  name: string,
+  label: string,
+): ValidationErrors =>
+  name.trim()
+    ? {}
+    : {
+        name: `${label} is required.`,
+      };
+
+const validateLanguageDialogState = (
+  state: LanguageDialogState,
+): ValidationErrors =>
+  state.code.trim()
+    ? {}
+    : {
+        code: "Language code is required.",
+      };
+
+const validateTemplateFilesDialogState = (
+  state: TemplateFilesDialogState,
+): ValidationErrors =>
+  state.pendingSourceFilePaths.length > 0
+    ? {}
+    : {
+        pendingSourceFilePaths: "Add at least one file before importing.",
+      };
+
+const validateRenameFileDialogState = (
+  state: RenameFileDialogState,
+): ValidationErrors =>
+  state.nextFileName.trim()
+    ? {}
+    : {
+        nextFileName: "File name is required.",
+      };
 
 function App() {
   const {
@@ -1438,6 +1699,24 @@ function App() {
     setSelectedDocumentDetail(null);
   });
 
+  const activateWorkspaceTab = useEffectEvent((rootPath: string): void => {
+    const workspace = openWorkspaces[rootPath];
+    if (!workspace) {
+      return;
+    }
+
+    const shouldOpenDashboard =
+      getWorkspaceFilesystemAttentionCounts(workspace).totalAttentionCount > 0;
+    const nextView = shouldOpenDashboard
+      ? "dashboard"
+      : applicationSettings.defaultWorkspaceView;
+
+    startTransition(() => {
+      setWorkspaceView(rootPath, nextView);
+      setActiveWorkspace(rootPath);
+    });
+  });
+
   const openWorkspaceSettingsDialog = () => {
     if (!activeWorkspace) {
       return;
@@ -1451,6 +1730,8 @@ function App() {
       companyLogoSourceFilePath: null,
       clearCompanyLogo: false,
       isSubmitting: false,
+      validationErrors: {},
+      isAdvancedSettingsOpen: false,
     });
   };
 
@@ -1523,8 +1804,22 @@ function App() {
   }, [activeWorkspace, applicationSettings.keyboardShortcuts]);
 
   const handleCreateWorkspace = async () => {
+    const validationErrors = validateWorkspaceDialogState(workspaceDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setWorkspaceDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setWorkspaceDialog((state) => ({ ...state, isSubmitting: true }));
+      setWorkspaceDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
       await createWorkspace({
         name: workspaceDialog.name,
         ...(workspaceDialog.useCustomFolderName
@@ -1548,8 +1843,23 @@ function App() {
       return;
     }
 
+    const validationErrors =
+      validateWorkspaceSettingsDialogState(workspaceSettingsDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setWorkspaceSettingsDialog((state) => ({ ...state, isSubmitting: true }));
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
       await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, {
         settings: workspaceSettingsDialog.settings,
         companyLogoSourceFilePath:
@@ -1593,21 +1903,29 @@ function App() {
     const workspaceAvailableColumns =
       activeWorkspace?.settings.visibleDocumentColumns ??
       DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
+    const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter((column) =>
+      workspaceAvailableColumns.includes(column),
+    );
+    const validationErrors = validateTableColumnsDialogState({
+      ...tableColumnsDialog,
+      visibleColumns: nextVisibleColumns,
+    });
+
+    if (Object.keys(validationErrors).length > 0) {
+      setTableColumnsDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
 
     try {
-      setTableColumnsDialog((state) => ({ ...state, isSubmitting: true }));
-      const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter(
-        (column) => workspaceAvailableColumns.includes(column),
-      );
-
-      if (nextVisibleColumns.length === 0) {
-        setNotification({
-          tone: "error",
-          message: "Select at least one table column.",
-        });
-        setTableColumnsDialog((state) => ({ ...state, isSubmitting: false }));
-        return;
-      }
+      setTableColumnsDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
 
       await saveApplicationSettingsPartial({
         documentTableVisibleColumns: nextVisibleColumns,
@@ -1650,8 +1968,22 @@ function App() {
       return;
     }
 
+    const validationErrors = validateDocumentDialogState(documentDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setDocumentDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setDocumentDialog((state) => ({ ...state, isSubmitting: true }));
+      setDocumentDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
       const revisionIntervalMonths = parseOptionalPositiveInteger(
         documentDialog.revisionIntervalMonths,
       );
@@ -1701,6 +2033,9 @@ function App() {
               ...documentInput,
             } satisfies UpdateDocumentInput);
       await refreshWorkspace(activeWorkspacePath);
+      if (documentDialog.mode === "create") {
+        setWorkspaceView(activeWorkspacePath, "documents");
+      }
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
       setDocumentDialog(defaultDocumentDialogState);
@@ -1866,8 +2201,22 @@ function App() {
       return;
     }
 
+    const validationErrors = validateTypeDialogState(typeDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setTypeDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setTypeDialog((state) => ({ ...state, isSubmitting: true }));
+      setTypeDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
 
       if (typeDialog.id) {
         await window.docTrack.documentTypes.update(
@@ -1931,8 +2280,25 @@ function App() {
       return;
     }
 
+    const validationErrors = validateNameDialogState(
+      projectDialog.name,
+      "Project name",
+    );
+    if (Object.keys(validationErrors).length > 0) {
+      setProjectDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setProjectDialog((state) => ({ ...state, isSubmitting: true }));
+      setProjectDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
 
       if (projectDialog.id) {
         await window.docTrack.projects.update(
@@ -1994,8 +2360,25 @@ function App() {
       return;
     }
 
+    const validationErrors = validateNameDialogState(
+      templateDialog.name,
+      "Template name",
+    );
+    if (Object.keys(validationErrors).length > 0) {
+      setTemplateDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setTemplateDialog((state) => ({ ...state, isSubmitting: true }));
+      setTemplateDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
       await window.docTrack.templates.create(activeWorkspacePath, {
         name: templateDialog.name,
       });
@@ -2016,14 +2399,24 @@ function App() {
       return;
     }
 
-    try {
-      setTemplateFilesDialog((state) => ({ ...state, isSubmitting: true }));
-      const sourceFilePaths = await window.docTrack.dialogs.pickDocumentFiles();
-      if (sourceFilePaths.length === 0) {
-        setTemplateFilesDialog((state) => ({ ...state, isSubmitting: false }));
-        return;
-      }
+    const validationErrors =
+      validateTemplateFilesDialogState(templateFilesDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setTemplateFilesDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
 
+    try {
+      setTemplateFilesDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
+      const sourceFilePaths = [...templateFilesDialog.pendingSourceFilePaths];
       await window.docTrack.templates.addFiles(activeWorkspacePath, {
         templateId: templateFilesDialog.templateId,
         sourceFilePaths,
@@ -2038,6 +2431,66 @@ function App() {
       notifyError(error, "Unable to add files to the selected template.");
       setTemplateFilesDialog((state) => ({ ...state, isSubmitting: false }));
     }
+  };
+
+  const handlePickTemplateFiles = async () => {
+    try {
+      const pickedPaths = await window.docTrack.dialogs.pickDocumentFiles();
+      if (pickedPaths.length === 0) {
+        return;
+      }
+
+      setTemplateFilesDialog((state) =>
+        applyInputChange(state, "pendingSourceFilePaths", {
+          pendingSourceFilePaths: mergeUniqueFilePaths(
+            state.pendingSourceFilePaths,
+            pickedPaths,
+          ),
+        }),
+      );
+    } catch (error) {
+      notifyError(error, "Unable to choose template files.");
+    }
+  };
+
+  const stageDroppedTemplateFiles = async (files: FileList | File[]) => {
+    try {
+      const droppedPaths = await resolveDroppedFilePaths(files);
+      if (droppedPaths.length === 0) {
+        return;
+      }
+
+      setTemplateFilesDialog((state) =>
+        applyInputChange(state, "pendingSourceFilePaths", {
+          pendingSourceFilePaths: mergeUniqueFilePaths(
+            state.pendingSourceFilePaths,
+            droppedPaths,
+          ),
+          isDragActive: false,
+        }),
+      );
+    } catch (error) {
+      setTemplateFilesDialog((state) => ({ ...state, isDragActive: false }));
+      notifyError(error, "Unable to add dropped template files.");
+    }
+  };
+
+  const handleRemoveTemplateStagedFile = (filePath: string) => {
+    setTemplateFilesDialog((state) =>
+      applyInputChange(state, "pendingSourceFilePaths", {
+        pendingSourceFilePaths: state.pendingSourceFilePaths.filter(
+          (entry) => entry !== filePath,
+        ),
+      }),
+    );
+  };
+
+  const handleClearTemplateStagedFiles = () => {
+    setTemplateFilesDialog((state) =>
+      applyInputChange(state, "pendingSourceFilePaths", {
+        pendingSourceFilePaths: [],
+      }),
+    );
   };
 
   const handleDeleteTemplate = async (template: TemplateSummary) => {
@@ -2078,8 +2531,25 @@ function App() {
       return;
     }
 
+    const validationErrors = validateNameDialogState(
+      classificationDialog.name,
+      "Class name",
+    );
+    if (Object.keys(validationErrors).length > 0) {
+      setClassificationDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setClassificationDialog((state) => ({ ...state, isSubmitting: true }));
+      setClassificationDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
 
       if (classificationDialog.id) {
         await window.docTrack.confidentialityClasses.update(
@@ -2149,8 +2619,22 @@ function App() {
       return;
     }
 
+    const validationErrors = validateLanguageDialogState(languageDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setLanguageDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
     try {
-      setLanguageDialog((state) => ({ ...state, isSubmitting: true }));
+      setLanguageDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
 
       if (languageDialog.id) {
         await window.docTrack.languages.update(
@@ -2452,6 +2936,7 @@ function App() {
       file,
       nextFileName: file.fileName,
       isSubmitting: false,
+      validationErrors: {},
     });
   };
 
@@ -2465,13 +2950,27 @@ function App() {
     }
 
     const nextFileName = renameFileDialog.nextFileName.trim();
-    if (!nextFileName || nextFileName === renameFileDialog.file.fileName) {
+    const validationErrors = validateRenameFileDialogState(renameFileDialog);
+    if (Object.keys(validationErrors).length > 0) {
+      setRenameFileDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        validationErrors,
+      }));
+      return;
+    }
+
+    if (nextFileName === renameFileDialog.file.fileName) {
       setRenameFileDialog(defaultRenameFileDialogState);
       return;
     }
 
     try {
-      setRenameFileDialog((state) => ({ ...state, isSubmitting: true }));
+      setRenameFileDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
       setFilesDialog((state) => ({ ...state, isSubmitting: true }));
       await window.docTrack.documents.renameVersionFile(activeWorkspacePath, {
         fileId: renameFileDialog.file.id,
@@ -2639,7 +3138,7 @@ function App() {
         backups,
         integrityCheck,
         selectedBackupId: state.selectedBackupId || backups[0]?.id || "",
-        restorePreview: null,
+        restoreDiff: null,
         isLoading: false,
         isSubmitting: false,
       }));
@@ -2677,51 +3176,66 @@ function App() {
   };
 
   const handlePreviewRestore = async (backupId: string) => {
-    if (!activeWorkspacePath || !activeWorkspace) {
-      return;
-    }
-
-    const destinationParentPath =
-      await window.docTrack.dialogs.pickWorkspaceCreatePath(
-        `${activeWorkspace.workspace.name} Restored`,
-      );
-    if (!destinationParentPath) {
+    if (!activeWorkspacePath) {
       return;
     }
 
     try {
       setBackupDialog((state) => ({ ...state, isSubmitting: true }));
-      const preview = await window.docTrack.workspace.getRestorePreview(
+      const restoreDiff = await window.docTrack.workspace.getRestoreDiff(
         activeWorkspacePath,
         backupId,
-        destinationParentPath,
       );
       setBackupDialog((state) => ({
         ...state,
         selectedBackupId: backupId,
-        restorePreview: preview,
+        restoreDiff,
         isSubmitting: false,
       }));
     } catch (error) {
       setBackupDialog((state) => ({ ...state, isSubmitting: false }));
-      notifyError(error, "Unable to build the restore preview.");
+      notifyError(error, "Unable to build the restore diff preview.");
     }
   };
 
-  const handleRestoreBackup = async () => {
-    if (
-      !activeWorkspacePath ||
-      !backupDialog.restorePreview ||
-      !backupDialog.selectedBackupId
-    ) {
+  const handleOverwriteBackup = async () => {
+    if (!activeWorkspacePath || !backupDialog.selectedBackupId) {
       return;
     }
 
-    if (backupDialog.restorePreview.destinationExists) {
-      setNotification({
-        tone: "error",
-        message: "The selected restore destination already exists.",
+    try {
+      setBackupDialog((state) => ({ ...state, isSubmitting: true }));
+      await window.docTrack.workspace.restoreBackup(activeWorkspacePath, {
+        backupId: backupDialog.selectedBackupId,
+        mode: "overwrite-current-database",
       });
+      await refreshWorkspace(activeWorkspacePath);
+      setBackupDialog(defaultBackupDialogState);
+      setNotification({
+        tone: "success",
+        message: "Live workspace database overwritten from the selected snapshot.",
+      });
+    } catch (error) {
+      setBackupDialog((state) => ({ ...state, isSubmitting: false }));
+      notifyError(error, "Unable to overwrite the live workspace database.");
+    }
+  };
+
+  const handleExportBackup = async () => {
+    if (!activeWorkspacePath || !backupDialog.selectedBackupId) {
+      return;
+    }
+
+    const suggestedWorkspaceName = `${
+      backupDialog.restoreDiff?.backup.workspaceName ??
+      activeWorkspace?.workspace.name ??
+      "Workspace"
+    } Restored`;
+    const destinationParentPath =
+      await window.docTrack.dialogs.pickWorkspaceCreatePath(
+        suggestedWorkspaceName,
+      );
+    if (!destinationParentPath) {
       return;
     }
 
@@ -2731,12 +3245,9 @@ function App() {
         activeWorkspacePath,
         {
           backupId: backupDialog.selectedBackupId,
-          destinationParentPath: backupDialog.restorePreview.destinationRootPath.replace(
-            /[\\/][^\\/]+$/,
-            "",
-          ),
-          destinationFolderName:
-            backupDialog.restorePreview.suggestedWorkspaceName,
+          mode: "export-to-new-workspace",
+          destinationParentPath,
+          destinationFolderName: suggestedWorkspaceName,
         },
       );
       setBackupDialog(defaultBackupDialogState);
@@ -3079,6 +3590,7 @@ function App() {
               activeWorkspace.settings.visibleDocumentColumns,
             ),
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onRequestEditDocument={(documentRecordId) => {
@@ -3195,6 +3707,7 @@ function App() {
             name: type.name,
             numberPrefix: type.numberPrefix,
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onDeleteType={handleDeleteDocumentType}
@@ -3213,6 +3726,7 @@ function App() {
             id: project.id,
             name: project.name,
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onDeleteProject={handleDeleteProject}
@@ -3231,7 +3745,10 @@ function App() {
             open: true,
             templateId: template.id,
             templateName: template.name,
+            pendingSourceFilePaths: [],
+            isDragActive: false,
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onOpenTemplatesFolder={() => {
@@ -3242,7 +3759,7 @@ function App() {
           void window.docTrack.documents
             .openStoredPath(
               activeWorkspacePath,
-              getWorkspaceTemplatesRelativePath(),
+              getWorkspaceTemplatesRelativePath(activeWorkspace.settings),
             )
             .catch((error: Error) => {
               notifyError(error, "Unable to open the templates folder.");
@@ -3278,6 +3795,7 @@ function App() {
             id: item.id,
             name: item.name,
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onDeleteConfidentialityClass={handleDeleteConfidentialityClass}
@@ -3296,6 +3814,7 @@ function App() {
             id: item.id,
             code: item.code,
             isSubmitting: false,
+            validationErrors: {},
           })
         }
         onDeleteLanguage={handleDeleteLanguage}
@@ -3502,16 +4021,12 @@ function App() {
                         : "border-border bg-background text-muted-foreground hover:bg-accent",
                   )}
                   onClick={() => {
-                    startTransition(() => {
-                      setActiveWorkspace(workspaceTab.workspace.rootPath);
-                    });
+                    activateWorkspaceTab(workspaceTab.workspace.rootPath);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      startTransition(() => {
-                        setActiveWorkspace(workspaceTab.workspace.rootPath);
-                      });
+                      activateWorkspaceTab(workspaceTab.workspace.rootPath);
                     }
                   }}
                 >
@@ -3818,6 +4333,10 @@ function App() {
         }
         state={templateFilesDialog}
         onStateChange={setTemplateFilesDialog}
+        onPickFiles={handlePickTemplateFiles}
+        onDropFiles={stageDroppedTemplateFiles}
+        onRemoveFile={handleRemoveTemplateStagedFile}
+        onClearFiles={handleClearTemplateStagedFiles}
         onSubmit={handleAddFilesToTemplate}
       />
 
@@ -3975,7 +4494,8 @@ function App() {
         }
         onCreateBackup={handleCreateBackup}
         onPreviewRestore={handlePreviewRestore}
-        onRestore={handleRestoreBackup}
+        onOverwriteRestore={handleOverwriteBackup}
+        onExportRestore={handleExportBackup}
         onRefresh={() =>
           activeWorkspacePath && void refreshBackupDialog(activeWorkspacePath)
         }
@@ -7411,14 +7931,20 @@ function WorkspaceDialog({
 
         <div className="min-h-0 overflow-y-auto">
           <div className="grid gap-4 px-1 py-1 pr-2">
-            <Field label="Workspace Name">
+            <Field label="Workspace Name" error={state.validationErrors.name}>
               <Input
+                aria-invalid={Boolean(state.validationErrors.name)}
                 placeholder="Quality Operations"
                 value={state.name}
                 onChange={(event) =>
                   onStateChange((current) => ({
-                    ...current,
-                    name: event.target.value,
+                    ...applyInputChange(current, "name", {
+                      name: event.target.value,
+                    }),
+                    folderName:
+                      !current.useCustomFolderName && !current.folderName
+                        ? event.target.value
+                        : current.folderName,
                   }))
                 }
               />
@@ -7452,30 +7978,40 @@ function WorkspaceDialog({
             </label>
 
             {state.useCustomFolderName ? (
-              <Field label="Folder Name">
+              <Field
+                label="Folder Name"
+                error={state.validationErrors.folderName}
+              >
                 <Input
+                  aria-invalid={Boolean(state.validationErrors.folderName)}
                   placeholder="quality-operations"
                   value={state.folderName}
                   onChange={(event) =>
-                    onStateChange((current) => ({
-                      ...current,
-                      folderName: event.target.value,
-                    }))
+                    onStateChange((current) =>
+                      applyInputChange(current, "folderName", {
+                        folderName: event.target.value,
+                      }),
+                    )
                   }
                 />
               </Field>
             ) : null}
 
-            <Field label="Workspace Location">
+            <Field
+              label="Workspace Location"
+              error={state.validationErrors.parentPath}
+            >
               <div className="flex gap-2">
                 <Input
+                  aria-invalid={Boolean(state.validationErrors.parentPath)}
                   placeholder="/Users/you/Documents"
                   value={state.parentPath}
                   onChange={(event) =>
-                    onStateChange((current) => ({
-                      ...current,
-                      parentPath: event.target.value,
-                    }))
+                    onStateChange((current) =>
+                      applyInputChange(current, "parentPath", {
+                        parentPath: event.target.value,
+                      }),
+                    )
                   }
                 />
                 <Button
@@ -7492,10 +8028,11 @@ function WorkspaceDialog({
                       .pickWorkspaceCreatePath(folderLabel)
                       .then((parentPath) => {
                         if (parentPath) {
-                          onStateChange((current) => ({
-                            ...current,
-                            parentPath,
-                          }));
+                          onStateChange((current) =>
+                            applyInputChange(current, "parentPath", {
+                              parentPath,
+                            }),
+                          );
                         }
                       });
                   }}
@@ -7513,12 +8050,22 @@ function WorkspaceDialog({
               }
               settings={state.settings}
               showBrandingControls={false}
+              validationErrors={state.validationErrors}
+              showAdvancedSettings
+              isAdvancedSettingsOpen={state.isAdvancedSettingsOpen}
               companyLogoSourceFilePath={null}
               clearCompanyLogo={false}
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
                   settings,
+                  validationErrors: {},
+                }))
+              }
+              onAdvancedSettingsOpenChange={(open) =>
+                onStateChange((current) => ({
+                  ...current,
+                  isAdvancedSettingsOpen: open,
                 }))
               }
               onLogoSelect={() => undefined}
@@ -7626,6 +8173,10 @@ function TableColumnsDialog({
                           : current.visibleColumns.filter(
                               (item) => item !== column.value,
                             ),
+                        validationErrors: clearValidationError(
+                          current.validationErrors,
+                          "visibleColumns",
+                        ),
                       }))
                     }
                   />
@@ -7633,6 +8184,11 @@ function TableColumnsDialog({
                 </label>
               ))
             )}
+            {state.validationErrors.visibleColumns ? (
+              <div className="text-xs text-destructive">
+                {state.validationErrors.visibleColumns}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -7826,12 +8382,22 @@ function WorkspaceSettingsDialog({
             <WorkspaceStorageSettingsFields
               workspaceName={state.workspaceName}
               settings={state.settings}
+              validationErrors={state.validationErrors}
+              showAdvancedSettings
+              isAdvancedSettingsOpen={state.isAdvancedSettingsOpen}
               companyLogoSourceFilePath={state.companyLogoSourceFilePath}
               clearCompanyLogo={state.clearCompanyLogo}
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
                   settings,
+                  validationErrors: {},
+                }))
+              }
+              onAdvancedSettingsOpenChange={(open) =>
+                onStateChange((current) => ({
+                  ...current,
+                  isAdvancedSettingsOpen: open,
                 }))
               }
               onLogoSelect={(filePath) =>
@@ -7839,6 +8405,7 @@ function WorkspaceSettingsDialog({
                   ...current,
                   companyLogoSourceFilePath: filePath,
                   clearCompanyLogo: false,
+                  validationErrors: {},
                 }))
               }
               onLogoRemove={() =>
@@ -7850,6 +8417,7 @@ function WorkspaceSettingsDialog({
                     ...current.settings,
                     companyLogoPath: "",
                   },
+                  validationErrors: {},
                 }))
               }
             />
@@ -7880,19 +8448,27 @@ function WorkspaceSettingsDialog({
 function WorkspaceStorageSettingsFields({
   workspaceName,
   settings,
+  validationErrors,
+  showAdvancedSettings = false,
+  isAdvancedSettingsOpen = false,
   showBrandingControls = true,
   companyLogoSourceFilePath,
   clearCompanyLogo,
   onSettingsChange,
+  onAdvancedSettingsOpenChange,
   onLogoSelect,
   onLogoRemove,
 }: {
   workspaceName: string;
   settings: WorkspaceSettings;
+  validationErrors: ValidationErrors;
+  showAdvancedSettings?: boolean;
+  isAdvancedSettingsOpen?: boolean;
   showBrandingControls?: boolean;
   companyLogoSourceFilePath: string | null;
   clearCompanyLogo: boolean;
   onSettingsChange: (settings: WorkspaceSettings) => void;
+  onAdvancedSettingsOpenChange?: (open: boolean) => void;
   onLogoSelect: (filePath: string) => void;
   onLogoRemove: () => void;
 }) {
@@ -8042,8 +8618,12 @@ function WorkspaceStorageSettingsFields({
         </div>
       </Field>
 
-      <Field label="Document ID Template">
+      <Field
+        label="Document ID Template"
+        error={validationErrors.documentIdFormatTemplate}
+      >
         <Textarea
+          aria-invalid={Boolean(validationErrors.documentIdFormatTemplate)}
           rows={2}
           placeholder="<docTypePrefix><year><sequence:5>"
           value={settings.documentIdFormatTemplate}
@@ -8277,7 +8857,10 @@ function WorkspaceStorageSettingsFields({
         }
       />
 
-      <Field label="Enabled Workspace Fields">
+      <Field
+        label="Enabled Workspace Fields"
+        error={validationErrors.visibleDocumentColumns}
+      >
         <div className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-2 xl:grid-cols-3">
           {DOCUMENT_TABLE_COLUMN_OPTIONS.map((column) => (
             <label
@@ -8308,7 +8891,93 @@ function WorkspaceStorageSettingsFields({
           personal table-view settings.
         </div>
       </Field>
+
+      {showAdvancedSettings ? (
+        <>
+          <div>
+            <button
+              type="button"
+              className="text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+              onClick={() => onAdvancedSettingsOpenChange?.(true)}
+            >
+              Advanced Settings
+            </button>
+          </div>
+
+          <WorkspaceAdvancedSettingsDialog
+            open={isAdvancedSettingsOpen}
+            settings={settings}
+            validationErrors={validationErrors}
+            onOpenChange={(open) => onAdvancedSettingsOpenChange?.(open)}
+            onSettingsChange={onSettingsChange}
+          />
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function WorkspaceAdvancedSettingsDialog({
+  open,
+  settings,
+  validationErrors,
+  onOpenChange,
+  onSettingsChange,
+}: {
+  open: boolean;
+  settings: WorkspaceSettings;
+  validationErrors: ValidationErrors;
+  onOpenChange: (open: boolean) => void;
+  onSettingsChange: (settings: WorkspaceSettings) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[620px]">
+        <DialogHeader>
+          <DialogTitle>Advanced Settings</DialogTitle>
+          <DialogDescription>
+            Configure the root folder names used inside this workspace.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          {WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS.map((key) => {
+            const fieldKey = `rootDirectory.${key}`;
+
+            return (
+              <Field
+                key={key}
+                label={`${ROOT_DIRECTORY_FIELD_LABELS[key]} Folder`}
+                error={validationErrors[fieldKey]}
+              >
+                <Input
+                  aria-invalid={Boolean(validationErrors[fieldKey])}
+                  placeholder={getDefaultWorkspaceRootDirectoryName(key)}
+                  value={settings[key]}
+                  onChange={(event) =>
+                    onSettingsChange({
+                      ...settings,
+                      [key]: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+            );
+          })}
+
+          <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px] text-muted-foreground">
+            Folder names must be non-empty, filesystem-safe, and unique within
+            the workspace root.
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -8371,15 +9040,17 @@ function DocumentDialog({
               showAuthor || showStartDate ? "md:grid-cols-3" : "md:grid-cols-1",
             )}
           >
-            <Field label="Title">
+            <Field label="Title" error={state.validationErrors.title}>
               <Input
+                aria-invalid={Boolean(state.validationErrors.title)}
                 placeholder="Internal Audit Procedure"
                 value={state.title}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    title: event.target.value,
-                  }))
+                  onStateChange((current) =>
+                    applyInputChange(current, "title", {
+                      title: event.target.value,
+                    }),
+                  )
                 }
               />
             </Field>
@@ -8415,14 +9086,19 @@ function DocumentDialog({
 
           {state.mode === "create" ? (
             <>
-              <Field label="Document Type">
+              <Field
+                label="Document Type"
+                error={state.validationErrors.documentTypeId}
+              >
                 <Select
+                  aria-invalid={Boolean(state.validationErrors.documentTypeId)}
                   value={state.documentTypeId}
                   onChange={(event) =>
-                    onStateChange((current) => ({
-                      ...current,
-                      documentTypeId: event.target.value,
-                    }))
+                    onStateChange((current) =>
+                      applyInputChange(current, "documentTypeId", {
+                        documentTypeId: event.target.value,
+                      }),
+                    )
                   }
                 >
                   <option value="">Select a document type</option>
@@ -8585,19 +9261,26 @@ function DocumentDialog({
               ) : null}
 
               {showRevisionInterval ? (
-                <Field label="Revision Interval (months)">
+                <Field
+                  label="Revision Interval (months)"
+                  error={state.validationErrors.revisionIntervalMonths}
+                >
                   <Input
+                    aria-invalid={Boolean(
+                      state.validationErrors.revisionIntervalMonths,
+                    )}
                     inputMode="numeric"
                     placeholder="12"
                     value={state.revisionIntervalMonths}
                     onChange={(event) =>
-                      onStateChange((current) => ({
-                        ...current,
-                        revisionIntervalMonths: event.target.value.replace(
-                          /[^\d]/g,
-                          "",
-                        ),
-                      }))
+                      onStateChange((current) =>
+                        applyInputChange(current, "revisionIntervalMonths", {
+                          revisionIntervalMonths: event.target.value.replace(
+                            /[^\d]/g,
+                            "",
+                          ),
+                        }),
+                      )
                     }
                   />
                 </Field>
@@ -8865,7 +9548,10 @@ function LatestVersionDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+          <Button
+            disabled={state.isSubmitting}
+            onClick={() => void onSubmit()}
+          >
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -8906,30 +9592,37 @@ function DocumentTypeDialog({
         </DialogHeader>
 
         <div className="grid gap-4">
-          <Field label="Type Name">
+          <Field label="Type Name" error={state.validationErrors.name}>
             <Input
+              aria-invalid={Boolean(state.validationErrors.name)}
               placeholder="Specification"
               value={state.name}
               onChange={(event) =>
-                onStateChange((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
+                onStateChange((current) =>
+                  applyInputChange(current, "name", {
+                    name: event.target.value,
+                  }),
+                )
               }
             />
           </Field>
-          <Field label="Number Prefix">
+          <Field
+            label="Number Prefix"
+            error={state.validationErrors.numberPrefix}
+          >
             <Input
+              aria-invalid={Boolean(state.validationErrors.numberPrefix)}
               maxLength={2}
               placeholder="01"
               value={state.numberPrefix}
               onChange={(event) =>
-                onStateChange((current) => ({
-                  ...current,
-                  numberPrefix: event.target.value
-                    .replace(/\D/g, "")
-                    .slice(0, 2),
-                }))
+                onStateChange((current) =>
+                  applyInputChange(current, "numberPrefix", {
+                    numberPrefix: event.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 2),
+                  }),
+                )
               }
             />
           </Field>
@@ -8978,15 +9671,17 @@ function ProjectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Field label="Project Name">
+        <Field label="Project Name" error={state.validationErrors.name}>
           <Input
+            aria-invalid={Boolean(state.validationErrors.name)}
             placeholder="QMS Rollout"
             value={state.name}
             onChange={(event) =>
-              onStateChange((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
+              onStateChange((current) =>
+                applyInputChange(current, "name", {
+                  name: event.target.value,
+                }),
+              )
             }
           />
         </Field>
@@ -9033,15 +9728,17 @@ function TemplateDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Field label="Template Name">
+        <Field label="Template Name" error={state.validationErrors.name}>
           <Input
+            aria-invalid={Boolean(state.validationErrors.name)}
             placeholder="Procedure Starter"
             value={state.name}
             onChange={(event) =>
-              onStateChange((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
+              onStateChange((current) =>
+                applyInputChange(current, "name", {
+                  name: event.target.value,
+                }),
+              )
             }
           />
         </Field>
@@ -9050,7 +9747,10 @@ function TemplateDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+          <Button
+            disabled={state.isSubmitting}
+            onClick={() => void onSubmit()}
+          >
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -9069,6 +9769,10 @@ function TemplateFilesDialog({
   onOpenChange,
   state,
   onStateChange,
+  onPickFiles,
+  onDropFiles,
+  onRemoveFile,
+  onClearFiles,
   onSubmit,
 }: {
   open: boolean;
@@ -9077,6 +9781,10 @@ function TemplateFilesDialog({
   onStateChange: React.Dispatch<
     React.SetStateAction<TemplateFilesDialogState>
   >;
+  onPickFiles: () => Promise<void>;
+  onDropFiles: (files: FileList | File[]) => Promise<void>;
+  onRemoveFile: (filePath: string) => void;
+  onClearFiles: () => void;
   onSubmit: () => Promise<void>;
 }) {
   return (
@@ -9098,6 +9806,121 @@ function TemplateFilesDialog({
               the workspace Templates directory.
             </div>
           </div>
+
+          <div
+            className={cn(
+              "rounded-2xl border-2 border-dashed px-4 py-6 transition",
+              state.isDragActive
+                ? "border-blue-500 bg-blue-50/70 dark:border-blue-300 dark:bg-blue-500/10"
+                : state.validationErrors.pendingSourceFilePaths
+                  ? "border-destructive/60 bg-destructive/5"
+                  : "border-border bg-background",
+            )}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onStateChange((current) => ({ ...current, isDragActive: true }));
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!state.isDragActive) {
+                onStateChange((current) => ({
+                  ...current,
+                  isDragActive: true,
+                }));
+              }
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const nextTarget = event.relatedTarget as Node | null;
+              if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+                onStateChange((current) => ({
+                  ...current,
+                  isDragActive: false,
+                }));
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void onDropFiles(event.dataTransfer.files);
+            }}
+          >
+            <div className="flex flex-col items-center gap-2 text-center">
+              <Upload className="h-5 w-5 text-muted-foreground" />
+              <div className="text-sm font-medium">
+                Drag and drop files here
+              </div>
+              <div className="text-[13px] text-muted-foreground">
+                or choose files from disk to stage them for import.
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => void onPickFiles()}
+                disabled={state.isSubmitting}
+              >
+                <FolderOpen className="h-4 w-4" />
+                Browse Files
+              </Button>
+            </div>
+          </div>
+
+          {state.validationErrors.pendingSourceFilePaths ? (
+            <div className="text-xs text-destructive">
+              {state.validationErrors.pendingSourceFilePaths}
+            </div>
+          ) : null}
+
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold">
+                Staged Files ({state.pendingSourceFilePaths.length})
+              </div>
+              {state.pendingSourceFilePaths.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  onClick={onClearFiles}
+                  disabled={state.isSubmitting}
+                >
+                  Clear All
+                </Button>
+              ) : null}
+            </div>
+
+            {state.pendingSourceFilePaths.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                No files staged yet.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {state.pendingSourceFilePaths.map((filePath) => (
+                  <div
+                    key={filePath}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {getPathFileName(filePath)}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {filePath}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      onClick={() => onRemoveFile(filePath)}
+                      disabled={state.isSubmitting}
+                    >
+                      <X className="h-4 w-4" />
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>
@@ -9110,7 +9933,7 @@ function TemplateFilesDialog({
             ) : (
               <Upload className="h-4 w-4" />
             )}
-            Select and Add Files
+            Import Template Files
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -9147,15 +9970,17 @@ function ConfidentialityClassDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Field label="Class Name">
+        <Field label="Class Name" error={state.validationErrors.name}>
           <Input
+            aria-invalid={Boolean(state.validationErrors.name)}
             placeholder="Internal"
             value={state.name}
             onChange={(event) =>
-              onStateChange((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
+              onStateChange((current) =>
+                applyInputChange(current, "name", {
+                  name: event.target.value,
+                }),
+              )
             }
           />
         </Field>
@@ -9203,16 +10028,18 @@ function LanguageDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Field label="Language Code">
+        <Field label="Language Code" error={state.validationErrors.code}>
           <Input
+            aria-invalid={Boolean(state.validationErrors.code)}
             maxLength={8}
             placeholder="EN"
             value={state.code}
             onChange={(event) =>
-              onStateChange((current) => ({
-                ...current,
-                code: event.target.value.toUpperCase(),
-              }))
+              onStateChange((current) =>
+                applyInputChange(current, "code", {
+                  code: event.target.value.toUpperCase(),
+                }),
+              )
             }
           />
         </Field>
@@ -10150,15 +10977,20 @@ function RenameFileDialog({
               </div>
             </div>
 
-            <Field label="New File Name">
+            <Field
+              label="New File Name"
+              error={state.validationErrors.nextFileName}
+            >
               <Input
                 autoFocus
+                aria-invalid={Boolean(state.validationErrors.nextFileName)}
                 value={state.nextFileName}
                 onChange={(event) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    nextFileName: event.target.value,
-                  }))
+                  onStateChange((current) =>
+                    applyInputChange(current, "nextFileName", {
+                      nextFileName: event.target.value,
+                    }),
+                  )
                 }
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !state.isSubmitting && nextFileName) {
@@ -10196,34 +11028,120 @@ function RenameFileDialog({
   );
 }
 
+const getRestoreDiffBadgeClasses = (
+  changeType: RestoreBackupDiffChangeType,
+): string =>
+  cn(
+    changeType === "added" &&
+      "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200",
+    changeType === "changed" &&
+      "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200",
+    changeType === "removed" &&
+      "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200",
+  );
+
+const getRestoreDiffCellClasses = (
+  changeType: RestoreBackupDiffChangeType,
+  side: "live" | "backup",
+): string =>
+  cn(
+    "rounded-md border px-3 py-2 text-[12px] leading-5",
+    side === "live" && changeType === "removed" &&
+      "border-rose-200 bg-rose-50/80 dark:border-rose-400/20 dark:bg-rose-500/10",
+    side === "backup" && changeType === "added" &&
+      "border-emerald-200 bg-emerald-50/80 dark:border-emerald-400/20 dark:bg-emerald-500/10",
+    changeType === "changed" &&
+      "border-amber-200 bg-amber-50/70 dark:border-amber-400/20 dark:bg-amber-500/10",
+    !(
+      (side === "live" && changeType === "removed") ||
+      (side === "backup" && changeType === "added") ||
+      changeType === "changed"
+    ) && "border-border bg-background",
+  );
+
+function RestoreDiffFileCard({
+  item,
+}: {
+  item: RestoreBackupDiffItem;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
+        <div className="text-sm font-semibold">{item.label}</div>
+        <Badge variant="outline" className={getRestoreDiffBadgeClasses(item.changeType)}>
+          {item.changeType}
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-[minmax(140px,180px)_minmax(0,1fr)_minmax(0,1fr)] border-b border-border bg-card/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <div>Field</div>
+        <div className="border-l border-border pl-4">Current Live Database</div>
+        <div className="border-l border-border pl-4">Snapshot</div>
+      </div>
+
+      <div className="divide-y divide-border">
+        {item.fields.map((field) => (
+          <div
+            key={`${item.id}-${field.label}`}
+            className="grid grid-cols-[minmax(140px,180px)_minmax(0,1fr)_minmax(0,1fr)] px-4 py-3"
+          >
+            <div className="pr-4 text-[12px] font-medium text-foreground/85">
+              {field.label}
+            </div>
+            <div className="border-l border-border pl-4">
+              <div className={getRestoreDiffCellClasses(item.changeType, "live")}>
+                <div className="whitespace-pre-wrap break-words font-mono">
+                  {field.liveValue ?? "Not present"}
+                </div>
+              </div>
+            </div>
+            <div className="border-l border-border pl-4">
+              <div className={getRestoreDiffCellClasses(item.changeType, "backup")}>
+                <div className="whitespace-pre-wrap break-words font-mono">
+                  {field.backupValue ?? "Not present"}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BackupDialog({
   state,
   onOpenChange,
   onCreateBackup,
   onPreviewRestore,
-  onRestore,
+  onOverwriteRestore,
+  onExportRestore,
   onRefresh,
 }: {
   state: BackupDialogState;
   onOpenChange: (open: boolean) => void;
   onCreateBackup: () => Promise<void>;
   onPreviewRestore: (backupId: string) => Promise<void>;
-  onRestore: () => Promise<void>;
+  onOverwriteRestore: () => Promise<void>;
+  onExportRestore: () => Promise<void>;
   onRefresh: () => void;
 }) {
+  const selectedBackup =
+    state.backups.find((backup) => backup.id === state.selectedBackupId) ?? null;
+
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(94vw,960px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+      <DialogContent className="w-[min(96vw,1280px)] max-h-[88vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Backups & Recovery</DialogTitle>
           <DialogDescription>
-            Create manual snapshots, review integrity warnings, and restore a
-            backup into a new folder.
+            Create manual snapshots, inspect a detailed database diff, then
+            overwrite the live database or export a restored copy.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 overflow-y-auto pr-1">
-          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
             <section className="rounded-2xl border border-border bg-background p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -10262,9 +11180,9 @@ function BackupDialog({
                     <div
                       key={backup.id}
                       className={cn(
-                        "rounded-xl border p-3",
+                        "rounded-xl border p-3 transition",
                         backup.id === state.selectedBackupId
-                          ? "border-border bg-card"
+                          ? "border-blue-500/50 bg-blue-50/60 dark:border-blue-300/40 dark:bg-blue-500/10"
                           : "border-border bg-background",
                       )}
                     >
@@ -10289,7 +11207,10 @@ function BackupDialog({
                           size="sm"
                           onClick={() => void onPreviewRestore(backup.id)}
                         >
-                          Preview Restore
+                          {backup.id === state.selectedBackupId &&
+                          state.restoreDiff
+                            ? "Refresh Diff"
+                            : "Preview Restore"}
                         </Button>
                       </div>
                     </div>
@@ -10328,43 +11249,132 @@ function BackupDialog({
               </div>
 
               <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
-                <div className="text-sm font-semibold">Restore Preview</div>
-                <div className="mt-1 text-[13px] text-muted-foreground">
-                  Restores always create a new workspace folder. In-place
-                  overwrite is intentionally disabled.
-                </div>
-
-                {state.restorePreview ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="rounded-xl border border-border bg-card p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Preview Restore</div>
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      Review the live database against the selected snapshot
+                      before choosing how to restore it.
+                    </div>
+                  </div>
+                  {selectedBackup ? (
+                    <div className="rounded-xl border border-border bg-card px-3 py-2">
                       <div className="text-sm font-semibold">
-                        {state.restorePreview.backup.label}
+                        {selectedBackup.label}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Target: {state.restorePreview.destinationRootPath}
+                        {formatDateTime(selectedBackup.createdDate)}
                       </div>
-                      {state.restorePreview.destinationExists ? (
-                        <div className="mt-2 text-xs text-[#C4554D] dark:text-[#FFB7B2]">
-                          The target folder already exists and must be changed.
-                        </div>
-                      ) : null}
                     </div>
-                    <Button
-                      disabled={state.isSubmitting || state.restorePreview.destinationExists}
-                      onClick={() => void onRestore()}
-                    >
-                      {state.isSubmitting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <History className="h-4 w-4" />
-                      )}
-                      Restore Into New Folder
-                    </Button>
+                  ) : null}
+                </div>
+
+                {state.restoreDiff ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-400/30 dark:bg-emerald-500/10">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-200">
+                          Added
+                        </div>
+                        <div className="mt-2 text-2xl font-semibold text-emerald-700 dark:text-emerald-100">
+                          {state.restoreDiff.totals.addedCount}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-400/30 dark:bg-amber-500/10">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700 dark:text-amber-200">
+                          Changed
+                        </div>
+                        <div className="mt-2 text-2xl font-semibold text-amber-700 dark:text-amber-100">
+                          {state.restoreDiff.totals.changedCount}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-400/30 dark:bg-rose-500/10">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700 dark:text-rose-200">
+                          Removed
+                        </div>
+                        <div className="mt-2 text-2xl font-semibold text-rose-700 dark:text-rose-100">
+                          {state.restoreDiff.totals.removedCount}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[46vh] space-y-3 overflow-y-auto pr-1">
+                      {state.restoreDiff.sections.map((section) => (
+                        <div
+                          key={section.id}
+                          className="rounded-2xl border border-border bg-card p-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold">
+                                {section.label}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {section.addedCount} added, {section.changedCount} changed,{" "}
+                                {section.removedCount} removed
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs">
+                              <Badge variant="outline">
+                                +{section.addedCount}
+                              </Badge>
+                              <Badge variant="outline">
+                                ~{section.changedCount}
+                              </Badge>
+                              <Badge variant="outline">
+                                -{section.removedCount}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          {section.items.length === 0 ? (
+                            <div className="mt-3 rounded-xl border border-dashed border-border bg-background px-4 py-4 text-[13px] text-muted-foreground">
+                              No differences in this section.
+                            </div>
+                          ) : (
+                            <div className="mt-3 space-y-3">
+                              {section.items.map((item) => (
+                                <RestoreDiffFileCard
+                                  key={`${section.id}-${item.id}`}
+                                  item={item}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="destructive"
+                        disabled={state.isSubmitting}
+                        onClick={() => void onOverwriteRestore()}
+                      >
+                        {state.isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <History className="h-4 w-4" />
+                        )}
+                        Overwrite Live Database
+                      </Button>
+                      <Button
+                        disabled={state.isSubmitting}
+                        onClick={() => void onExportRestore()}
+                      >
+                        {state.isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FolderOpen className="h-4 w-4" />
+                        )}
+                        Export To New Workspace
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="mt-4 rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
-                    Choose a snapshot and preview a destination to enable
-                    restore.
+                    Choose a snapshot and click Preview Restore to open the
+                    detailed diff.
                   </div>
                 )}
               </div>
@@ -10519,17 +11529,25 @@ function VersionComparisonDialog({
 
 function Field({
   label,
+  error,
   children,
 }: {
   label: string;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[13px] font-medium text-foreground/90">
+      <span
+        className={cn(
+          "text-[13px] font-medium text-foreground/90",
+          error && "text-destructive",
+        )}
+      >
         {label}
       </span>
       {children}
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </label>
   );
 }

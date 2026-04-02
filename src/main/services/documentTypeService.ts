@@ -40,7 +40,7 @@ export class DocumentTypeService {
     const result = context.db
       .prepare('INSERT INTO DocumentTypes (Name, NumberPrefix) VALUES (?, ?)')
       .run(name, numberPrefix);
-    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name);
+    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name, context.settings);
 
     return {
       id: Number(result.lastInsertRowid),
@@ -70,7 +70,7 @@ export class DocumentTypeService {
       throw new Error('Document type could not be found.');
     }
 
-    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name);
+    this.fileStorageService.ensureDocumentTypeDirectory(context.rootPath, name, context.settings);
 
     return {
       id,

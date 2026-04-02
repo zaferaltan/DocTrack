@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -43,7 +43,7 @@ describe('workspace integration', () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-workspace-'));
     workspaceManager = new WorkspaceManager();
     const fileStorageService = new FileStorageService();
-    templateService = new TemplateService(fileStorageService);
+    templateService = new TemplateService(fileStorageService, workspaceManager);
     const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
@@ -386,6 +386,165 @@ describe('workspace integration', () => {
     expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(true);
   });
 
+  it('preserves renamed document root paths when overwriting from a snapshot', () => {
+    const created = workspaceService.create({
+      name: 'Renamed Docs Recovery',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'friendly-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+    const shellDocument = documentService.create(workspaceRootPath, {
+      title: 'Internal Audit Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: shellDocument.id,
+      revisionDescription: 'Initial version'
+    });
+    const sourceFile = path.join(tempRoot, 'incoming', 'audit-concept.pdf');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'audit concept pdf', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'concept-pdf',
+      sourceFilePaths: [sourceFile]
+    });
+
+    const renamed = workspaceService.updateSettings(workspaceRootPath, {
+      ...created.summary.settings,
+      documentsDirectoryName: '02 Documents'
+    });
+    const renamedDetail = documentService.getDetail(workspaceRootPath, shellDocument.id);
+    const renamedFile = renamedDetail.versions[0]!.files[0]!;
+    expect(renamed.summary.settings.documentsDirectoryName).toBe('02 Documents');
+    expect(renamedDetail.documentFolderPath.startsWith('02 Documents/')).toBe(true);
+    expect(renamedFile.filePath.startsWith('02 Documents/')).toBe(true);
+    expect(
+      existsSync(path.join(workspaceRootPath, ...renamedFile.filePath.split('/')))
+    ).toBe(true);
+
+    const backup = workspaceService.createBackup(workspaceRootPath);
+    const backupDatabasePath = path.join(
+      backup.backup.backupPath,
+      renamed.summary.settings.databaseDirectoryName,
+      WORKSPACE_DATABASE_FILE_NAME
+    );
+    const backupDb = new Database(backupDatabasePath, { fileMustExist: true });
+    backupDb
+      .prepare('UPDATE DocumentVersionFiles SET FilePath = REPLACE(FilePath, ?, ?)')
+      .run(
+        `${renamed.summary.settings.documentsDirectoryName}/`,
+        `${DEFAULT_WORKSPACE_SETTINGS.documentsDirectoryName}/`
+      );
+    backupDb.close();
+    writeFileSync(
+      path.join(workspaceRootPath, ...renamedFile.filePath.split('/')),
+      'changed after backup',
+      'utf8'
+    );
+
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...renamed.summary.settings,
+      defaultCompany: 'Changed After Backup'
+    });
+
+    const restored = workspaceService.restoreBackup(workspaceRootPath, {
+      backupId: backup.backup.id,
+      mode: 'overwrite-current-database'
+    });
+    const restoredDetail = documentService.getDetail(workspaceRootPath, shellDocument.id);
+    const restoredFile = restoredDetail.versions[0]!.files[0]!;
+    const integrity = workspaceService.integrityCheck(workspaceRootPath);
+
+    expect(restored.summary.settings.documentsDirectoryName).toBe('02 Documents');
+    expect(restored.summary.settings.defaultCompany).toBe('');
+    expect(restoredDetail.documentFolderPath.startsWith('02 Documents/')).toBe(true);
+    expect(restoredFile.filePath.startsWith('02 Documents/')).toBe(true);
+    expect(
+      existsSync(path.join(workspaceRootPath, ...restoredFile.filePath.split('/')))
+    ).toBe(true);
+    expect(
+      readFileSync(path.join(workspaceRootPath, ...restoredFile.filePath.split('/')), 'utf8')
+    ).toBe('audit concept pdf');
+    expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(false);
+  });
+
+  it('relinks tracked files automatically when restoring a snapshot into a new workspace', () => {
+    const created = workspaceService.create({
+      name: 'Relink Restored Files',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'friendly-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+    const shellDocument = documentService.create(workspaceRootPath, {
+      title: 'Supplier Assessment Report',
+      documentTypeId: 3,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: shellDocument.id,
+      revisionDescription: 'Initial version'
+    });
+    const sourceFile = path.join(tempRoot, 'incoming', 'supplier-report.pdf');
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(sourceFile, 'supplier report pdf', 'utf8');
+    documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'final-pdf',
+      sourceFilePaths: [sourceFile]
+    });
+
+    const renamed = workspaceService.updateSettings(workspaceRootPath, {
+      ...created.summary.settings,
+      documentsDirectoryName: '02 Documents'
+    });
+    const backup = workspaceService.createBackup(workspaceRootPath);
+    const backupDatabasePath = path.join(
+      backup.backup.backupPath,
+      renamed.summary.settings.databaseDirectoryName,
+      WORKSPACE_DATABASE_FILE_NAME
+    );
+    const backupDb = new Database(backupDatabasePath, { fileMustExist: true });
+    backupDb
+      .prepare('UPDATE DocumentVersionFiles SET FilePath = REPLACE(FilePath, ?, ?)')
+      .run(
+        `${renamed.summary.settings.documentsDirectoryName}/`,
+        `${DEFAULT_WORKSPACE_SETTINGS.documentsDirectoryName}/`
+      );
+    backupDb.close();
+
+    const restored = workspaceService.restoreBackup(workspaceRootPath, {
+      backupId: backup.backup.id,
+      mode: 'export-to-new-workspace',
+      destinationParentPath: tempRoot,
+      destinationFolderName: 'Relink Restored Files Copy'
+    });
+    const restoredDetail = documentService.getDetail(restored.workspace.rootPath, shellDocument.id);
+    const restoredFile = restoredDetail.versions[0]!.files[0]!;
+    const integrity = workspaceService.integrityCheck(restored.workspace.rootPath);
+
+    expect(restored.summary.settings.documentsDirectoryName).toBe('02 Documents');
+    expect(restoredDetail.documentFolderPath.startsWith('02 Documents/')).toBe(true);
+    expect(restoredFile.filePath.startsWith('02 Documents/')).toBe(true);
+    expect(
+      existsSync(path.join(restored.workspace.rootPath, ...restoredFile.filePath.split('/')))
+    ).toBe(true);
+    expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(false);
+  });
+
   it('preserves templates across backup and restore', () => {
     const created = workspaceService.create({
       name: 'Template Recovery',
@@ -413,6 +572,7 @@ describe('workspace integration', () => {
     const backup = workspaceService.createBackup(workspaceRootPath);
     const restored = workspaceService.restoreBackup(workspaceRootPath, {
       backupId: backup.backup.id,
+      mode: 'export-to-new-workspace',
       destinationParentPath: tempRoot,
       destinationFolderName: 'Template Recovery Restored'
     });

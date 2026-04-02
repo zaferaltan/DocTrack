@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
@@ -11,11 +11,14 @@ import { nowIso } from '@main/utils/date';
 import type { WorkspaceCreateInput, WorkspaceInfo } from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
+  WORKSPACE_BACKUPS_DIRECTORY_NAME,
   WORKSPACE_DATABASE_DIRECTORY_NAME,
   WORKSPACE_DATABASE_FILE_NAME,
   WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
   WORKSPACE_TEMPLATES_DIRECTORY_NAME,
+  isValidWorkspaceRootDirectoryName,
   isDocumentIdFormatPreset,
+  normalizeWorkspaceRootDirectoryNames,
   normalizeDocumentIdFormatTemplate,
   isWorkspaceFileOrganizationMode,
   isWorkspaceStorageLayoutPreset,
@@ -23,8 +26,6 @@ import {
   normalizeVisibleDocumentColumns,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
-
-const BACKUPS_DIRECTORY_NAME = 'Backups';
 
 const INVALID_WORKSPACE_NAME = /[<>:"/\\|?*\u0000-\u001f]/;
 const WINDOWS_RESERVED_WORKSPACE_NAMES = new Set([
@@ -59,6 +60,7 @@ export interface WorkspaceContext {
   databaseDirectoryPath: string;
   documentsDirectoryPath: string;
   templatesDirectoryPath: string;
+  backupsDirectoryPath: string;
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
 }
@@ -85,11 +87,11 @@ export class WorkspaceManager {
       throw new Error('A workspace folder already exists at the selected location.');
     }
 
-    const databaseDirectoryPath = this.getWorkspaceDatabaseDirectoryPath(resolvedRootPath);
-    const documentsDirectoryPath = this.getWorkspaceDocumentsDirectoryPath(resolvedRootPath);
-    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(resolvedRootPath);
-    const databaseFilePath = this.getWorkspaceDatabaseFilePath(resolvedRootPath);
     const settings = this.normalizeWorkspaceSettings(input.settings);
+    const databaseDirectoryPath = this.getWorkspaceDatabaseDirectoryPath(resolvedRootPath, settings);
+    const documentsDirectoryPath = this.getWorkspaceDocumentsDirectoryPath(resolvedRootPath, settings);
+    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(resolvedRootPath, settings);
+    const databaseFilePath = this.getWorkspaceDatabaseFilePath(resolvedRootPath, settings);
 
     mkdirSync(databaseDirectoryPath, { recursive: true });
     mkdirSync(documentsDirectoryPath, { recursive: true });
@@ -112,12 +114,16 @@ export class WorkspaceManager {
             VersionManagementMode,
             DocumentIdFormatPreset,
             DocumentIdFormatTemplate,
+            DatabaseDirectoryName,
+            DocumentsDirectoryName,
+            TemplatesDirectoryName,
+            BackupsDirectoryName,
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
             CompanyLogoPath,
             AutoMarkPreviousVersionObsolete
-          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
@@ -129,6 +135,10 @@ export class WorkspaceManager {
         settings.versionManagementMode,
         settings.documentIdFormatPreset,
         settings.documentIdFormatTemplate,
+        settings.databaseDirectoryName,
+        settings.documentsDirectoryName,
+        settings.templatesDirectoryName,
+        settings.backupsDirectoryName,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -153,6 +163,7 @@ export class WorkspaceManager {
     if (existingContext) {
       existingContext.workspace = this.readWorkspaceInfo(existingContext.db, resolvedRootPath);
       existingContext.settings = this.readWorkspaceSettings(existingContext.db);
+      this.refreshContextLayoutPaths(existingContext);
       return existingContext;
     }
 
@@ -164,7 +175,7 @@ export class WorkspaceManager {
       throw new Error('The selected workspace path is not a folder.');
     }
 
-    const databaseFilePath = this.getWorkspaceDatabaseFilePath(resolvedRootPath);
+    const databaseFilePath = this.findWorkspaceDatabaseFilePath(resolvedRootPath);
     if (!existsSync(databaseFilePath)) {
       throw new Error('The selected folder is not a valid DocTrack workspace.');
     }
@@ -180,7 +191,7 @@ export class WorkspaceManager {
 
       const pendingMigrationIds = getPendingMigrationIds(db);
       if (pendingMigrationIds.length > 0) {
-        this.createSafetySnapshot(resolvedRootPath, pendingMigrationIds);
+        this.createSafetySnapshot(resolvedRootPath, databaseFilePath, db, pendingMigrationIds);
       }
 
       applyMigrations(db);
@@ -225,8 +236,9 @@ export class WorkspaceManager {
   }
 
   private buildContext(db: Database.Database, rootPath: string): WorkspaceContext {
-    const databaseFilePath = this.getWorkspaceDatabaseFilePath(rootPath);
-    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(rootPath);
+    const settings = this.readWorkspaceSettings(db);
+    const databaseFilePath = this.getWorkspaceDatabaseFilePath(rootPath, settings);
+    const templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(rootPath, settings);
     mkdirSync(templatesDirectoryPath, { recursive: true });
     db.prepare('UPDATE Workspaces SET FilePath = ?, RootPath = ? WHERE Id = 1').run(
       databaseFilePath,
@@ -237,11 +249,12 @@ export class WorkspaceManager {
       db,
       rootPath,
       databaseFilePath,
-      databaseDirectoryPath: this.getWorkspaceDatabaseDirectoryPath(rootPath),
-      documentsDirectoryPath: this.getWorkspaceDocumentsDirectoryPath(rootPath),
+      databaseDirectoryPath: this.getWorkspaceDatabaseDirectoryPath(rootPath, settings),
+      documentsDirectoryPath: this.getWorkspaceDocumentsDirectoryPath(rootPath, settings),
       templatesDirectoryPath,
+      backupsDirectoryPath: this.getWorkspaceBackupsDirectoryPath(rootPath, settings),
       workspace: this.readWorkspaceInfo(db, rootPath),
-      settings: this.readWorkspaceSettings(db)
+      settings
     };
   }
 
@@ -264,6 +277,18 @@ export class WorkspaceManager {
   }
 
   private readWorkspaceSettings(db: Database.Database): WorkspaceSettings {
+    const workspaceColumns = new Set(
+      (
+        db.prepare('PRAGMA table_info(Workspaces)').all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name)
+    );
+    const hasRootDirectoryColumns =
+      workspaceColumns.has('DatabaseDirectoryName') &&
+      workspaceColumns.has('DocumentsDirectoryName') &&
+      workspaceColumns.has('TemplatesDirectoryName') &&
+      workspaceColumns.has('BackupsDirectoryName');
     const row = db
       .prepare(
         `
@@ -273,6 +298,10 @@ export class WorkspaceManager {
             VersionManagementMode,
             DocumentIdFormatPreset,
             DocumentIdFormatTemplate,
+            ${hasRootDirectoryColumns ? 'DatabaseDirectoryName,' : ''}
+            ${hasRootDirectoryColumns ? 'DocumentsDirectoryName,' : ''}
+            ${hasRootDirectoryColumns ? 'TemplatesDirectoryName,' : ''}
+            ${hasRootDirectoryColumns ? 'BackupsDirectoryName,' : ''}
             VisibleDocumentColumns,
             DefaultCompany,
             DefaultDepartment,
@@ -289,6 +318,10 @@ export class WorkspaceManager {
           VersionManagementMode: string;
           DocumentIdFormatPreset: string;
           DocumentIdFormatTemplate: string;
+          DatabaseDirectoryName?: string;
+          DocumentsDirectoryName?: string;
+          TemplatesDirectoryName?: string;
+          BackupsDirectoryName?: string;
           VisibleDocumentColumns: string;
           DefaultCompany: string;
           DefaultDepartment: string;
@@ -307,6 +340,13 @@ export class WorkspaceManager {
       return { ...DEFAULT_WORKSPACE_SETTINGS };
     }
 
+    const rootDirectoryNames = normalizeWorkspaceRootDirectoryNames({
+      databaseDirectoryName: row.DatabaseDirectoryName,
+      documentsDirectoryName: row.DocumentsDirectoryName,
+      templatesDirectoryName: row.TemplatesDirectoryName,
+      backupsDirectoryName: row.BackupsDirectoryName
+    });
+
     return {
       storageLayoutPreset: row.StorageLayoutPreset,
       fileOrganizationMode: row.FileOrganizationMode,
@@ -316,6 +356,7 @@ export class WorkspaceManager {
         row.DocumentIdFormatTemplate,
         row.DocumentIdFormatPreset
       ),
+      ...rootDirectoryNames,
       visibleDocumentColumns: this.parseVisibleDocumentColumns(row.VisibleDocumentColumns),
       defaultCompany: row.DefaultCompany,
       defaultDepartment: row.DefaultDepartment,
@@ -344,6 +385,7 @@ export class WorkspaceManager {
         settings.documentIdFormatTemplate,
         settings.documentIdFormatPreset
       ),
+      ...normalizeWorkspaceRootDirectoryNames(settings),
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:
@@ -364,40 +406,50 @@ export class WorkspaceManager {
     }
   }
 
-  private getWorkspaceDatabaseDirectoryPath(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_DATABASE_DIRECTORY_NAME);
+  private getWorkspaceDatabaseDirectoryPath(rootPath: string, settings: WorkspaceSettings): string {
+    return path.join(rootPath, settings.databaseDirectoryName);
   }
 
-  private getWorkspaceDocumentsDirectoryPath(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
+  private getWorkspaceDocumentsDirectoryPath(rootPath: string, settings: WorkspaceSettings): string {
+    return path.join(rootPath, settings.documentsDirectoryName);
   }
 
-  private getWorkspaceTemplatesDirectoryPath(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+  private getWorkspaceTemplatesDirectoryPath(rootPath: string, settings: WorkspaceSettings): string {
+    return path.join(rootPath, settings.templatesDirectoryName);
   }
 
-  private getWorkspaceDatabaseFilePath(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
+  private getWorkspaceBackupsDirectoryPath(rootPath: string, settings: WorkspaceSettings): string {
+    return path.join(rootPath, settings.backupsDirectoryName);
   }
 
-  private createSafetySnapshot(rootPath: string, pendingMigrationIds: string[]): void {
+  private getWorkspaceDatabaseFilePath(rootPath: string, settings: WorkspaceSettings): string {
+    return path.join(rootPath, settings.databaseDirectoryName, WORKSPACE_DATABASE_FILE_NAME);
+  }
+
+  private createSafetySnapshot(
+    rootPath: string,
+    databaseFilePath: string,
+    db: Database.Database,
+    pendingMigrationIds: string[]
+  ): void {
     const createdDate = nowIso();
     const backupId = `${createdDate.replace(/[:.]/g, '').replace(/-/g, '')}-pre-migration`;
-    const backupRootPath = path.join(rootPath, BACKUPS_DIRECTORY_NAME, backupId);
-    const databaseSourcePath = this.getWorkspaceDatabaseDirectoryPath(rootPath);
-    const documentsSourcePath = this.getWorkspaceDocumentsDirectoryPath(rootPath);
-    const templatesSourcePath = this.getWorkspaceTemplatesDirectoryPath(rootPath);
+    const settings = this.readWorkspaceSettings(db);
+    const backupRootPath = path.join(rootPath, settings.backupsDirectoryName, backupId);
+    const databaseSourcePath = path.dirname(databaseFilePath);
+    const documentsSourcePath = this.getWorkspaceDocumentsDirectoryPath(rootPath, settings);
+    const templatesSourcePath = this.getWorkspaceTemplatesDirectoryPath(rootPath, settings);
     const manifestPath = path.join(backupRootPath, 'manifest.json');
 
     mkdirSync(backupRootPath, { recursive: true });
-    cpSync(databaseSourcePath, path.join(backupRootPath, WORKSPACE_DATABASE_DIRECTORY_NAME), {
+    cpSync(databaseSourcePath, path.join(backupRootPath, settings.databaseDirectoryName), {
       recursive: true
     });
-    cpSync(documentsSourcePath, path.join(backupRootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME), {
+    cpSync(documentsSourcePath, path.join(backupRootPath, settings.documentsDirectoryName), {
       recursive: true
     });
     if (existsSync(templatesSourcePath)) {
-      cpSync(templatesSourcePath, path.join(backupRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME), {
+      cpSync(templatesSourcePath, path.join(backupRootPath, settings.templatesDirectoryName), {
         recursive: true
       });
     }
@@ -417,9 +469,10 @@ export class WorkspaceManager {
           fileCount: 0,
           sizeBytes: 0,
           reason: 'safety',
-          databaseDirectoryName: WORKSPACE_DATABASE_DIRECTORY_NAME,
-          documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
-          templatesDirectoryName: WORKSPACE_TEMPLATES_DIRECTORY_NAME,
+          databaseDirectoryName: settings.databaseDirectoryName,
+          documentsDirectoryName: settings.documentsDirectoryName,
+          templatesDirectoryName: settings.templatesDirectoryName,
+          backupsDirectoryName: settings.backupsDirectoryName,
           pendingMigrationIds
         },
         null,
@@ -457,5 +510,38 @@ export class WorkspaceManager {
     if (WINDOWS_RESERVED_WORKSPACE_NAMES.has(value.toUpperCase())) {
       throw new Error(`${label} is reserved by the operating system.`);
     }
+  }
+
+  private findWorkspaceDatabaseFilePath(rootPath: string): string {
+    const defaultDatabasePath = path.join(
+      rootPath,
+      WORKSPACE_DATABASE_DIRECTORY_NAME,
+      WORKSPACE_DATABASE_FILE_NAME
+    );
+    if (existsSync(defaultDatabasePath)) {
+      return defaultDatabasePath;
+    }
+
+    const childDirectories = readdirSync(rootPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+
+    for (const directoryName of childDirectories) {
+      const candidatePath = path.join(rootPath, directoryName, WORKSPACE_DATABASE_FILE_NAME);
+      if (existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+
+    return defaultDatabasePath;
+  }
+
+  private refreshContextLayoutPaths(context: WorkspaceContext): void {
+    context.databaseFilePath = this.getWorkspaceDatabaseFilePath(context.rootPath, context.settings);
+    context.databaseDirectoryPath = this.getWorkspaceDatabaseDirectoryPath(context.rootPath, context.settings);
+    context.documentsDirectoryPath = this.getWorkspaceDocumentsDirectoryPath(context.rootPath, context.settings);
+    context.templatesDirectoryPath = this.getWorkspaceTemplatesDirectoryPath(context.rootPath, context.settings);
+    context.backupsDirectoryPath = this.getWorkspaceBackupsDirectoryPath(context.rootPath, context.settings);
   }
 }

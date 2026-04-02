@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   copyFileSync,
   lstatSync,
   existsSync,
@@ -13,6 +14,7 @@ import {
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
+  DEFAULT_WORKSPACE_SETTINGS,
   buildTemplateFileRelativePath,
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
@@ -22,8 +24,6 @@ import {
   getTemplateFolderRelativePath,
   isRecognizedRoleDirectoryName,
   sanitizeStoragePathSegment,
-  WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
-  WORKSPACE_TEMPLATES_DIRECTORY_NAME,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
 
@@ -49,61 +49,99 @@ export type TemplateStoredFile = ManagedFileInfo;
 
 interface FilesystemEventGuard {
   suppressEvents(rootPath: string, durationMs?: number): void;
+  pauseWatching?(rootPath: string): void;
+  resumeWatching?(rootPath: string): void;
 }
 
 export class FileStorageService {
   constructor(private readonly filesystemEventGuard?: FilesystemEventGuard) {}
 
-  getWorkspaceDocumentsDirectory(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_DOCUMENTS_DIRECTORY_NAME);
+  getWorkspaceDocumentsDirectory(
+    rootPath: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    return path.join(rootPath, settings.documentsDirectoryName);
   }
 
-  getWorkspaceTemplatesDirectory(rootPath: string): string {
-    return path.join(rootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+  getWorkspaceTemplatesDirectory(
+    rootPath: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    return path.join(rootPath, settings.templatesDirectoryName);
   }
 
-  ensureTemplatesDirectory(rootPath: string): string {
-    const directoryPath = this.getWorkspaceTemplatesDirectory(rootPath);
+  ensureTemplatesDirectory(
+    rootPath: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    const directoryPath = this.getWorkspaceTemplatesDirectory(rootPath, settings);
     this.suppressFilesystemEvents(rootPath);
     mkdirSync(directoryPath, { recursive: true });
     return directoryPath;
   }
 
-  getDocumentTypeDirectory(rootPath: string, documentTypeName: string): string {
-    return path.join(rootPath, ...getDocumentTypeDirectoryRelativePath(documentTypeName).split('/'));
+  getDocumentTypeDirectory(
+    rootPath: string,
+    documentTypeName: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    return path.join(rootPath, ...getDocumentTypeDirectoryRelativePath(settings, documentTypeName).split('/'));
   }
 
-  ensureDocumentTypeDirectory(rootPath: string, documentTypeName: string): string {
-    const directoryPath = this.getDocumentTypeDirectory(rootPath, documentTypeName);
+  ensureDocumentTypeDirectory(
+    rootPath: string,
+    documentTypeName: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    const directoryPath = this.getDocumentTypeDirectory(rootPath, documentTypeName, settings);
     this.suppressFilesystemEvents(rootPath);
     mkdirSync(directoryPath, { recursive: true });
     return directoryPath;
   }
 
-  ensureDocumentTypeDirectories(rootPath: string, documentTypeNames: string[]): void {
+  ensureDocumentTypeDirectories(
+    rootPath: string,
+    documentTypeNames: string[],
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
     for (const documentTypeName of documentTypeNames) {
-      this.ensureDocumentTypeDirectory(rootPath, documentTypeName);
+      this.ensureDocumentTypeDirectory(rootPath, documentTypeName, settings);
     }
   }
 
-  getTemplateFolderRelativePath(templateId: string): string {
-    return getTemplateFolderRelativePath(templateId);
+  getTemplateFolderRelativePath(
+    templateId: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    return getTemplateFolderRelativePath(settings, templateId);
   }
 
-  getTemplateFolderAbsolutePath(rootPath: string, templateId: string): string {
-    return this.resolveStoredFilePath(rootPath, this.getTemplateFolderRelativePath(templateId), true);
+  getTemplateFolderAbsolutePath(
+    rootPath: string,
+    templateId: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    return this.resolveStoredFilePath(rootPath, this.getTemplateFolderRelativePath(templateId, settings), true);
   }
 
-  ensureTemplateFolder(rootPath: string, templateId: string): string {
-    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+  ensureTemplateFolder(
+    rootPath: string,
+    templateId: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId, settings);
     this.suppressFilesystemEvents(rootPath);
     mkdirSync(templateFolderAbsolutePath, { recursive: true });
     return templateFolderAbsolutePath;
   }
 
-  getTemplateStoredRelativePath(templateId: string, fileName: string): string {
+  getTemplateStoredRelativePath(
+    templateId: string,
+    fileName: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): string {
     return buildTemplateFileRelativePath(
-      this.getTemplateFolderRelativePath(templateId),
+      this.getTemplateFolderRelativePath(templateId, settings),
       sanitizeStoragePathSegment(path.basename(fileName), 'document.bin')
     );
   }
@@ -111,14 +149,15 @@ export class FileStorageService {
   importTemplateFiles(
     rootPath: string,
     templateId: string,
-    sourceFilePaths: string[]
+    sourceFilePaths: string[],
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
   ): ManagedFileInfo[] {
     if (sourceFilePaths.length === 0) {
       return [];
     }
 
     this.suppressFilesystemEvents(rootPath);
-    this.ensureTemplateFolder(rootPath, templateId);
+    this.ensureTemplateFolder(rootPath, templateId, settings);
 
     return sourceFilePaths.map((sourceFilePath) => {
       if (!existsSync(sourceFilePath)) {
@@ -126,7 +165,7 @@ export class FileStorageService {
       }
 
       const fileName = sanitizeStoragePathSegment(path.basename(sourceFilePath), 'document.bin');
-      const relativePath = this.getTemplateStoredRelativePath(templateId, fileName);
+      const relativePath = this.getTemplateStoredRelativePath(templateId, fileName, settings);
       const absolutePath = this.resolveStoredFilePath(rootPath, relativePath, true);
       mkdirSync(path.dirname(absolutePath), { recursive: true });
 
@@ -139,8 +178,12 @@ export class FileStorageService {
     });
   }
 
-  listTemplateFiles(rootPath: string, templateId: string): TemplateStoredFile[] {
-    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+  listTemplateFiles(
+    rootPath: string,
+    templateId: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): TemplateStoredFile[] {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId, settings);
     if (!existsSync(templateFolderAbsolutePath)) {
       return [];
     }
@@ -150,18 +193,24 @@ export class FileStorageService {
       .map((entry) =>
         this.readManagedFileInfo(
           rootPath,
-          this.normalizeRelativePath(path.posix.join(this.getTemplateFolderRelativePath(templateId), entry.name))
+          this.normalizeRelativePath(path.posix.join(this.getTemplateFolderRelativePath(templateId, settings), entry.name))
         )
       )
       .sort((left, right) => left.fileName.localeCompare(right.fileName));
   }
 
-  deleteTemplateFolder(rootPath: string, templateId: string): void {
-    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId);
+  deleteTemplateFolder(
+    rootPath: string,
+    templateId: string,
+    settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
+    const templateFolderAbsolutePath = this.getTemplateFolderAbsolutePath(rootPath, templateId, settings);
 
     if (existsSync(templateFolderAbsolutePath)) {
-      this.suppressFilesystemEvents(rootPath);
-      rmSync(templateFolderAbsolutePath, { recursive: true, force: true });
+      this.withFilesystemWatchPaused(rootPath, () => {
+        this.suppressFilesystemEvents(rootPath, 1500);
+        this.removeDirectoryWithRetries(templateFolderAbsolutePath);
+      });
     }
   }
 
@@ -452,7 +501,8 @@ export class FileStorageService {
   deleteVersionFolder(
     rootPath: string,
     documentFolderPath: string,
-    versionLabel: string
+    versionLabel: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
   ): void {
     const versionFolderAbsolutePath = this.getVersionFolderAbsolutePath(
       rootPath,
@@ -461,30 +511,38 @@ export class FileStorageService {
     );
 
     if (existsSync(versionFolderAbsolutePath)) {
-      this.suppressFilesystemEvents(rootPath);
-      rmSync(versionFolderAbsolutePath, { recursive: true, force: true });
+      this.withFilesystemWatchPaused(rootPath, () => {
+        this.suppressFilesystemEvents(rootPath, 1500);
+        this.removeDirectoryWithRetries(versionFolderAbsolutePath);
+      });
     }
 
     this.cleanupEmptyDirectories(
       path.dirname(versionFolderAbsolutePath),
-      this.getWorkspaceDocumentsDirectory(rootPath)
+      this.getWorkspaceDocumentsDirectory(rootPath, settings)
     );
   }
 
-  deleteDocumentFolder(rootPath: string, documentFolderPath: string): void {
+  deleteDocumentFolder(
+    rootPath: string,
+    documentFolderPath: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
     const documentFolderAbsolutePath = this.getDocumentFolderAbsolutePath(
       rootPath,
       documentFolderPath
     );
 
     if (existsSync(documentFolderAbsolutePath)) {
-      this.suppressFilesystemEvents(rootPath);
-      rmSync(documentFolderAbsolutePath, { recursive: true, force: true });
+      this.withFilesystemWatchPaused(rootPath, () => {
+        this.suppressFilesystemEvents(rootPath, 1500);
+        this.removeDirectoryWithRetries(documentFolderAbsolutePath);
+      });
     }
 
     this.cleanupEmptyDirectories(
       path.dirname(documentFolderAbsolutePath),
-      this.getWorkspaceDocumentsDirectory(rootPath)
+      this.getWorkspaceDocumentsDirectory(rootPath, settings)
     );
   }
 
@@ -516,7 +574,12 @@ export class FileStorageService {
     return resolvedPath;
   }
 
-  moveDocumentFolder(rootPath: string, currentDocumentFolderPath: string, nextDocumentFolderPath: string): void {
+  moveDocumentFolder(
+    rootPath: string,
+    currentDocumentFolderPath: string,
+    nextDocumentFolderPath: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
     const normalizedCurrent = this.normalizeRelativePath(currentDocumentFolderPath);
     const normalizedNext = this.normalizeRelativePath(nextDocumentFolderPath);
 
@@ -535,10 +598,15 @@ export class FileStorageService {
       throw new Error('A target document folder already exists, so the workspace layout could not be migrated.');
     }
 
-    mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
-    this.suppressFilesystemEvents(rootPath);
-    renameSync(currentAbsolutePath, nextAbsolutePath);
-    this.cleanupEmptyDirectories(path.dirname(currentAbsolutePath), this.getWorkspaceDocumentsDirectory(rootPath));
+    this.withFilesystemWatchPaused(rootPath, () => {
+      mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
+      this.suppressFilesystemEvents(rootPath, 1500);
+      renameSync(currentAbsolutePath, nextAbsolutePath);
+      this.cleanupEmptyDirectories(
+        path.dirname(currentAbsolutePath),
+        this.getWorkspaceDocumentsDirectory(rootPath, settings)
+      );
+    });
   }
 
   cleanupEmptyRoleDirectoriesInVersionFolder(rootPath: string, versionFolderPath: string): void {
@@ -561,8 +629,18 @@ export class FileStorageService {
     return relativePath.split(/[\\/]/).join('/').replace(/^[/\\]+|[/\\]+$/g, '');
   }
 
-  private suppressFilesystemEvents(rootPath: string): void {
-    this.filesystemEventGuard?.suppressEvents(rootPath);
+  private suppressFilesystemEvents(rootPath: string, durationMs = 750): void {
+    this.filesystemEventGuard?.suppressEvents(rootPath, durationMs);
+  }
+
+  private withFilesystemWatchPaused<T>(rootPath: string, action: () => T): T {
+    this.filesystemEventGuard?.pauseWatching?.(rootPath);
+
+    try {
+      return action();
+    } finally {
+      this.filesystemEventGuard?.resumeWatching?.(rootPath);
+    }
   }
 
   private createDiscoveredFile(
@@ -593,7 +671,7 @@ export class FileStorageService {
       return;
     }
 
-    rmSync(directoryPath, { recursive: true, force: true });
+    this.removeDirectoryWithRetries(directoryPath, true);
   }
 
   private cleanupEmptyDirectories(startPath: string, stopBeforePath: string): void {
@@ -605,8 +683,71 @@ export class FileStorageService {
         break;
       }
 
-      rmSync(currentPath, { recursive: true, force: true });
+      this.removeDirectoryWithRetries(currentPath, true);
       currentPath = path.dirname(currentPath);
+    }
+  }
+
+  private removeDirectoryWithRetries(directoryPath: string, bestEffort = false): void {
+    const maxRetries = process.platform === 'win32' ? 12 : 10;
+    const retryDelay = process.platform === 'win32' ? 100 : 80;
+    const removeDirectory = (): void => {
+      rmSync(directoryPath, {
+        recursive: true,
+        force: true,
+        maxRetries,
+        retryDelay
+      });
+    };
+
+    try {
+      removeDirectory();
+    } catch (error) {
+      this.makePathWritableRecursively(directoryPath);
+
+      try {
+        removeDirectory();
+        return;
+      } catch (retryError) {
+        if (bestEffort) {
+          return;
+        }
+
+        throw retryError;
+      }
+    }
+  }
+
+  private makePathWritableRecursively(targetPath: string): void {
+    if (!existsSync(targetPath)) {
+      return;
+    }
+
+    let stats;
+    try {
+      stats = lstatSync(targetPath);
+    } catch {
+      return;
+    }
+
+    if (stats.isDirectory() && !stats.isSymbolicLink()) {
+      for (const entry of readdirSync(targetPath)) {
+        this.makePathWritableRecursively(path.join(targetPath, entry));
+      }
+
+      try {
+        chmodSync(targetPath, 0o777);
+      } catch {
+        // Best-effort only. The subsequent delete still gets a chance to run.
+      }
+
+      return;
+    }
+
+    try {
+      chmodSync(targetPath, 0o666);
+    } catch {
+      // Best-effort only. The subsequent delete still gets a chance to run.
     }
   }
 

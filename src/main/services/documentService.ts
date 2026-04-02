@@ -516,7 +516,11 @@ export class DocumentService {
       return this.getDetail(rootPath, insertedDocumentId);
     } catch (error) {
       if (createdDocumentFolderPath) {
-        this.fileStorageService.deleteDocumentFolder(context.rootPath, createdDocumentFolderPath);
+        this.fileStorageService.deleteDocumentFolder(
+          context.rootPath,
+          createdDocumentFolderPath,
+          context.settings
+        );
       }
 
       throw error;
@@ -606,6 +610,11 @@ export class DocumentService {
   deleteDocument(rootPath: string, input: DeleteDocumentInput): void {
     const context = this.workspaceManager.getContext(rootPath);
     const document = this.getDocumentRow(context.db, input.documentRecordId);
+    this.fileStorageService.deleteDocumentFolder(
+      context.rootPath,
+      document.DocumentFolderPath,
+      context.settings
+    );
 
     context.db.transaction(() => {
       this.activityLogService.log(context.db, {
@@ -615,17 +624,18 @@ export class DocumentService {
       });
       context.db.prepare('DELETE FROM Documents WHERE Id = ?').run(input.documentRecordId);
     })();
-
-    this.fileStorageService.deleteDocumentFolder(
-      context.rootPath,
-      document.DocumentFolderPath
-    );
   }
 
   deleteVersion(rootPath: string, input: DeleteDocumentVersionInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
     const version = this.getVersionRow(context.db, input.documentVersionId);
     const document = this.getDocumentRow(context.db, version.DocumentId);
+    this.fileStorageService.deleteVersionFolder(
+      context.rootPath,
+      document.DocumentFolderPath,
+      version.VersionLabel,
+      context.settings
+    );
 
     context.db.transaction(() => {
       this.activityLogService.log(context.db, {
@@ -643,12 +653,6 @@ export class DocumentService {
         document.Id
       );
     })();
-
-    this.fileStorageService.deleteVersionFolder(
-      context.rootPath,
-      document.DocumentFolderPath,
-      version.VersionLabel
-    );
 
     return this.getDetail(rootPath, document.Id);
   }
@@ -1392,7 +1396,8 @@ export class DocumentService {
       this.fileStorageService.moveDocumentFolder(
         context.rootPath,
         document.DocumentFolderPath,
-        nextFolderPath
+        nextFolderPath,
+        context.settings
       );
     }
 
@@ -1477,7 +1482,8 @@ export class DocumentService {
           this.fileStorageService.moveDocumentFolder(
             context.rootPath,
             nextFolderPath,
-            document.DocumentFolderPath
+            document.DocumentFolderPath,
+            context.settings
           );
         } catch {
           // If rollback also fails, surface the original write error.

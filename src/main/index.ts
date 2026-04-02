@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
     }
   });
   const fileStorageService = new FileStorageService(workspaceFilesystemWatcherService);
-  const templateService = new TemplateService(fileStorageService);
+  const templateService = new TemplateService(fileStorageService, workspaceManager);
   const documentIdGenerator = new DocumentIdGeneratorService();
   const activityLogService = new ActivityLogService();
   const workspaceBackupService = new WorkspaceBackupService(workspaceManager);

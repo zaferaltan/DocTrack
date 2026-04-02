@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
@@ -20,6 +20,7 @@ import type {
   DocumentType,
   IntegrityCheckResult,
   OpenWorkspaceResult,
+  RestoreBackupDiffResult,
   RestoreBackupInput,
   RestoreBackupPreview,
   WorkspaceBackupSummary,
@@ -29,6 +30,11 @@ import type {
 } from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
+  WORKSPACE_DATABASE_FILE_NAME,
+  WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS,
+  getWorkspaceDatabaseDirectoryRelativePath,
+  isValidWorkspaceRootDirectoryName,
+  normalizeWorkspaceRootDirectoryNames,
   isDocumentIdFormatPreset,
   normalizeDocumentIdFormatTemplate,
   resolveDocumentIdFormatTemplate,
@@ -81,14 +87,14 @@ export class WorkspaceService {
       eventType: 'workspace.created',
       message: `Workspace "${context.workspace.name}" was created.`
     });
-    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath);
+    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath, context.settings);
 
     return this.getSummary(context.rootPath);
   }
 
   open(rootPath: string): OpenWorkspaceResult {
     const context = this.workspaceManager.openWorkspace(rootPath);
-    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath);
+    this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath, context.settings);
     this.catalogService.touchRecentWorkspace({
       rootPath: context.rootPath,
       name: context.workspace.name
@@ -153,30 +159,105 @@ export class WorkspaceService {
         : ({
             settings: input
           } satisfies WorkspaceSettingsUpdateInput);
-    const nextSettings = this.applyWorkspaceBrandingUpdate(
-      context,
-      this.normalizeWorkspaceSettings(normalizedInput.settings),
-      normalizedInput
-    );
+    let nextSettings = this.normalizeWorkspaceSettings(normalizedInput.settings);
+    this.assertWorkspaceRootDirectoriesAreValid(nextSettings);
     this.assertDocumentIdTemplateIsValid(nextSettings);
     const requiresStorageMigration =
       context.settings.storageLayoutPreset !== nextSettings.storageLayoutPreset ||
       context.settings.fileOrganizationMode !== nextSettings.fileOrganizationMode;
+    const documentsDirectoryChanged =
+      context.settings.documentsDirectoryName !== nextSettings.documentsDirectoryName;
+    const templatesDirectoryChanged =
+      context.settings.templatesDirectoryName !== nextSettings.templatesDirectoryName;
+    const backupsDirectoryChanged =
+      context.settings.backupsDirectoryName !== nextSettings.backupsDirectoryName;
+    const databaseDirectoryChanged =
+      context.settings.databaseDirectoryName !== nextSettings.databaseDirectoryName;
 
-    if (this.areWorkspaceSettingsEqual(context.settings, nextSettings)) {
+    nextSettings = this.resolveNextWorkspaceBrandingSettings(
+      context,
+      nextSettings,
+      normalizedInput,
+      databaseDirectoryChanged
+    );
+
+    if (
+      this.areWorkspaceSettingsEqual(context.settings, nextSettings) &&
+      !normalizedInput.clearCompanyLogo &&
+      !normalizedInput.companyLogoSourceFilePath
+    ) {
       return this.getSummary(rootPath);
     }
 
+    this.workspaceFilesystemWatcherService?.closeWatching(rootPath);
+
     const warnings = requiresStorageMigration
       ? this.migrateWorkspaceStorageLayout(context, nextSettings)
-      : [];
+      : documentsDirectoryChanged
+        ? this.renameDocumentsRootDirectory(context, nextSettings)
+        : [];
+
+    if (templatesDirectoryChanged) {
+      this.renameWorkspaceRootDirectory(
+        rootPath,
+        context.settings.templatesDirectoryName,
+        nextSettings.templatesDirectoryName,
+        'Templates'
+      );
+    }
+
+    if (backupsDirectoryChanged) {
+      this.renameWorkspaceRootDirectory(
+        rootPath,
+        context.settings.backupsDirectoryName,
+        nextSettings.backupsDirectoryName,
+        'Backups'
+      );
+    }
+
+    if (normalizedInput.clearCompanyLogo) {
+      this.removeWorkspaceCompanyLogo(context, context.settings.companyLogoPath);
+    }
+
+    if (!databaseDirectoryChanged && normalizedInput.companyLogoSourceFilePath) {
+      this.storeWorkspaceCompanyLogo(
+        context,
+        normalizedInput.companyLogoSourceFilePath,
+        nextSettings
+      );
+    }
 
     this.persistWorkspaceSettings(context, nextSettings);
-    context.settings = nextSettings;
-    this.ensureDocumentTypeDirectories(context);
-    this.activityLogService.log(context.db, {
+
+    if (databaseDirectoryChanged) {
+      this.workspaceManager.closeWorkspace(rootPath);
+      this.renameWorkspaceRootDirectory(
+        rootPath,
+        context.settings.databaseDirectoryName,
+        nextSettings.databaseDirectoryName,
+        'Database'
+      );
+      this.open(rootPath);
+
+      if (normalizedInput.companyLogoSourceFilePath) {
+        const reopenedContext = this.workspaceManager.getContext(rootPath);
+        this.storeWorkspaceCompanyLogo(
+          reopenedContext,
+          normalizedInput.companyLogoSourceFilePath,
+          reopenedContext.settings
+        );
+      }
+    } else {
+      context.settings = nextSettings;
+      this.refreshContextLayoutPaths(context);
+      this.ensureDocumentTypeDirectories(context);
+      this.workspaceFilesystemWatcherService?.ensureWatching(rootPath, context.settings);
+    }
+
+    const finalContext = this.workspaceManager.getContext(rootPath);
+    this.activityLogService.log(finalContext.db, {
       eventType: 'workspace.settings.updated',
-      message: `Workspace settings were updated for "${context.workspace.name}".`
+      message: `Workspace settings were updated for "${finalContext.workspace.name}".`
     });
     return this.getSummary(rootPath, warnings);
   }
@@ -214,15 +295,29 @@ export class WorkspaceService {
     );
   }
 
+  getRestoreDiff(rootPath: string, backupId: string): RestoreBackupDiffResult {
+    return this.workspaceBackupService.getRestoreDiff(rootPath, backupId);
+  }
+
   restoreBackup(rootPath: string, input: RestoreBackupInput): OpenWorkspaceResult {
+    if (input.mode === 'overwrite-current-database') {
+      return this.restoreBackupIntoCurrentWorkspace(rootPath, input.backupId);
+    }
+
     const context = this.workspaceManager.getContext(rootPath);
+    if (!input.destinationParentPath) {
+      throw new Error('Choose a destination folder for the restored workspace.');
+    }
+
     const restoredRootPath = this.workspaceBackupService.restoreBackup(
       rootPath,
       input.backupId,
       input.destinationParentPath,
       input.destinationFolderName
     );
-    const summary = this.open(restoredRootPath);
+    this.open(restoredRootPath);
+    this.reconcileSafeRestoredManagedPaths(restoredRootPath);
+    const summary = this.getSummary(restoredRootPath, this.getIntegrityWarnings(restoredRootPath));
     this.activityLogService.log(context.db, {
       eventType: 'workspace.backup.restored',
       message: `Restored snapshot "${input.backupId}" into "${restoredRootPath}".`
@@ -237,6 +332,46 @@ export class WorkspaceService {
   private getIntegrityWarnings(rootPath: string): string[] {
     const integrity = this.workspaceBackupService.integrityCheck(rootPath);
     return integrity.issues.slice(0, 10).map((issue) => issue.message);
+  }
+
+  private restoreBackupIntoCurrentWorkspace(rootPath: string, backupId: string): OpenWorkspaceResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    this.workspaceBackupService.createBackup(rootPath, 'safety');
+    this.workspaceFilesystemWatcherService?.closeWatching(rootPath);
+    this.workspaceManager.closeWorkspace(rootPath);
+    this.workspaceBackupService.overwriteCurrentWorkspace(rootPath, backupId, context.settings);
+    this.open(rootPath);
+    this.reconcileSafeRestoredManagedPaths(rootPath);
+    const summary = this.getSummary(rootPath, this.getIntegrityWarnings(rootPath));
+    this.activityLogService.log(this.workspaceManager.getContext(rootPath).db, {
+      eventType: 'workspace.backup.restored',
+      message: `Overwrote the live workspace database with snapshot "${backupId}".`
+    });
+    return summary;
+  }
+
+  private reconcileSafeRestoredManagedPaths(rootPath: string): void {
+    const context = this.workspaceManager.getContext(rootPath);
+    const versionRows = context.db
+      .prepare('SELECT Id FROM DocumentVersions ORDER BY Id ASC')
+      .all() as Array<{ Id: number }>;
+
+    for (const versionRow of versionRows) {
+      const preview = this.documentService.getVersionFilesystemPreview(rootPath, versionRow.Id);
+      const changeIndexes = preview.filesystemChanges.flatMap((change, index) =>
+        change.kind === 'renamed' || change.kind === 'roleMoved' || change.kind === 'modified'
+          ? [index]
+          : []
+      );
+
+      if (changeIndexes.length === 0) {
+        continue;
+      }
+
+      this.documentService.applyVersionFilesystemReconciliation(rootPath, versionRow.Id, {
+        changeIndexes
+      });
+    }
   }
 
   private mapTypeRows(rows: Array<{ Id: number; Name: string; NumberPrefix: string }>): DocumentType[] {
@@ -266,6 +401,10 @@ export class WorkspaceService {
             VersionManagementMode = ?,
             DocumentIdFormatPreset = ?,
             DocumentIdFormatTemplate = ?,
+            DatabaseDirectoryName = ?,
+            DocumentsDirectoryName = ?,
+            TemplatesDirectoryName = ?,
+            BackupsDirectoryName = ?,
             VisibleDocumentColumns = ?,
             DefaultCompany = ?,
             DefaultDepartment = ?,
@@ -280,6 +419,10 @@ export class WorkspaceService {
         settings.versionManagementMode,
         settings.documentIdFormatPreset,
         settings.documentIdFormatTemplate,
+        settings.databaseDirectoryName,
+        settings.documentsDirectoryName,
+        settings.templatesDirectoryName,
+        settings.backupsDirectoryName,
         JSON.stringify(settings.visibleDocumentColumns),
         settings.defaultCompany,
         settings.defaultDepartment,
@@ -389,6 +532,10 @@ export class WorkspaceService {
       left.versionManagementMode === right.versionManagementMode &&
       left.documentIdFormatPreset === right.documentIdFormatPreset &&
       left.documentIdFormatTemplate === right.documentIdFormatTemplate &&
+      left.databaseDirectoryName === right.databaseDirectoryName &&
+      left.documentsDirectoryName === right.documentsDirectoryName &&
+      left.templatesDirectoryName === right.templatesDirectoryName &&
+      left.backupsDirectoryName === right.backupsDirectoryName &&
       left.defaultCompany === right.defaultCompany &&
       left.defaultDepartment === right.defaultDepartment &&
       left.companyLogoPath === right.companyLogoPath &&
@@ -405,7 +552,8 @@ export class WorkspaceService {
 
     this.fileStorageService.ensureDocumentTypeDirectories(
       context.rootPath,
-      typeNames.map((type) => type.Name)
+      typeNames.map((type) => type.Name),
+      context.settings
     );
   }
 
@@ -575,7 +723,8 @@ export class WorkspaceService {
         this.fileStorageService.moveDocumentFolder(
           context.rootPath,
           move.currentFolderPath,
-          move.nextFolderPath
+          move.nextFolderPath,
+          context.settings
         );
         appliedDocumentMoves.push(move);
       }
@@ -643,7 +792,8 @@ export class WorkspaceService {
           this.fileStorageService.moveDocumentFolder(
             context.rootPath,
             move.nextFolderPath,
-            move.currentFolderPath
+            move.currentFolderPath,
+            context.settings
           );
         } catch {
           break;
@@ -912,6 +1062,7 @@ export class WorkspaceService {
         settings.documentIdFormatTemplate,
         settings.documentIdFormatPreset
       ),
+      ...normalizeWorkspaceRootDirectoryNames(settings),
       visibleDocumentColumns: normalizeVisibleDocumentColumns(settings.visibleDocumentColumns),
       defaultCompany: typeof settings.defaultCompany === 'string' ? settings.defaultCompany.trim() : '',
       defaultDepartment:
@@ -924,13 +1075,13 @@ export class WorkspaceService {
     };
   }
 
-  private applyWorkspaceBrandingUpdate(
+  private resolveNextWorkspaceBrandingSettings(
     context: WorkspaceContext,
     settings: WorkspaceSettings,
-    input: WorkspaceSettingsUpdateInput
+    input: WorkspaceSettingsUpdateInput,
+    databaseDirectoryChanged: boolean
   ): WorkspaceSettings {
     if (input.clearCompanyLogo) {
-      this.removeWorkspaceCompanyLogo(context, context.settings.companyLogoPath);
       return {
         ...settings,
         companyLogoPath: ''
@@ -940,16 +1091,156 @@ export class WorkspaceService {
     if (input.companyLogoSourceFilePath) {
       return {
         ...settings,
-        companyLogoPath: this.storeWorkspaceCompanyLogo(context, input.companyLogoSourceFilePath)
+        companyLogoPath: this.buildCompanyLogoRelativePath(settings, input.companyLogoSourceFilePath)
       };
     }
 
-    return settings;
+    return {
+      ...settings,
+      companyLogoPath:
+        databaseDirectoryChanged && context.settings.companyLogoPath.trim()
+          ? this.rewriteWorkspaceRootPrefix(
+              context.settings.companyLogoPath,
+              context.settings.databaseDirectoryName,
+              settings.databaseDirectoryName
+            )
+          : context.settings.companyLogoPath
+    };
   }
 
-  private storeWorkspaceCompanyLogo(context: WorkspaceContext, sourceFilePath: string): string {
+  private assertWorkspaceRootDirectoriesAreValid(settings: WorkspaceSettings): void {
+    const seenNames = new Set<string>();
+
+    for (const key of WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS) {
+      const value = settings[key].trim();
+      if (!isValidWorkspaceRootDirectoryName(value)) {
+        throw new Error(`${key} contains characters that are not allowed in folder names.`);
+      }
+
+      const dedupeKey = value.toLowerCase();
+      if (seenNames.has(dedupeKey)) {
+        throw new Error('Workspace root folder names must be unique.');
+      }
+
+      seenNames.add(dedupeKey);
+    }
+  }
+
+  private renameDocumentsRootDirectory(
+    context: WorkspaceContext,
+    nextSettings: WorkspaceSettings
+  ): string[] {
+    const currentDirectoryName = context.settings.documentsDirectoryName;
+    const nextDirectoryName = nextSettings.documentsDirectoryName;
+
+    if (currentDirectoryName === nextDirectoryName) {
+      return [];
+    }
+
+    const currentPrefix = `${currentDirectoryName}/`;
+    const documentRows = context.db
+      .prepare('SELECT Id, DocumentFolderPath FROM Documents ORDER BY Id ASC')
+      .all() as Array<{ Id: number; DocumentFolderPath: string }>;
+    const fileRows = context.db
+      .prepare('SELECT Id, FilePath FROM DocumentVersionFiles ORDER BY Id ASC')
+      .all() as Array<{ Id: number; FilePath: string }>;
+
+    context.db.transaction(() => {
+      for (const documentRow of documentRows) {
+        const normalizedPath = this.fileStorageService.normalizeRelativePath(documentRow.DocumentFolderPath);
+        const nextPath = normalizedPath.startsWith(currentPrefix)
+          ? `${nextDirectoryName}/${normalizedPath.slice(currentPrefix.length)}`
+          : normalizedPath;
+        context.db.prepare('UPDATE Documents SET DocumentFolderPath = ? WHERE Id = ?').run(nextPath, documentRow.Id);
+      }
+
+      for (const fileRow of fileRows) {
+        const normalizedPath = this.fileStorageService.normalizeRelativePath(fileRow.FilePath);
+        const nextPath = normalizedPath.startsWith(currentPrefix)
+          ? `${nextDirectoryName}/${normalizedPath.slice(currentPrefix.length)}`
+          : normalizedPath;
+        context.db.prepare('UPDATE DocumentVersionFiles SET FilePath = ? WHERE Id = ?').run(nextPath, fileRow.Id);
+      }
+    })();
+
+    this.renameWorkspaceRootDirectory(
+      context.rootPath,
+      currentDirectoryName,
+      nextDirectoryName,
+      'Documents'
+    );
+
+    return [];
+  }
+
+  private renameWorkspaceRootDirectory(
+    rootPath: string,
+    currentDirectoryName: string,
+    nextDirectoryName: string,
+    label: string
+  ): void {
+    if (currentDirectoryName === nextDirectoryName) {
+      return;
+    }
+
+    const currentPath = path.join(rootPath, currentDirectoryName);
+    const nextPath = path.join(rootPath, nextDirectoryName);
+
+    if (existsSync(nextPath)) {
+      throw new Error(`${label} folder "${nextDirectoryName}" already exists in the workspace root.`);
+    }
+
+    if (!existsSync(currentPath)) {
+      mkdirSync(nextPath, { recursive: true });
+      return;
+    }
+
+    renameSync(currentPath, nextPath);
+  }
+
+  private refreshContextLayoutPaths(context: WorkspaceContext): void {
+    context.databaseDirectoryPath = path.join(context.rootPath, context.settings.databaseDirectoryName);
+    context.documentsDirectoryPath = path.join(context.rootPath, context.settings.documentsDirectoryName);
+    context.templatesDirectoryPath = path.join(context.rootPath, context.settings.templatesDirectoryName);
+    context.backupsDirectoryPath = path.join(context.rootPath, context.settings.backupsDirectoryName);
+    context.databaseFilePath = path.join(
+      context.rootPath,
+      context.settings.databaseDirectoryName,
+      WORKSPACE_DATABASE_FILE_NAME
+    );
+  }
+
+  private buildCompanyLogoRelativePath(settings: WorkspaceSettings, sourceFilePath: string): string {
     const extension = (path.extname(sourceFilePath).toLowerCase() || '.png').replace(/[^.\w-]/g, '');
-    const relativePath = `Database/branding/company-logo${extension}`;
+    return `${getWorkspaceDatabaseDirectoryRelativePath(settings)}/branding/company-logo${extension}`;
+  }
+
+  private rewriteWorkspaceRootPrefix(
+    relativePath: string,
+    currentDirectoryName: string,
+    nextDirectoryName: string
+  ): string {
+    const normalized = this.fileStorageService.normalizeRelativePath(relativePath);
+    if (!normalized) {
+      return normalized;
+    }
+
+    if (normalized === currentDirectoryName) {
+      return nextDirectoryName;
+    }
+
+    const prefix = `${currentDirectoryName}/`;
+    return normalized.startsWith(prefix)
+      ? `${nextDirectoryName}/${normalized.slice(prefix.length)}`
+      : normalized;
+  }
+
+  private storeWorkspaceCompanyLogo(
+    context: WorkspaceContext,
+    sourceFilePath: string,
+    settings: WorkspaceSettings = context.settings
+  ): string {
+    const relativePath = this.buildCompanyLogoRelativePath(settings, sourceFilePath);
     const absolutePath = path.join(context.rootPath, ...relativePath.split('/'));
 
     this.removeWorkspaceCompanyLogo(context, context.settings.companyLogoPath);
@@ -970,7 +1261,11 @@ export class WorkspaceService {
       rmSync(absolutePath, { force: true });
     }
 
-    const brandingDirectory = path.join(context.rootPath, 'Database', 'branding');
+    const brandingDirectory = path.join(
+      context.rootPath,
+      context.settings.databaseDirectoryName,
+      'branding'
+    );
     if (existsSync(brandingDirectory)) {
       rmSync(brandingDirectory, { recursive: true, force: true });
     }

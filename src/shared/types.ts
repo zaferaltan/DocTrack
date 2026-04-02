@@ -496,9 +496,62 @@ export interface RestoreBackupPreview {
   destinationExists: boolean;
 }
 
+export const RESTORE_BACKUP_MODES = [
+  'overwrite-current-database',
+  'export-to-new-workspace'
+] as const;
+
+export type RestoreBackupMode = (typeof RESTORE_BACKUP_MODES)[number];
+
+export const RESTORE_BACKUP_DIFF_CHANGE_TYPES = ['added', 'removed', 'changed'] as const;
+
+export type RestoreBackupDiffChangeType = (typeof RESTORE_BACKUP_DIFF_CHANGE_TYPES)[number];
+
+export interface RestoreBackupDiffField {
+  label: string;
+  liveValue: string | null;
+  backupValue: string | null;
+}
+
+export interface RestoreBackupDiffItem {
+  id: string;
+  label: string;
+  changeType: RestoreBackupDiffChangeType;
+  fields: RestoreBackupDiffField[];
+}
+
+export interface RestoreBackupDiffSection {
+  id:
+    | 'workspaceSettings'
+    | 'documentTypes'
+    | 'projects'
+    | 'confidentialityClasses'
+    | 'languages'
+    | 'documents'
+    | 'versions'
+    | 'trackedFiles';
+  label: string;
+  addedCount: number;
+  removedCount: number;
+  changedCount: number;
+  items: RestoreBackupDiffItem[];
+}
+
+export interface RestoreBackupDiffResult {
+  backup: WorkspaceBackupSummary;
+  generatedDate: string;
+  sections: RestoreBackupDiffSection[];
+  totals: {
+    addedCount: number;
+    removedCount: number;
+    changedCount: number;
+  };
+}
+
 export interface RestoreBackupInput {
   backupId: string;
-  destinationParentPath: string;
+  mode: RestoreBackupMode;
+  destinationParentPath?: string;
   destinationFolderName?: string;
 }
 

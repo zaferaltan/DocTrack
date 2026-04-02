@@ -237,6 +237,28 @@ const buildDocTrackMock = (
         destinationRootPath: '/Workspaces/Quality Restored',
         destinationExists: false
       }),
+      getRestoreDiff: vi.fn().mockResolvedValue({
+        backup: {
+          id: 'backup-1',
+          label: 'Manual Snapshot',
+          createdDate: '2026-03-31T12:00:00.000Z',
+          backupPath: '/Workspaces/Quality/Backups/backup-1',
+          manifestPath: '/Workspaces/Quality/Backups/backup-1/manifest.json',
+          workspaceName: 'Quality',
+          documentCount: 1,
+          versionCount: 1,
+          fileCount: 1,
+          sizeBytes: 1024,
+          reason: 'manual'
+        },
+        generatedDate: '2026-03-31T12:00:00.000Z',
+        sections: [],
+        totals: {
+          addedCount: 0,
+          removedCount: 0,
+          changedCount: 0
+        }
+      }),
       restoreBackup: vi.fn().mockResolvedValue(workspaceResult),
       integrityCheck: vi.fn().mockResolvedValue({
         checkedDate: '2026-03-31T12:00:00.000Z',
@@ -1580,7 +1602,8 @@ describe('App', () => {
 
     await click(getButton('Add Files'));
     dialog = getDialog();
-    await click(getButton('Select and Add Files', dialog));
+    await click(getButton('Browse Files', dialog));
+    await click(getButton('Import Template Files', dialog));
 
     expect(docTrack.templates.addFiles).toHaveBeenCalledWith(workspaceInfo.rootPath, {
       templateId: 'Procedure Starter',

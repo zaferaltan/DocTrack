@@ -4,6 +4,7 @@ export const WORKSPACE_DATABASE_DIRECTORY_NAME = 'Database';
 export const WORKSPACE_DATABASE_FILE_NAME = 'workspace.sqlite';
 export const WORKSPACE_DOCUMENTS_DIRECTORY_NAME = 'Documents';
 export const WORKSPACE_TEMPLATES_DIRECTORY_NAME = 'Templates';
+export const WORKSPACE_BACKUPS_DIRECTORY_NAME = 'Backups';
 
 export const WORKSPACE_STORAGE_LAYOUT_PRESETS = ['stable-id', 'friendly-id'] as const;
 export const WORKSPACE_FILE_ORGANIZATION_MODES = ['flat', 'role-subfolders'] as const;
@@ -60,6 +61,10 @@ export interface WorkspaceSettings {
   versionManagementMode: WorkspaceVersionManagementMode;
   documentIdFormatPreset: DocumentIdFormatPreset;
   documentIdFormatTemplate: string;
+  databaseDirectoryName: string;
+  documentsDirectoryName: string;
+  templatesDirectoryName: string;
+  backupsDirectoryName: string;
   visibleDocumentColumns: DocumentTableColumn[];
   defaultCompany: string;
   defaultDepartment: string;
@@ -73,6 +78,10 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   versionManagementMode: 'shared-document-id',
   documentIdFormatPreset: 'legacy-numeric',
   documentIdFormatTemplate: DOCUMENT_ID_FORMAT_PRESET_TEMPLATES['legacy-numeric'],
+  databaseDirectoryName: WORKSPACE_DATABASE_DIRECTORY_NAME,
+  documentsDirectoryName: WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+  templatesDirectoryName: WORKSPACE_TEMPLATES_DIRECTORY_NAME,
+  backupsDirectoryName: WORKSPACE_BACKUPS_DIRECTORY_NAME,
   visibleDocumentColumns: [...DOCUMENT_TABLE_COLUMNS],
   defaultCompany: '',
   defaultDepartment: '',
@@ -239,6 +248,82 @@ export const sanitizeStoragePathSegment = (value: string, fallback = 'Untitled')
   return sanitized || fallback;
 };
 
+export type WorkspaceRootDirectorySettingKey =
+  | 'databaseDirectoryName'
+  | 'documentsDirectoryName'
+  | 'templatesDirectoryName'
+  | 'backupsDirectoryName';
+
+export const WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS: WorkspaceRootDirectorySettingKey[] = [
+  'databaseDirectoryName',
+  'documentsDirectoryName',
+  'templatesDirectoryName',
+  'backupsDirectoryName'
+];
+
+export const getDefaultWorkspaceRootDirectoryName = (
+  key: WorkspaceRootDirectorySettingKey
+): string => DEFAULT_WORKSPACE_SETTINGS[key];
+
+export const normalizeWorkspaceRootDirectoryName = (
+  value: unknown,
+  fallback: string
+): string => {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+export const normalizeWorkspaceRootDirectoryNames = (
+  settings: Partial<
+    Pick<
+      WorkspaceSettings,
+      | 'databaseDirectoryName'
+      | 'documentsDirectoryName'
+      | 'templatesDirectoryName'
+      | 'backupsDirectoryName'
+    >
+  >
+): Pick<
+  WorkspaceSettings,
+  | 'databaseDirectoryName'
+  | 'documentsDirectoryName'
+  | 'templatesDirectoryName'
+  | 'backupsDirectoryName'
+> => ({
+  databaseDirectoryName: normalizeWorkspaceRootDirectoryName(
+    settings.databaseDirectoryName,
+    DEFAULT_WORKSPACE_SETTINGS.databaseDirectoryName
+  ),
+  documentsDirectoryName: normalizeWorkspaceRootDirectoryName(
+    settings.documentsDirectoryName,
+    DEFAULT_WORKSPACE_SETTINGS.documentsDirectoryName
+  ),
+  templatesDirectoryName: normalizeWorkspaceRootDirectoryName(
+    settings.templatesDirectoryName,
+    DEFAULT_WORKSPACE_SETTINGS.templatesDirectoryName
+  ),
+  backupsDirectoryName: normalizeWorkspaceRootDirectoryName(
+    settings.backupsDirectoryName,
+    DEFAULT_WORKSPACE_SETTINGS.backupsDirectoryName
+  )
+});
+
+export const isValidWorkspaceRootDirectoryName = (value: string): boolean => {
+  if (!value || value === '.' || value === '..') {
+    return false;
+  }
+
+  if (INVALID_PATH_SEGMENT.test(value)) {
+    return false;
+  }
+
+  return !/[. ]$/.test(value);
+};
+
 export const isWorkspaceStorageLayoutPreset = (
   value: string
 ): value is WorkspaceStorageLayoutPreset => WORKSPACE_STORAGE_LAYOUT_PRESETS.includes(value as WorkspaceStorageLayoutPreset);
@@ -296,21 +381,42 @@ export const normalizeVisibleDocumentColumns = (value: unknown): DocumentTableCo
   return normalized.length > 0 ? normalized : [...DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns];
 };
 
-export const getWorkspaceDatabaseRelativePath = (): string =>
-  joinRelativeSegments(WORKSPACE_DATABASE_DIRECTORY_NAME, WORKSPACE_DATABASE_FILE_NAME);
+export const getWorkspaceDatabaseDirectoryRelativePath = (
+  settings: Pick<WorkspaceSettings, 'databaseDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+): string => joinRelativeSegments(settings.databaseDirectoryName);
 
-export const getWorkspaceTemplatesRelativePath = (): string =>
-  joinRelativeSegments(WORKSPACE_TEMPLATES_DIRECTORY_NAME);
+export const getWorkspaceDocumentsRelativePath = (
+  settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+): string => joinRelativeSegments(settings.documentsDirectoryName);
 
-export const getDocumentTypeDirectoryRelativePath = (documentTypeName: string): string =>
+export const getWorkspaceTemplatesRelativePath = (
+  settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+): string => joinRelativeSegments(settings.templatesDirectoryName);
+
+export const getWorkspaceBackupsRelativePath = (
+  settings: Pick<WorkspaceSettings, 'backupsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+): string => joinRelativeSegments(settings.backupsDirectoryName);
+
+export const getWorkspaceDatabaseRelativePath = (
+  settings: Pick<WorkspaceSettings, 'databaseDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+): string =>
+  joinRelativeSegments(getWorkspaceDatabaseDirectoryRelativePath(settings), WORKSPACE_DATABASE_FILE_NAME);
+
+export const getDocumentTypeDirectoryRelativePath = (
+  settings: Pick<WorkspaceSettings, 'documentsDirectoryName'>,
+  documentTypeName: string
+): string =>
   joinRelativeSegments(
-    WORKSPACE_DOCUMENTS_DIRECTORY_NAME,
+    settings.documentsDirectoryName,
     sanitizeStoragePathSegment(documentTypeName, 'Uncategorized')
   );
 
-export const getTemplateFolderRelativePath = (templateName: string): string =>
+export const getTemplateFolderRelativePath = (
+  settings: Pick<WorkspaceSettings, 'templatesDirectoryName'>,
+  templateName: string
+): string =>
   joinRelativeSegments(
-    WORKSPACE_TEMPLATES_DIRECTORY_NAME,
+    settings.templatesDirectoryName,
     sanitizeStoragePathSegment(templateName, 'Untitled Template')
   );
 
@@ -320,7 +426,7 @@ export const buildDocumentFolderRelativePath = (
   documentId: string,
   title: string
 ): string => {
-  const typeDirectory = getDocumentTypeDirectoryRelativePath(documentTypeName);
+  const typeDirectory = getDocumentTypeDirectoryRelativePath(settings, documentTypeName);
   const documentDirectory =
     settings.storageLayoutPreset === 'friendly-id'
       ? `${documentId} - ${sanitizeStoragePathSegment(title)}`

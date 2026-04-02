@@ -58,6 +58,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
         destinationFolderName
       )
   );
+  ipcMain.handle(IPC_CHANNELS.workspaceGetRestoreDiff, (_event, rootPath: string, backupId: string) =>
+    services.workspaceService.getRestoreDiff(rootPath, backupId)
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceRestoreBackup, (_event, rootPath: string, input) =>
     services.workspaceService.restoreBackup(rootPath, input)
   );

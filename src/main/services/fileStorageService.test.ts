@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileStorageService } from '@main/services/fileStorageService';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 
@@ -167,5 +167,29 @@ describe('FileStorageService', () => {
     service.deleteManagedFile(workspaceRootPath, moved.relativePath);
 
     expect(existsSync(path.join(workspaceRootPath, ...moved.relativePath.split('/')))).toBe(false);
+  });
+
+  it('pauses filesystem watching while deleting a document folder', () => {
+    const root = createTempRoot();
+    const pauseWatching = vi.fn();
+    const resumeWatching = vi.fn();
+    const suppressEvents = vi.fn();
+    const service = new FileStorageService({
+      suppressEvents,
+      pauseWatching,
+      resumeWatching
+    });
+    const workspaceRootPath = path.join(root, 'Quality');
+    const documentFolderPath = 'Documents/Report/03202600001';
+    mkdirSync(path.join(workspaceRootPath, 'Documents', 'Report', '03202600001', '001'), {
+      recursive: true
+    });
+
+    service.deleteDocumentFolder(workspaceRootPath, documentFolderPath);
+
+    expect(pauseWatching).toHaveBeenCalledWith(workspaceRootPath);
+    expect(suppressEvents).toHaveBeenCalledWith(workspaceRootPath, 1500);
+    expect(resumeWatching).toHaveBeenCalledWith(workspaceRootPath);
+    expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Report', '03202600001'))).toBe(false);
   });
 });
