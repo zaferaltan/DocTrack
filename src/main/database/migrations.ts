@@ -9,6 +9,7 @@ import activityLogMigration from '../../../migrations/007_activity_log.sql?raw';
 import documentReviewMetadataMigration from '../../../migrations/008_document_review_metadata.sql?raw';
 import workspaceRootDirectoriesMigration from '../../../migrations/009_workspace_root_directories.sql?raw';
 import activityLogSettingsMigration from '../../../migrations/010_activity_log_settings.sql?raw';
+import alphaVersionSchemeMigration from '../../../migrations/011_alpha_version_scheme.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
@@ -51,6 +52,10 @@ const MIGRATIONS = [
   {
     id: '010_activity_log_settings',
     sql: activityLogSettingsMigration
+  },
+  {
+    id: '011_alpha_version_scheme',
+    sql: alphaVersionSchemeMigration
   }
 ] as const;
 

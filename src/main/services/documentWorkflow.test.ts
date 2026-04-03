@@ -209,7 +209,7 @@ describe('document workflow integration', () => {
     ).toThrow('already exists in this template');
   });
 
-  it('creates versions using numeric, prefixed, and major-minor version labels', () => {
+  it('creates versions using numeric, prefixed, alphabetic, and major-minor version labels', () => {
     const numeric = documentService.create(workspaceRootPath, {
       title: 'Numeric Procedure',
       documentTypeId: 2,
@@ -236,6 +236,21 @@ describe('document workflow integration', () => {
       revisionDescription: 'First prefixed version'
     });
 
+    const alphabetic = documentService.create(workspaceRootPath, {
+      title: 'Alphabetic Work Instruction',
+      documentTypeId: 2,
+      author: 'Jamie Patel',
+      versionScheme: 'alpha-uppercase'
+    });
+    const alphabeticV1 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: alphabetic.id,
+      revisionDescription: 'First alphabetic version'
+    });
+    const alphabeticV2 = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: alphabetic.id,
+      revisionDescription: 'Second alphabetic version'
+    });
+
     const majorMinor = documentService.create(workspaceRootPath, {
       title: 'Major Minor Report',
       documentTypeId: 3,
@@ -260,16 +275,49 @@ describe('document workflow integration', () => {
     expect(numericV1.versions[0]?.versionLabel).toBe('001');
     expect(numericV2.versions[0]?.versionLabel).toBe('002');
     expect(prefixedV1.versions[0]?.versionLabel).toBe('v1');
+    expect(alphabeticV1.versions[0]?.versionLabel).toBe('A');
+    expect(alphabeticV2.versions[0]?.versionLabel).toBe('B');
     expect(majorMinorV1.versions[0]?.versionLabel).toBe('1.0');
     expect(majorMinorV2.versions[0]?.versionLabel).toBe('1.1');
     expect(majorMinorV3.versions[0]?.versionLabel).toBe('2.0');
 
+    const alphabeticVersionFolderPath = path.join(
+      workspaceRootPath,
+      ...alphabeticV2.documentFolderPath.split('/'),
+      'B'
+    );
     const versionFolderPath = path.join(
       workspaceRootPath,
       ...majorMinorV3.documentFolderPath.split('/'),
       '2.0'
     );
+    expect(existsSync(alphabeticVersionFolderPath)).toBe(true);
     expect(existsSync(versionFolderPath)).toBe(true);
+  });
+
+  it('supports alphabetic version labels from A through Z and rejects the next version', () => {
+    const alphabetic = documentService.create(workspaceRootPath, {
+      title: 'Alphabetic Limit Procedure',
+      documentTypeId: 2,
+      author: 'Jordan Singh',
+      versionScheme: 'alpha-uppercase'
+    });
+
+    let latestDetail = alphabetic;
+    for (let index = 0; index < 26; index += 1) {
+      latestDetail = documentService.createVersion(workspaceRootPath, {
+        documentRecordId: alphabetic.id,
+        revisionDescription: `Alphabetic revision ${index + 1}`
+      });
+    }
+
+    expect(latestDetail.versions[0]?.versionLabel).toBe('Z');
+    expect(() =>
+      documentService.createVersion(workspaceRootPath, {
+        documentRecordId: alphabetic.id,
+        revisionDescription: 'Beyond Z'
+      })
+    ).toThrow('Alphabetic version labels support 26 versions from A to Z.');
   });
 
   it('can generate a new document ID for each version while keeping the history linked', () => {

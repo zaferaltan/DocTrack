@@ -12,6 +12,7 @@ import {
   normalizeDocumentTableVisibleColumns,
   type ApplicationSettings
 } from '@shared/applicationSettings';
+import { isDocumentVersionScheme } from '@shared/documentModel';
 import type { AppCatalogState, RecentWorkspace } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 
@@ -167,9 +168,8 @@ export class AppCatalogService {
           ? nextSettings.defaultDocumentAuthor
           : DEFAULT_APPLICATION_SETTINGS.defaultDocumentAuthor,
       defaultDocumentVersionScheme:
-        nextSettings.defaultDocumentVersionScheme === 'numeric-3' ||
-        nextSettings.defaultDocumentVersionScheme === 'v-prefix' ||
-        nextSettings.defaultDocumentVersionScheme === 'major-minor'
+        typeof nextSettings.defaultDocumentVersionScheme === 'string' &&
+        isDocumentVersionScheme(nextSettings.defaultDocumentVersionScheme)
           ? nextSettings.defaultDocumentVersionScheme
           : DEFAULT_APPLICATION_SETTINGS.defaultDocumentVersionScheme,
       confirmDestructiveActions:

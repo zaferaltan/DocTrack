@@ -213,6 +213,7 @@ Supported version label schemes are:
 
 - `numeric-3`: `001`, `002`, `003`
 - `v-prefix`: `v1`, `v2`, `v3`
+- `alpha-uppercase`: `A`, `B`, `C` ... `Z`
 - `major-minor`: `1.0`, `1.1`, `2.0`
 
 ### Version management modes

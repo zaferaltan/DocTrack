@@ -49,7 +49,7 @@ describe('app catalog service', () => {
       },
       defaultIncludeExampleData: false,
       defaultDocumentAuthor: 'Taylor Reed',
-      defaultDocumentVersionScheme: 'major-minor',
+      defaultDocumentVersionScheme: 'alpha-uppercase',
       confirmDestructiveActions: false,
       autoDismissSuccessNotifications: false,
       autoUpdateEnabled: false,

@@ -96,6 +96,7 @@ import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
   DOCUMENT_VERSION_SCHEME_LABELS,
+  getAlphaUppercaseVersionLabel,
   type DocumentVersionFileRole,
   type DocumentVersionScheme,
   type VersionBumpType,
@@ -1182,11 +1183,16 @@ const validateTableColumnsDialogState = (
 
 const validateDocumentDialogState = (
   state: DocumentDialogState,
+  availableColumns: DocumentTableColumn[],
 ): ValidationErrors => {
   const errors: ValidationErrors = {};
 
   if (!state.title.trim()) {
     errors.title = "Document title is required.";
+  }
+
+  if (availableColumns.includes("author") && !state.author.trim()) {
+    errors.author = "Author is required.";
   }
 
   if (state.mode === "create" && !state.documentTypeId.trim()) {
@@ -2179,7 +2185,10 @@ function App() {
       return;
     }
 
-    const validationErrors = validateDocumentDialogState(documentDialog);
+    const validationErrors = validateDocumentDialogState(
+      documentDialog,
+      activeWorkspace.settings.visibleDocumentColumns,
+    );
     if (Object.keys(validationErrors).length > 0) {
       setDocumentDialog((state) => ({
         ...state,
@@ -2201,9 +2210,7 @@ function App() {
       const availableColumns = activeWorkspace.settings.visibleDocumentColumns;
       const documentInput = {
         title: documentDialog.title,
-        author: availableColumns.includes("author")
-          ? documentDialog.author
-          : "",
+        author: documentDialog.author,
         startDate: availableColumns.includes("startDate")
           ? documentDialog.startDate || null
           : null,
@@ -9530,15 +9537,17 @@ function DocumentDialog({
               />
             </Field>
             {showAuthor ? (
-              <Field label="Author">
+              <Field label="Author" error={state.validationErrors.author}>
                 <Input
+                  aria-invalid={Boolean(state.validationErrors.author)}
                   placeholder="Jordan Singh"
                   value={state.author}
                   onChange={(event) =>
-                    onStateChange((current) => ({
-                      ...current,
-                      author: event.target.value,
-                    }))
+                    onStateChange((current) =>
+                      applyInputChange(current, "author", {
+                        author: event.target.value,
+                      }),
+                    )
                   }
                 />
               </Field>
@@ -12365,13 +12374,22 @@ function getNextVersionLabelPreview(
   bumpType: VersionBumpType,
 ): string {
   const latestVersion = documentDetail.versions[0];
+  const nextSequenceNumber = (latestVersion?.sequenceNumber ?? 0) + 1;
 
   if (documentDetail.versionScheme === "numeric-3") {
-    return String((latestVersion?.sequenceNumber ?? 0) + 1).padStart(3, "0");
+    return String(nextSequenceNumber).padStart(3, "0");
   }
 
   if (documentDetail.versionScheme === "v-prefix") {
-    return `v${(latestVersion?.sequenceNumber ?? 0) + 1}`;
+    return `v${nextSequenceNumber}`;
+  }
+
+  if (documentDetail.versionScheme === "alpha-uppercase") {
+    try {
+      return getAlphaUppercaseVersionLabel(nextSequenceNumber);
+    } catch {
+      return "Unavailable (A-Z limit reached)";
+    }
   }
 
   if (!latestVersion) {

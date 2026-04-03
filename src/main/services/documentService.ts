@@ -15,6 +15,7 @@ import { TemplateService } from '@main/services/templateService';
 import type { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { nowIso } from '@main/utils/date';
 import {
+  getAlphaUppercaseVersionLabel,
   isDocumentVersionFileRole,
   isDocumentVersionScheme,
   isVersionBumpType,
@@ -2371,12 +2372,18 @@ export class DocumentService {
     latestVersion: VersionRow | undefined,
     bumpType: VersionBumpType | undefined
   ): string {
+    const nextSequenceNumber = (latestVersion?.SequenceNumber ?? 0) + 1;
+
     if (scheme === 'numeric-3') {
-      return String((latestVersion?.SequenceNumber ?? 0) + 1).padStart(3, '0');
+      return String(nextSequenceNumber).padStart(3, '0');
     }
 
     if (scheme === 'v-prefix') {
-      return `v${(latestVersion?.SequenceNumber ?? 0) + 1}`;
+      return `v${nextSequenceNumber}`;
+    }
+
+    if (scheme === 'alpha-uppercase') {
+      return getAlphaUppercaseVersionLabel(nextSequenceNumber);
     }
 
     if (!latestVersion) {

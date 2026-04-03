@@ -595,7 +595,7 @@ describe('App', () => {
         'Default Document Version Scheme',
         'select'
       ) as HTMLSelectElement,
-      'major-minor'
+      'alpha-uppercase'
     );
     await changeCheckbox(
       getLabeledControl(
@@ -615,7 +615,7 @@ describe('App', () => {
       expect.objectContaining({
         themeMode: 'dark',
         defaultDocumentAuthor: 'Taylor Reed',
-        defaultDocumentVersionScheme: 'major-minor',
+        defaultDocumentVersionScheme: 'alpha-uppercase',
         defaultIncludeExampleData: false,
         documentTableDensity: 'compact'
       })
@@ -631,7 +631,7 @@ describe('App', () => {
       'select'
     ) as HTMLSelectElement;
     expect(authorInput.value).toBe('Taylor Reed');
-    expect(versionSchemeSelect.value).toBe('major-minor');
+    expect(versionSchemeSelect.value).toBe('alpha-uppercase');
     await click(getButton('Cancel'));
 
     await click(getButton('New Workspace'));
@@ -2087,6 +2087,36 @@ describe('App', () => {
         templateId: 'Procedure Starter'
       })
     );
+
+    await view.unmount();
+  });
+
+  it('shows inline validation for a missing author when creating a document', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('New Document'));
+    const dialog = getDialog();
+    await changeInput(
+      getLabeledControl(dialog, 'Title', 'input') as HTMLInputElement,
+      'Author Validation Procedure'
+    );
+    await changeSelect(
+      getLabeledControl(dialog, 'Document Type', 'select') as HTMLSelectElement,
+      '2'
+    );
+
+    const authorInput = getLabeledControl(dialog, 'Author', 'input') as HTMLInputElement;
+    await click(getButton('Create Document', dialog));
+
+    expect(docTrack.documents.create).not.toHaveBeenCalled();
+    expect(authorInput.getAttribute('aria-invalid')).toBe('true');
+    expect(normalizeText(dialog.textContent)).toContain('Author is required.');
+
+    await changeInput(authorInput, 'Taylor Reed');
+
+    expect(authorInput.getAttribute('aria-invalid')).not.toBe('true');
+    expect(normalizeText(dialog.textContent)).not.toContain('Author is required.');
 
     await view.unmount();
   });
