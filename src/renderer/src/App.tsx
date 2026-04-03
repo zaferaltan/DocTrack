@@ -5486,7 +5486,7 @@ function NotificationBar({
   return (
     <div
       className={cn(
-        "fixed left-1/2 top-4 z-[80] flex w-[min(92vw,560px)] -translate-x-1/2 items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-lg",
+        "window-no-drag fixed left-1/2 top-4 z-[80] flex w-[min(92vw,560px)] -translate-x-1/2 items-center justify-between rounded-xl border px-3 py-2 text-[13px] shadow-lg",
         tone === "success"
           ? "border-[#CFE3D5] bg-[#F6FBF7] text-[#2F6B48] dark:border-[#35503F] dark:bg-[#1F2E25] dark:text-[#8FD9A8]"
           : "border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21] dark:text-[#FFB7B2]",
@@ -5494,6 +5494,7 @@ function NotificationBar({
     >
       <div>{message}</div>
       <button
+        aria-label="Dismiss notification"
         className="rounded-full p-1 hover:bg-black/5 dark:hover:bg-white/10"
         onClick={onClose}
       >

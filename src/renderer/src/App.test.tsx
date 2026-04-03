@@ -1062,10 +1062,19 @@ describe('App', () => {
         message: 'Something broke.'
       });
     });
+    const dismissNotificationButton = document.body.querySelector(
+      'button[aria-label="Dismiss notification"]'
+    );
+    if (!(dismissNotificationButton instanceof HTMLButtonElement)) {
+      throw new Error('Unable to find the notification dismiss button.');
+    }
+    expect(dismissNotificationButton.closest('div')?.className).toContain('window-no-drag');
     await act(async () => {
       vi.advanceTimersByTime(3500);
     });
     expect(document.body.textContent).toContain('Something broke.');
+    await click(dismissNotificationButton);
+    expect(document.body.textContent).not.toContain('Something broke.');
 
     await view.unmount();
   });
