@@ -18,6 +18,8 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   ArrowUpDown,
   ChevronDown,
   ChevronLeft,
@@ -7631,22 +7633,35 @@ function DocumentsView({
           <thead className="sticky top-0 z-10 bg-card/95">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border">
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className={cn(
-                      headerCellClassName,
-                      header.id === "actions" && "text-right",
-                    )}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </th>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const sortDirection = header.column.getIsSorted();
+                  const ariaSort =
+                    sortDirection === "asc"
+                      ? "ascending"
+                      : sortDirection === "desc"
+                        ? "descending"
+                        : header.column.getCanSort()
+                          ? "none"
+                          : undefined;
+
+                  return (
+                    <th
+                      key={header.id}
+                      aria-sort={ariaSort}
+                      className={cn(
+                        headerCellClassName,
+                        header.id === "actions" && "text-right",
+                      )}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -8678,7 +8693,7 @@ function DocumentsKanbanBoard({
               key={column.label}
               data-kanban-column={column.status ?? "not-started"}
               className={cn(
-                "flex min-h-[280px] min-w-[260px] flex-col rounded-2xl border bg-card",
+                "flex h-[32rem] min-h-0 min-w-[260px] max-h-full flex-col overflow-hidden rounded-2xl border bg-card",
                 isDropTarget &&
                   "border-primary/50 bg-primary/5",
               )}
@@ -8698,7 +8713,7 @@ function DocumentsKanbanBoard({
                 <Badge variant="outline">{column.documents.length}</Badge>
               </div>
 
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 pr-2">
                 {column.documents.length === 0 ? (
                   <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-[13px] text-muted-foreground">
                     {column.status
@@ -14224,16 +14239,37 @@ function columnHeader(label: string) {
       getIsSorted: () => false | "asc" | "desc";
       toggleSorting: (desc?: boolean) => void;
     };
-  }) => (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition hover:text-foreground"
-      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-    >
-      {label}
-      <ArrowUpDown className="h-3.5 w-3.5" />
-    </button>
-  );
+  }) => {
+    const sortDirection = column.getIsSorted();
+    const SortIcon =
+      sortDirection === "asc"
+        ? ArrowUp
+        : sortDirection === "desc"
+          ? ArrowDown
+          : ArrowUpDown;
+
+    return (
+      <button
+        type="button"
+        data-sort-direction={sortDirection || "none"}
+        className={cn(
+          "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.08em] transition hover:text-foreground",
+          sortDirection
+            ? "font-bold text-foreground"
+            : "font-semibold text-muted-foreground",
+        )}
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        {label}
+        <SortIcon
+          className={cn(
+            "h-3.5 w-3.5",
+            sortDirection ? "text-foreground" : "text-muted-foreground",
+          )}
+        />
+      </button>
+    );
+  };
 }
 
 export default App;

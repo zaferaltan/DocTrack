@@ -2078,6 +2078,34 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('shows the active table sort column and direction in the header', async () => {
+    buildDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'light'
+    });
+
+    const view = await renderApp();
+
+    const documentIdHeader = getButton('Document ID');
+    expect(documentIdHeader.getAttribute('data-sort-direction')).toBe('asc');
+    expect(documentIdHeader.className).toContain('font-bold');
+    expect(documentIdHeader.closest('th')?.getAttribute('aria-sort')).toBe('ascending');
+
+    await click(documentIdHeader);
+
+    const documentIdHeaderAfter = getButton('Document ID');
+    expect(documentIdHeaderAfter.getAttribute('data-sort-direction')).toBe('desc');
+    expect(documentIdHeaderAfter.className).toContain('font-bold');
+    expect(documentIdHeaderAfter.closest('th')?.getAttribute('aria-sort')).toBe('descending');
+
+    const titleHeader = getButton('Title');
+    expect(titleHeader.getAttribute('data-sort-direction')).toBe('none');
+    expect(titleHeader.className).not.toContain('font-bold');
+    expect(titleHeader.closest('th')?.getAttribute('aria-sort')).toBe('none');
+
+    await view.unmount();
+  });
+
   it('hides disabled version metadata fields in the edit latest version dialog', async () => {
     const workspaceResult = cloneWorkspaceResult();
     workspaceResult.summary.settings = {
