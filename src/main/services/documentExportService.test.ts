@@ -35,6 +35,7 @@ const buildRequest = (overrides: Partial<DocumentExportRequest> = {}): DocumentE
       versionScheme: 'numeric-3',
       status: 'Draft',
       latestVersionLabel: '001',
+      effectiveDate: null,
       releasedDate: null,
       approvedBy: '',
       revisionDescription: 'Contains "quoted" text,\nand a second line',

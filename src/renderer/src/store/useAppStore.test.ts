@@ -167,7 +167,8 @@ describe('useAppStore', () => {
     const docTrack = installDocTrackMock({
       ...DEFAULT_APPLICATION_SETTINGS,
       launchBehavior: 'reopen-last-workspace',
-      defaultWorkspaceView: 'documentTypes'
+      defaultWorkspaceView: 'documentTypes',
+      defaultDocumentsVisualization: 'timeline'
     });
     docTrack.workspace.listRecent.mockResolvedValueOnce([
       {
@@ -189,6 +190,9 @@ describe('useAppStore', () => {
     expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe(
       'documentTypes'
     );
+    expect(
+      store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedDocumentsVisualization
+    ).toBe('timeline');
   });
 
   it('can persist templates as the default workspace view', async () => {
@@ -204,6 +208,9 @@ describe('useAppStore', () => {
     expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe(
       'templates'
     );
+    expect(
+      store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedDocumentsVisualization
+    ).toBe(DEFAULT_APPLICATION_SETTINGS.defaultDocumentsVisualization);
   });
 
   it('updates application settings through the shared IPC surface', async () => {

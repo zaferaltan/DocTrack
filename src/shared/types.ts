@@ -68,6 +68,7 @@ export interface DocumentListItem {
   versionScheme: DocumentVersionScheme;
   status: DocumentStatus | null;
   latestVersionLabel: string | null;
+  effectiveDate: string | null;
   releasedDate: string | null;
   approvedBy: string;
   revisionDescription: string;

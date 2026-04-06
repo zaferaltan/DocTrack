@@ -49,6 +49,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         versionScheme: 'numeric-3',
         status: 'Draft',
         latestVersionLabel: '001',
+        effectiveDate: null,
         releasedDate: null,
         approvedBy: '',
         revisionDescription: '',
@@ -525,6 +526,46 @@ const changeSelect = async (element: HTMLSelectElement, value: string) => {
   await flushPromises();
 };
 
+const getDocumentsVisualizationButton = (
+  mode: 'table' | 'kanban' | 'timeline' | 'calendar'
+): HTMLButtonElement => {
+  const button = document.querySelector(
+    `[data-documents-visualization-button="${mode}"]`
+  );
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Unable to find visualization button: ${mode}`);
+  }
+
+  return button;
+};
+
+const createDragDataTransfer = () => {
+  const values = new Map<string, string>();
+
+  return {
+    effectAllowed: 'all',
+    dropEffect: 'move',
+    setData: (type: string, value: string) => values.set(type, value),
+    getData: (type: string) => values.get(type) ?? ''
+  };
+};
+
+const dispatchDragEvent = async (
+  element: HTMLElement,
+  type: 'dragstart' | 'dragover' | 'drop' | 'dragend',
+  dataTransfer: ReturnType<typeof createDragDataTransfer>
+) => {
+  await act(async () => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', {
+      value: dataTransfer
+    });
+    element.dispatchEvent(event);
+  });
+  await flushPromises();
+};
+
 const dispatchPointerEvent = async (
   target: HTMLElement | Window,
   type: 'pointerdown' | 'pointermove' | 'pointerup',
@@ -636,6 +677,10 @@ describe('App', () => {
       getLabeledControl(settingsDialog, 'Document Table Density', 'select') as HTMLSelectElement,
       'compact'
     );
+    await changeSelect(
+      getLabeledControl(settingsDialog, 'Default Documents View', 'select') as HTMLSelectElement,
+      'calendar'
+    );
     await click(getButton('Save Settings'));
 
     expect(docTrack.appSettings.update).toHaveBeenCalledWith(
@@ -644,7 +689,8 @@ describe('App', () => {
         defaultDocumentAuthor: 'Taylor Reed',
         defaultDocumentVersionScheme: 'alpha-uppercase',
         defaultIncludeExampleData: false,
-        documentTableDensity: 'compact'
+        documentTableDensity: 'compact',
+        defaultDocumentsVisualization: 'calendar'
       })
     );
     expect(document.documentElement.classList.contains('dark')).toBe(true);
@@ -757,7 +803,8 @@ describe('App', () => {
         ...state.openWorkspaces,
         [secondaryWorkspace.workspace.rootPath]: {
           ...secondaryWorkspace.summary,
-          selectedView: 'documents'
+          selectedView: 'documents',
+          selectedDocumentsVisualization: 'table'
         }
       },
       recentWorkspaces: [
@@ -897,7 +944,9 @@ describe('App', () => {
         ...state.openWorkspaces,
         [workspaceInfo.rootPath]: {
           ...state.openWorkspaces[workspaceInfo.rootPath],
-          selectedView: 'dashboard'
+          selectedView: 'dashboard',
+          selectedDocumentsVisualization:
+            state.openWorkspaces[workspaceInfo.rootPath]?.selectedDocumentsVisualization ?? 'table'
         }
       }
     }));
@@ -1450,6 +1499,7 @@ describe('App', () => {
       versionScheme: 'numeric-3',
       status: 'Released',
       latestVersionLabel: '002',
+      effectiveDate: '2026-03-29T10:00:00.000Z',
       releasedDate: '2026-03-29T10:00:00.000Z',
       approvedBy: 'Avery Chen',
       revisionDescription: 'Released to operations',
@@ -1482,6 +1532,9 @@ describe('App', () => {
       workspaceResult
     );
     const view = await renderApp();
+
+    await click(getDocumentsVisualizationButton('kanban'));
+    expect(getDocumentsVisualizationButton('kanban').getAttribute('aria-pressed')).toBe('true');
 
     await changeInput(
       document.querySelector('[data-doc-search="true"]') as HTMLInputElement,
@@ -1533,6 +1586,7 @@ describe('App', () => {
       versionScheme: 'numeric-3',
       status: 'Released',
       latestVersionLabel: '002',
+      effectiveDate: '2026-03-29T10:00:00.000Z',
       releasedDate: '2026-03-29T10:00:00.000Z',
       approvedBy: 'Avery Chen',
       revisionDescription: 'Released to operations',
@@ -1598,6 +1652,118 @@ describe('App', () => {
           status: 'All',
           project: ''
         }
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('switches between documents visualization modes and reuses the active filters', async () => {
+    vi.setSystemTime(new Date('2026-04-06T12:00:00.000Z'));
+
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.documents[0] = {
+      ...workspaceResult.summary.documents[0]!,
+      status: 'Draft',
+      effectiveDate: null,
+      nextReviewDate: '2026-04-08T10:00:00.000Z'
+    };
+    workspaceResult.summary.documents.push({
+      id: 102,
+      documentId: '02202600002',
+      title: 'Supplier Checklist',
+      typeId: 2,
+      typeName: 'Procedure',
+      versionScheme: 'numeric-3',
+      status: 'Released',
+      latestVersionLabel: '002',
+      effectiveDate: '2026-03-29T10:00:00.000Z',
+      releasedDate: '2026-03-29T10:00:00.000Z',
+      approvedBy: 'Avery Chen',
+      revisionDescription: 'Released to operations',
+      modifiedDate: '2026-03-29T10:00:00.000Z',
+      createdDate: '2026-03-28T11:00:00.000Z',
+      author: 'Avery Chen',
+      languageId: 1,
+      languageCode: 'EN',
+      confidentialityClassId: null,
+      confidentialityClassName: null,
+      projectId: null,
+      projectName: null,
+      company: 'Acme',
+      department: 'Operations',
+      startDate: '2026-03-28',
+      revisionIntervalMonths: 6,
+      nextReviewDate: '2026-04-10T10:00:00.000Z',
+      isOverdue: false,
+      healthFlags: [],
+      latestVersionFileCount: 1,
+      lastActivityDate: '2026-03-29T10:00:00.000Z',
+      reviewedBy: 'Morgan Patel'
+    });
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await click(getButton('Released'));
+
+    await click(getDocumentsVisualizationButton('kanban'));
+    expect(document.body.textContent).toContain('Supplier Checklist');
+    expect(document.body.textContent).not.toContain('Operating Procedure');
+
+    await click(getDocumentsVisualizationButton('timeline'));
+    expect(document.body.textContent).toContain('March 2026');
+    expect(document.body.textContent).toContain('Supplier Checklist');
+    expect(document.body.textContent).not.toContain('Operating Procedure');
+
+    await click(getDocumentsVisualizationButton('calendar'));
+    expect(document.body.textContent).toContain('April 2026');
+    expect(document.body.textContent).toContain('Supplier Checklist');
+    expect(document.body.textContent).not.toContain('Operating Procedure');
+
+    await view.unmount();
+  });
+
+  it('opens the existing status confirmation flow when a kanban card is dropped into a new status column', async () => {
+    const docTrack = buildDocTrackMock({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      themeMode: 'light'
+    });
+    docTrack.documents.updateLatestVersion = vi
+      .fn()
+      .mockResolvedValue(buildDocumentDetail());
+
+    const view = await renderApp();
+
+    await click(getDocumentsVisualizationButton('kanban'));
+
+    const card = document.querySelector('[data-document-visual-card="101"]');
+    const targetColumn = document.querySelector('[data-kanban-column="Released"]');
+    if (!(card instanceof HTMLElement) || !(targetColumn instanceof HTMLElement)) {
+      throw new Error('Unable to find kanban drag targets.');
+    }
+
+    const dataTransfer = createDragDataTransfer();
+
+    await dispatchDragEvent(card, 'dragstart', dataTransfer);
+    await dispatchDragEvent(targetColumn, 'dragover', dataTransfer);
+    await dispatchDragEvent(targetColumn, 'drop', dataTransfer);
+    await dispatchDragEvent(card, 'dragend', dataTransfer);
+
+    expect(normalizeText(getDialog().textContent)).toContain('Confirm Status Change');
+    await click(getButton('Apply Status', getDialog()));
+
+    expect(docTrack.documents.updateLatestVersion).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        documentRecordId: 101,
+        status: 'Released'
       })
     );
 

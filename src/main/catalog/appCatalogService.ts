@@ -4,6 +4,7 @@ import {
   DEFAULT_APPLICATION_SETTINGS,
   isApplicationLaunchBehavior,
   isDocumentDetailViewMode,
+  isDocumentsVisualizationMode,
   isDocumentTableDensity,
   isThemeMode,
   isWorkspaceTabDensity,
@@ -139,6 +140,11 @@ export class AppCatalogService {
         isDocumentDetailViewMode(nextSettings.documentDetailViewMode)
           ? nextSettings.documentDetailViewMode
           : DEFAULT_APPLICATION_SETTINGS.documentDetailViewMode,
+      defaultDocumentsVisualization:
+        typeof nextSettings.defaultDocumentsVisualization === 'string' &&
+        isDocumentsVisualizationMode(nextSettings.defaultDocumentsVisualization)
+          ? nextSettings.defaultDocumentsVisualization
+          : DEFAULT_APPLICATION_SETTINGS.defaultDocumentsVisualization,
       documentDetailSidebarWidth:
         typeof nextSettings.documentDetailSidebarWidth === 'number' &&
         Number.isFinite(nextSettings.documentDetailSidebarWidth) &&
