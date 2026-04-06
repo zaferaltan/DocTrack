@@ -536,6 +536,33 @@ const dispatchPointerEvent = async (
   await flushPromises();
 };
 
+const dispatchKeyboardEvent = async (
+  target: HTMLElement | Window,
+  key: string,
+  options: KeyboardEventInit = {}
+) => {
+  await act(async () => {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key,
+        ...options
+      })
+    );
+  });
+  await flushPromises();
+};
+
+const waitForAnimationFrame = async () => {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+  await flushPromises();
+};
+
 describe('App', () => {
   beforeEach(() => {
     // @ts-expect-error React act environment flag for tests.
@@ -646,6 +673,279 @@ describe('App', () => {
 
     const firstHeaderCell = document.querySelector('thead th');
     expect(firstHeaderCell?.className).toContain('py-2');
+
+    await view.unmount();
+  });
+
+  it('opens the command palette with Mod+K and shows the shortcut in settings', async () => {
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    const settingsDialog = getDialog();
+    expect(normalizeText(settingsDialog.textContent)).toContain('Open Command Palette');
+    await click(getButton('Cancel', settingsDialog));
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    const palette = getDialog();
+    expect(normalizeText(palette.textContent)).toContain('Command Palette');
+    const searchInput = palette.querySelector('input[aria-label="Command search"]');
+    expect(searchInput).toBeInstanceOf(HTMLInputElement);
+
+    await dispatchKeyboardEvent(searchInput as HTMLInputElement, 'Escape');
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    await view.unmount();
+  });
+
+  it('shows global and recent-workspace commands when no workspace is open', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.workspace.listOpen = vi.fn().mockResolvedValue([]);
+    docTrack.workspace.listRecent = vi.fn().mockResolvedValue([
+      {
+        rootPath: '/Workspaces/Quality',
+        name: 'Quality',
+        lastOpenedDate: '2026-03-28T12:00:00.000Z'
+      }
+    ]);
+
+    const view = await renderApp();
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    const palette = getDialog();
+    const paletteText = normalizeText(palette.textContent);
+    expect(paletteText).toContain('Open Settings');
+    expect(paletteText).toContain('Create Workspace');
+    expect(paletteText).toContain('Open Workspace Folder');
+    expect(paletteText).toContain('Open Recent Workspace: Quality');
+    expect(paletteText).not.toContain('Create Document');
+    expect(paletteText).not.toContain('Open Workspace Settings');
+
+    await view.unmount();
+  });
+
+  it('shows workspace commands, filters unsupported views, and dedupes open workspaces from recents', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.settings = {
+      ...workspaceResult.summary.settings,
+      visibleDocumentColumns: ['documentId', 'title', 'documentType', 'version', 'status']
+    };
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+
+    const view = await renderApp();
+    const secondaryWorkspace = cloneWorkspaceResult();
+    secondaryWorkspace.workspace = {
+      ...workspaceInfo,
+      id: 2,
+      name: 'Safety',
+      rootPath: '/Workspaces/Safety'
+    };
+    secondaryWorkspace.summary.workspace = secondaryWorkspace.workspace;
+
+    await setStoreState((state) => ({
+      openWorkspaces: {
+        ...state.openWorkspaces,
+        [secondaryWorkspace.workspace.rootPath]: {
+          ...secondaryWorkspace.summary,
+          selectedView: 'documents'
+        }
+      },
+      recentWorkspaces: [
+        {
+          rootPath: '/Workspaces/Safety',
+          name: 'Safety',
+          lastOpenedDate: '2026-03-28T13:00:00.000Z'
+        },
+        {
+          rootPath: '/Workspaces/Closed',
+          name: 'Closed',
+          lastOpenedDate: '2026-03-27T12:00:00.000Z'
+        }
+      ]
+    }));
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    const paletteText = normalizeText(getDialog().textContent);
+    expect(paletteText).toContain('Switch to Workspace: Safety');
+    expect(paletteText).not.toContain('Open Recent Workspace: Safety');
+    expect(paletteText).toContain('Open Recent Workspace: Closed');
+    expect(paletteText).toContain('Open Workspace Settings');
+    expect(paletteText).toContain('Open Backups & Recovery');
+    expect(paletteText).toContain('Show Activity Log');
+    expect(paletteText).toContain('Create Document');
+    expect(paletteText).toContain('Export Report');
+    expect(paletteText).toContain('Go to Dashboard');
+    expect(paletteText).toContain('Go to Documents');
+    expect(paletteText).toContain('Go to Templates');
+    expect(paletteText).toContain('Go to Document Types');
+    expect(paletteText).not.toContain('Go to Projects');
+    expect(paletteText).not.toContain('Go to Classifications');
+    expect(paletteText).not.toContain('Go to Languages');
+
+    await view.unmount();
+  });
+
+  it('uses the selected document directly and otherwise opens document pickers for version and import commands', async () => {
+    vi.useRealTimers();
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+
+    const view = await renderApp();
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+    let palette = getDialog();
+    expect(normalizeText(palette.textContent)).toContain('Create Version...');
+    expect(normalizeText(palette.textContent)).toContain('Import File...');
+
+    await click(getButton('Create Version...', palette));
+    palette = getDialog();
+    expect(normalizeText(palette.textContent)).toContain('Choose Document for Create Version');
+    expect(normalizeText(palette.textContent)).toContain('Operating Procedure');
+
+    let backButton = palette.querySelector('button[aria-label="Back"]');
+    if (!(backButton instanceof HTMLButtonElement)) {
+      throw new Error('Unable to find the command palette back button.');
+    }
+    await click(backButton);
+    palette = getDialog();
+
+    await click(getButton('Import File...', palette));
+    palette = getDialog();
+    expect(normalizeText(palette.textContent)).toContain('Choose Document for Import File');
+
+    backButton = palette.querySelector('button[aria-label="Back"]');
+    if (!(backButton instanceof HTMLButtonElement)) {
+      throw new Error('Unable to find the command palette back button.');
+    }
+    await click(backButton);
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    palette = getDialog();
+    const paletteText = normalizeText(palette.textContent);
+    expect(paletteText).toContain('Create Version for 02202600001');
+    expect(paletteText).toContain('Import File into 02202600001');
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+
+    await view.unmount();
+  });
+
+  it('imports files into the latest version from the command palette', async () => {
+    vi.useRealTimers();
+    const docTrack = buildDocTrackMock();
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+    docTrack.dialogs.pickDocumentFiles = vi
+      .fn()
+      .mockResolvedValue(['/incoming/procedure.docx']);
+    docTrack.documents.planVersionFileImport = vi.fn().mockResolvedValue({
+      versionId: 201,
+      suggestedRole: 'working',
+      hasBlockingDuplicates: false,
+      warnings: [],
+      candidates: []
+    });
+
+    const view = await renderApp();
+    const firstRow = document.querySelector('tbody tr');
+    if (!(firstRow instanceof HTMLElement)) {
+      throw new Error('Unable to find the first document row.');
+    }
+
+    await click(firstRow);
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+    await click(getButton('Import File into 02202600001', getDialog()));
+    await waitForAnimationFrame();
+
+    expect(docTrack.dialogs.pickDocumentFiles).toHaveBeenCalledTimes(1);
+    expect(docTrack.documents.planVersionFileImport).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      201,
+      ['/incoming/procedure.docx']
+    );
+    expect(normalizeText(getLastDialog().textContent)).toContain('Show Files');
+    expect(normalizeText(getLastDialog().textContent)).toContain('/incoming/procedure.docx');
+
+    await view.unmount();
+  });
+
+  it('opens export report from the command palette with PDF workspace defaults', async () => {
+    vi.useRealTimers();
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await setStoreState((state) => ({
+      openWorkspaces: {
+        ...state.openWorkspaces,
+        [workspaceInfo.rootPath]: {
+          ...state.openWorkspaces[workspaceInfo.rootPath],
+          selectedView: 'dashboard'
+        }
+      }
+    }));
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+    await click(getButton('Export Report', getDialog()));
+    await waitForAnimationFrame();
+
+    expect(useAppStore.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe('documents');
+
+    const exportDialog = getLastDialog();
+    expect(
+      (getLabeledControl(exportDialog, 'Format', 'select') as HTMLSelectElement).value
+    ).toBe('pdf');
+    expect(
+      (getLabeledControl(exportDialog, 'Scope', 'select') as HTMLSelectElement).value
+    ).toBe('whole-workspace');
+
+    await view.unmount();
+  });
+
+  it('supports arrow navigation, Enter, and empty search results in the command palette', async () => {
+    vi.useRealTimers();
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+    let palette = getDialog();
+    const searchInput = palette.querySelector('input[aria-label="Command search"]');
+    if (!(searchInput instanceof HTMLInputElement)) {
+      throw new Error('Unable to find the command palette search input.');
+    }
+
+    await dispatchKeyboardEvent(searchInput, 'ArrowDown');
+    await dispatchKeyboardEvent(searchInput, 'Enter');
+    await waitForAnimationFrame();
+
+    expect(normalizeText(getLastDialog().textContent)).toContain('Create Workspace');
+    await click(getButton('Cancel', getLastDialog()));
+
+    await dispatchKeyboardEvent(window, 'k', { ctrlKey: true });
+    palette = getDialog();
+    await changeInput(
+      palette.querySelector('input[aria-label="Command search"]') as HTMLInputElement,
+      'no-such-command'
+    );
+
+    expect(normalizeText(getDialog().textContent)).toContain('No commands match your search.');
 
     await view.unmount();
   });
