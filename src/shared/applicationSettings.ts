@@ -25,6 +25,7 @@ export const DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT = 50;
 export const DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT = 90;
 export const DOCUMENT_DETAIL_SIDEBAR_DEFAULT_WIDTH = 800;
 export const KEYBOARD_SHORTCUT_ACTIONS = [
+  "openCommandPalette",
   "openSettings",
   "newWorkspace",
   "openWorkspaceFolder",
@@ -56,6 +57,7 @@ export type KeyboardShortcutMap = Record<
 >;
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutMap = {
+  openCommandPalette: "Mod+K",
   openSettings: "Mod+,",
   newWorkspace: "Mod+Shift+N",
   openWorkspaceFolder: "Mod+O",
@@ -150,7 +152,8 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
   {
     value: "dashboard",
     label: "Dashboard",
-    description: "Open workspaces on a dashboard with health, activity, and summary insights.",
+    description:
+      "Open workspaces on a dashboard with health, activity, and summary insights.",
   },
   {
     value: "documents",
@@ -252,6 +255,10 @@ export const KEYBOARD_SHORTCUT_ACTION_DETAILS: Record<
     description: string;
   }
 > = {
+  openCommandPalette: {
+    label: "Open Command Palette",
+    description: "Open the Spotlight-style command launcher.",
+  },
   openSettings: {
     label: "Open Settings",
     description: "Open the application settings dialog.",

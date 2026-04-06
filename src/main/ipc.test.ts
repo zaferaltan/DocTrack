@@ -49,6 +49,7 @@ describe("registerIpcHandlers", () => {
       workspaceTabDensity: "comfortable",
       documentTableVisibleColumns: ["documentId"],
       keyboardShortcuts: {
+        openCommandPalette: "Mod+K",
         openSettings: "Mod+,",
         newWorkspace: "Mod+Shift+N",
         openWorkspaceFolder: "Mod+O",

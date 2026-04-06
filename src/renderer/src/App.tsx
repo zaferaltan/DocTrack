@@ -49,6 +49,10 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
+import {
+  CommandPaletteDialog,
+  type CommandPaletteItem,
+} from "@renderer/components/CommandPaletteDialog";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import {
@@ -90,6 +94,7 @@ import {
   type KeyboardShortcutMap,
   type KeyboardShortcutValue,
   type ThemeMode,
+  type WorkspaceView,
 } from "@shared/applicationSettings";
 import type { AppUpdateState } from "@shared/appUpdates";
 import {
@@ -479,6 +484,30 @@ interface DashboardDrilldownState {
   token: number;
 }
 
+type CommandPaletteMode =
+  | "root"
+  | "pickDocumentForVersion"
+  | "pickDocumentForImport";
+
+interface CommandPaletteState {
+  open: boolean;
+  mode: CommandPaletteMode;
+  query: string;
+}
+
+interface DocumentExportDialogRequestState {
+  workspacePath: string;
+  format: DocumentExportDialogState["format"];
+  scope: DocumentExportScope;
+  token: number;
+}
+
+interface CommandPaletteCommand extends CommandPaletteItem {
+  keywords: string[];
+  searchSortDate?: string;
+  onSelect: () => void;
+}
+
 interface DeleteRecordsDialogState {
   open: boolean;
   mode: "document" | "version";
@@ -730,6 +759,12 @@ const defaultRevisionDescriptionDialogState: RevisionDescriptionDialogState = {
   open: false,
   title: "",
   content: "",
+};
+
+const defaultCommandPaletteState: CommandPaletteState = {
+  open: false,
+  mode: "root",
+  query: "",
 };
 
 const parseOptionalSelectNumber = (value: string): number | null =>
@@ -1084,6 +1119,99 @@ const getShortcutConflictActions = (
   return [...owners.values()].filter((actions) => actions.length > 1).flat();
 };
 
+const normalizeCommandPaletteSearchText = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const getCommandPaletteSearchRank = (
+  command: CommandPaletteCommand,
+  query: string,
+): number | null => {
+  const normalizedQuery = normalizeCommandPaletteSearchText(query);
+  if (!normalizedQuery) {
+    return 0;
+  }
+
+  const fields = [command.label, command.subtitle ?? "", ...command.keywords];
+  let bestRank: number | null = null;
+
+  for (const field of fields) {
+    const normalizedField = normalizeCommandPaletteSearchText(field);
+    if (!normalizedField) {
+      continue;
+    }
+
+    let rank: number | null = null;
+
+    if (normalizedField === normalizedQuery) {
+      rank = 0;
+    } else if (normalizedField.startsWith(normalizedQuery)) {
+      rank = 1;
+    } else if (
+      normalizedField.split(" ").some((word) => word.startsWith(normalizedQuery))
+    ) {
+      rank = 2;
+    } else if (normalizedField.includes(normalizedQuery)) {
+      rank = 3;
+    }
+
+    if (rank === null) {
+      continue;
+    }
+
+    if (bestRank === null || rank < bestRank) {
+      bestRank = rank;
+    }
+  }
+
+  return bestRank;
+};
+
+const filterCommandPaletteCommands = (
+  commands: CommandPaletteCommand[],
+  query: string,
+  options?: { preferNewestSortDate?: boolean },
+): CommandPaletteCommand[] =>
+  commands
+    .map((command, index) => ({
+      command,
+      index,
+      rank: getCommandPaletteSearchRank(command, query),
+    }))
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        command: CommandPaletteCommand;
+        index: number;
+        rank: number;
+      } => candidate.rank !== null,
+    )
+    .sort((left, right) => {
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+
+      if (options?.preferNewestSortDate) {
+        const leftTime = left.command.searchSortDate
+          ? Date.parse(left.command.searchSortDate)
+          : Number.NaN;
+        const rightTime = right.command.searchSortDate
+          ? Date.parse(right.command.searchSortDate)
+          : Number.NaN;
+
+        if (!Number.isNaN(leftTime) || !Number.isNaN(rightTime)) {
+          return (Number.isNaN(rightTime) ? 0 : rightTime) -
+            (Number.isNaN(leftTime) ? 0 : leftTime);
+        }
+      }
+
+      return left.index - right.index;
+    })
+    .map((candidate) => candidate.command);
+
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
 const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
   formatUserFacingError(error, fallbackMessage);
@@ -1344,6 +1472,11 @@ function App() {
   const [revisionDescriptionDialog, setRevisionDescriptionDialog] = useState(
     defaultRevisionDescriptionDialogState,
   );
+  const [commandPalette, setCommandPalette] = useState(
+    defaultCommandPaletteState,
+  );
+  const [documentExportDialogRequest, setDocumentExportDialogRequest] =
+    useState<DocumentExportDialogRequestState | null>(null);
   const [dashboardDrilldown, setDashboardDrilldown] =
     useState<DashboardDrilldownState | null>(null);
   const [selectedDocumentDetail, setSelectedDocumentDetail] =
@@ -1374,6 +1507,10 @@ function App() {
     activeWorkspaceAvailableColumns.includes("confidentialityClass");
   const workspaceSupportsLanguages =
     activeWorkspaceAvailableColumns.includes("language");
+  const selectedDocumentSummary =
+    activeWorkspace?.documents.find(
+      (document) => document.id === activeWorkspace.selectedDocumentRecordId,
+    ) ?? null;
   const activeFilesVersion =
     selectedDocumentDetail?.versions.find(
       (version) => version.id === filesDialog.versionId,
@@ -1395,6 +1532,30 @@ function App() {
       /Mac OS X/.test(navigator.userAgent),
     [],
   );
+  const isNonPaletteModalOpen =
+    workspaceDialog.open ||
+    workspaceSettingsDialog.open ||
+    applicationSettingsDialog.open ||
+    tableColumnsDialog.open ||
+    documentDialog.open ||
+    versionDialog.open ||
+    filesDialog.open ||
+    latestVersionDialog.open ||
+    statusChangeDialog.open ||
+    typeDialog.open ||
+    projectDialog.open ||
+    templateDialog.open ||
+    templateFilesDialog.open ||
+    classificationDialog.open ||
+    languageDialog.open ||
+    backupDialog.open ||
+    filePreviewDialog.open ||
+    activityLogDialog.open ||
+    versionComparisonDialog.open ||
+    renameFileDialog.open ||
+    deleteRecordsDialog.open ||
+    confirmationDialog.open ||
+    revisionDescriptionDialog.open;
   const notifyError = useEffectEvent(
     (error: unknown, fallbackMessage: string): void => {
       setNotification({
@@ -1435,6 +1596,114 @@ function App() {
         revisionDescription: version.revisionDescription,
         isSubmitting: false,
       });
+    },
+  );
+  const closeCommandPalette = useEffectEvent((): void => {
+    setCommandPalette(defaultCommandPaletteState);
+  });
+  const openCommandPalette = useEffectEvent((): void => {
+    if (isNonPaletteModalOpen) {
+      return;
+    }
+
+    setIsWorkspaceMenuOpen(false);
+    setCommandPalette({
+      open: true,
+      mode: "root",
+      query: "",
+    });
+  });
+  const openCommandPaletteDocumentPicker = useEffectEvent(
+    (mode: Exclude<CommandPaletteMode, "root">): void => {
+      setCommandPalette((state) =>
+        state.open
+          ? {
+              ...state,
+              mode,
+              query: "",
+            }
+          : state,
+      );
+    },
+  );
+  const runCommandPaletteAction = useEffectEvent(
+    (
+      action: () => void | Promise<void>,
+      fallbackMessage: string,
+    ): void => {
+      closeCommandPalette();
+      window.requestAnimationFrame(() => {
+        void Promise.resolve(action()).catch((error) => {
+          notifyError(error, fallbackMessage);
+        });
+      });
+    },
+  );
+  const openCreateVersionForDocument = useEffectEvent(
+    async (documentRecordId: number): Promise<void> => {
+      if (!activeWorkspacePath) {
+        return;
+      }
+
+      const detail =
+        selectedDocumentDetail?.id === documentRecordId
+          ? selectedDocumentDetail
+          : await loadDocumentDetail(activeWorkspacePath, documentRecordId);
+
+      if (!detail) {
+        return;
+      }
+
+      startTransition(() => {
+        setWorkspaceView(activeWorkspacePath, "documents");
+        setSelectedDocument(activeWorkspacePath, documentRecordId);
+      });
+      setSelectedDocumentDetail(detail);
+      setVersionDialog({
+        ...defaultVersionDialogState,
+        open: true,
+      });
+    },
+  );
+  const openImportFilesForDocument = useEffectEvent(
+    async (documentRecordId: number): Promise<void> => {
+      if (!activeWorkspacePath) {
+        return;
+      }
+
+      const detail =
+        selectedDocumentDetail?.id === documentRecordId
+          ? selectedDocumentDetail
+          : await loadDocumentDetail(activeWorkspacePath, documentRecordId);
+
+      if (!detail) {
+        return;
+      }
+
+      startTransition(() => {
+        setWorkspaceView(activeWorkspacePath, "documents");
+        setSelectedDocument(activeWorkspacePath, documentRecordId);
+      });
+      setSelectedDocumentDetail(detail);
+
+      const latestVersion = detail.versions[0];
+      if (!latestVersion) {
+        setNotification({
+          tone: "error",
+          message: "Create a version before showing version files.",
+        });
+        return;
+      }
+
+      const sourceFilePaths = await window.docTrack.dialogs.pickDocumentFiles();
+      if (sourceFilePaths.length === 0) {
+        return;
+      }
+
+      openFilesDialogForDetail(detail, {
+        preferredVersionId: latestVersion.id,
+      });
+      await stageFilesForVersion(latestVersion.id, sourceFilePaths);
     },
   );
   const handleWorkspaceFilesystemDrift = useEffectEvent(
@@ -1592,6 +1861,24 @@ function App() {
       window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [isWorkspaceMenuOpen]);
+
+  useEffect(() => {
+    if (commandPalette.open && isNonPaletteModalOpen) {
+      setCommandPalette(defaultCommandPaletteState);
+    }
+  }, [commandPalette.open, isNonPaletteModalOpen]);
+
+  useEffect(() => {
+    if (commandPalette.mode === "root" || activeWorkspace) {
+      return;
+    }
+
+    setCommandPalette((state) => ({
+      ...state,
+      mode: "root",
+      query: "",
+    }));
+  }, [activeWorkspace, commandPalette.mode]);
 
   useEffect(() => {
     if (
@@ -1952,8 +2239,466 @@ function App() {
     }
   };
 
+  const commandPaletteCommands = useMemo(() => {
+    const rootCommands: CommandPaletteCommand[] = [
+      {
+        id: "global:settings",
+        label: "Open Settings",
+        subtitle: "Application preferences and keyboard shortcuts",
+        group: "Global",
+        icon: Settings,
+        keywords: ["preferences keyboard shortcuts theme updates"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openApplicationSettingsDialog(),
+            "Unable to open the application settings.",
+          ),
+      },
+      {
+        id: "global:new-workspace",
+        label: "Create Workspace",
+        subtitle: "Open the new workspace dialog",
+        group: "Global",
+        icon: Plus,
+        keywords: ["new workspace create folder"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openCreateWorkspaceDialog(),
+            "Unable to open the new workspace dialog.",
+          ),
+      },
+      {
+        id: "global:open-workspace",
+        label: "Open Workspace Folder",
+        subtitle: "Choose an existing workspace folder",
+        group: "Global",
+        icon: FolderOpen,
+        keywords: ["open workspace folder picker recent"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openWorkspacePicker(),
+            "Unable to open a workspace.",
+          ),
+      },
+    ];
+
+    recentWorkspaces
+      .filter((workspace) => !openWorkspaces[workspace.rootPath])
+      .forEach((workspace) => {
+        rootCommands.push({
+          id: `recent:${workspace.rootPath}`,
+          label: `Open Recent Workspace: ${workspace.name}`,
+          subtitle: workspace.rootPath,
+          group: "Recent Workspaces",
+          icon: History,
+          keywords: [
+            workspace.name,
+            workspace.rootPath,
+            "recent reopen workspace",
+          ],
+          onSelect: () =>
+            runCommandPaletteAction(
+              () => openWorkspace(workspace.rootPath),
+              "Unable to open workspace.",
+            ),
+        });
+      });
+
+    if (!activeWorkspace || !activeWorkspacePath) {
+      return {
+        rootCommands,
+        documentPickerCommands: [] as CommandPaletteCommand[],
+      };
+    }
+
+    workspaceTabs
+      .filter(
+        (workspaceTab) =>
+          workspaceTab.workspace.rootPath !== activeWorkspace.workspace.rootPath,
+      )
+      .forEach((workspaceTab) => {
+        rootCommands.push({
+          id: `workspace:${workspaceTab.workspace.rootPath}`,
+          label: `Switch to Workspace: ${workspaceTab.workspace.name}`,
+          subtitle: workspaceTab.workspace.rootPath,
+          group: "Open Workspaces",
+          icon: FolderOpen,
+          keywords: [
+            workspaceTab.workspace.name,
+            workspaceTab.workspace.rootPath,
+            "switch workspace tab open",
+          ],
+          onSelect: () =>
+            runCommandPaletteAction(
+              () => activateWorkspaceTab(workspaceTab.workspace.rootPath),
+              "Unable to switch workspaces.",
+            ),
+        });
+      });
+
+    const workspaceCommands: CommandPaletteCommand[] = [
+      {
+        id: "workspace:settings",
+        label: "Open Workspace Settings",
+        subtitle: activeWorkspace.workspace.name,
+        group: "Workspace",
+        icon: Settings2,
+        keywords: ["workspace settings preferences storage logo"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openWorkspaceSettingsDialog(),
+            "Unable to open the workspace settings.",
+          ),
+      },
+      {
+        id: "workspace:backups",
+        label: "Open Backups & Recovery",
+        subtitle: activeWorkspace.workspace.name,
+        group: "Workspace",
+        icon: History,
+        keywords: ["backup recovery restore snapshot integrity"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openBackupDialog(),
+            "Unable to open backups and recovery.",
+          ),
+      },
+      {
+        id: "workspace:activity",
+        label: "Show Activity Log",
+        subtitle: activeWorkspace.workspace.name,
+        group: "Workspace",
+        icon: History,
+        keywords: ["activity log recent changes history"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openActivityLogDialog(),
+            "Unable to open the workspace activity log.",
+          ),
+      },
+      {
+        id: "workspace:new-document",
+        label: "Create Document",
+        subtitle: activeWorkspace.workspace.name,
+        group: "Documents",
+        icon: FilePlus2,
+        keywords: ["new document create record shell"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => openCreateDocumentDialog(),
+            "Unable to open the new document dialog.",
+          ),
+      },
+      {
+        id: "workspace:export-report",
+        label: "Export Report",
+        subtitle: "Open the export dialog with PDF workspace defaults",
+        group: "Documents",
+        icon: Download,
+        keywords: ["export report pdf csv documents workspace"],
+        onSelect: () =>
+          runCommandPaletteAction(
+            () => {
+              setWorkspaceView(activeWorkspacePath, "documents");
+              setDocumentExportDialogRequest({
+                workspacePath: activeWorkspacePath,
+                format: "pdf",
+                scope: "whole-workspace",
+                token: Date.now(),
+              });
+            },
+            "Unable to open the export dialog.",
+          ),
+      },
+    ];
+    rootCommands.push(...workspaceCommands);
+
+    if (selectedDocumentSummary) {
+      rootCommands.push(
+        {
+          id: `document:create-version:${selectedDocumentSummary.id}`,
+          label: `Create Version for ${selectedDocumentSummary.documentId}`,
+          subtitle: selectedDocumentSummary.title,
+          group: "Documents",
+          icon: FileStack,
+          keywords: [
+            selectedDocumentSummary.documentId,
+            selectedDocumentSummary.title,
+            "create version revision bump selected document",
+          ],
+          onSelect: () =>
+            runCommandPaletteAction(
+              () => openCreateVersionForDocument(selectedDocumentSummary.id),
+              "Unable to open the create version dialog.",
+            ),
+        },
+        {
+          id: `document:import-file:${selectedDocumentSummary.id}`,
+          label: `Import File into ${selectedDocumentSummary.documentId}`,
+          subtitle: selectedDocumentSummary.title,
+          group: "Documents",
+          icon: Upload,
+          keywords: [
+            selectedDocumentSummary.documentId,
+            selectedDocumentSummary.title,
+            "import file upload selected document",
+          ],
+          onSelect: () =>
+            runCommandPaletteAction(
+              () => openImportFilesForDocument(selectedDocumentSummary.id),
+              "Unable to import files into the selected document.",
+            ),
+        },
+      );
+    } else {
+      rootCommands.push(
+        {
+          id: "document:create-version:picker",
+          label: "Create Version...",
+          subtitle: "Choose a document in the active workspace",
+          group: "Documents",
+          icon: FileStack,
+          keywords: ["create version revision bump choose document"],
+          onSelect: () =>
+            openCommandPaletteDocumentPicker("pickDocumentForVersion"),
+        },
+        {
+          id: "document:import-file:picker",
+          label: "Import File...",
+          subtitle: "Choose a document in the active workspace",
+          group: "Documents",
+          icon: Upload,
+          keywords: ["import file upload choose document"],
+          onSelect: () =>
+            openCommandPaletteDocumentPicker("pickDocumentForImport"),
+        },
+      );
+    }
+
+    const viewCommands: Array<{
+      id: string;
+      label: string;
+      view: WorkspaceView;
+      icon: typeof Sparkles;
+      enabled: boolean;
+      keywords: string[];
+    }> = [
+      {
+        id: "view:dashboard",
+        label: "Go to Dashboard",
+        view: "dashboard",
+        icon: Sparkles,
+        enabled: true,
+        keywords: ["dashboard overview health activity"],
+      },
+      {
+        id: "view:documents",
+        label: "Go to Documents",
+        view: "documents",
+        icon: Table2,
+        enabled: true,
+        keywords: ["documents table search"],
+      },
+      {
+        id: "view:projects",
+        label: "Go to Projects",
+        view: "projects",
+        icon: FolderOpen,
+        enabled: workspaceSupportsProjects,
+        keywords: ["projects"],
+      },
+      {
+        id: "view:templates",
+        label: "Go to Templates",
+        view: "templates",
+        icon: FileStack,
+        enabled: true,
+        keywords: ["templates"],
+      },
+      {
+        id: "view:document-types",
+        label: "Go to Document Types",
+        view: "documentTypes",
+        icon: LayoutPanelLeft,
+        enabled: true,
+        keywords: ["document types"],
+      },
+      {
+        id: "view:classifications",
+        label: "Go to Classifications",
+        view: "classifications",
+        icon: Settings2,
+        enabled: workspaceSupportsConfidentialityClasses,
+        keywords: ["classifications confidentiality classes"],
+      },
+      {
+        id: "view:languages",
+        label: "Go to Languages",
+        view: "languages",
+        icon: Pencil,
+        enabled: workspaceSupportsLanguages,
+        keywords: ["languages"],
+      },
+    ];
+
+    viewCommands
+      .filter((command) => command.enabled)
+      .forEach((command) => {
+        rootCommands.push({
+          id: command.id,
+          label: command.label,
+          subtitle: activeWorkspace.workspace.name,
+          group: "Views",
+          icon: command.icon,
+          keywords: command.keywords,
+          onSelect: () =>
+            runCommandPaletteAction(
+              () => setWorkspaceView(activeWorkspacePath, command.view),
+              "Unable to change the workspace view.",
+            ),
+        });
+      });
+
+    const documentPickerCommands = activeWorkspace.documents.map((document) => ({
+      id: `pick-document:${document.id}`,
+      label: document.title,
+      subtitle: `${document.documentId} • ${document.typeName} • ${
+        document.latestVersionLabel
+          ? `Latest version ${document.latestVersionLabel}`
+          : "No versions yet"
+      }`,
+      group: "Documents",
+      icon:
+        commandPalette.mode === "pickDocumentForImport" ? Upload : FileStack,
+      keywords: [
+        document.documentId,
+        document.title,
+        document.typeName,
+        document.author,
+        document.projectName ?? "",
+        document.languageCode ?? "",
+        document.status ?? "",
+      ],
+      searchSortDate: document.modifiedDate,
+      onSelect: () =>
+        runCommandPaletteAction(
+          () =>
+            commandPalette.mode === "pickDocumentForImport"
+              ? openImportFilesForDocument(document.id)
+              : openCreateVersionForDocument(document.id),
+          commandPalette.mode === "pickDocumentForImport"
+            ? "Unable to import files into the selected document."
+            : "Unable to open the create version dialog.",
+        ),
+    }));
+
+    return {
+      rootCommands,
+      documentPickerCommands,
+    };
+  }, [
+    activateWorkspaceTab,
+    activeWorkspace,
+    activeWorkspacePath,
+    commandPalette.mode,
+    openActivityLogDialog,
+    openApplicationSettingsDialog,
+    openCommandPaletteDocumentPicker,
+    openCreateDocumentDialog,
+    openCreateWorkspaceDialog,
+    openCreateVersionForDocument,
+    openImportFilesForDocument,
+    openWorkspace,
+    openWorkspacePicker,
+    openWorkspaceSettingsDialog,
+    openWorkspaces,
+    recentWorkspaces,
+    runCommandPaletteAction,
+    selectedDocumentSummary,
+    setWorkspaceView,
+    workspaceSupportsConfidentialityClasses,
+    workspaceSupportsLanguages,
+    workspaceSupportsProjects,
+    workspaceTabs,
+  ]);
+
+  const commandPaletteMeta = useMemo(() => {
+    if (commandPalette.mode === "pickDocumentForVersion") {
+      return {
+        title: "Choose Document for Create Version",
+        description: "Search the active workspace documents and pick one.",
+        emptyMessage: activeWorkspace
+          ? "No matching documents found in this workspace."
+          : "Open a workspace to create a document version.",
+      };
+    }
+
+    if (commandPalette.mode === "pickDocumentForImport") {
+      return {
+        title: "Choose Document for Import File",
+        description: "Search the active workspace documents and pick one.",
+        emptyMessage: activeWorkspace
+          ? "No matching documents found in this workspace."
+          : "Open a workspace to import files.",
+      };
+    }
+
+    return {
+      title: "Command Palette",
+      description: "Search commands, workspaces, and document actions.",
+      emptyMessage: "No commands match your search.",
+    };
+  }, [activeWorkspace, commandPalette.mode]);
+
+  const currentCommandPaletteCommands = useMemo(
+    () =>
+      commandPalette.mode === "root"
+        ? filterCommandPaletteCommands(
+            commandPaletteCommands.rootCommands,
+            commandPalette.query,
+          )
+        : filterCommandPaletteCommands(
+            commandPaletteCommands.documentPickerCommands,
+            commandPalette.query,
+            { preferNewestSortDate: true },
+          ),
+    [commandPalette.mode, commandPalette.query, commandPaletteCommands],
+  );
+  const handleCommandPaletteSelect = (itemId: string) => {
+    const command = currentCommandPaletteCommands.find(
+      (candidate) => candidate.id === itemId,
+    );
+    command?.onSelect();
+  };
+  const handleCommandPaletteBack = () => {
+    setCommandPalette((state) => ({
+      ...state,
+      mode: "root",
+      query: "",
+    }));
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        doesEventMatchShortcut(
+          event,
+          applicationSettings.keyboardShortcuts.openCommandPalette,
+        )
+      ) {
+        event.preventDefault();
+        if (commandPalette.open) {
+          closeCommandPalette();
+        } else {
+          openCommandPalette();
+        }
+        return;
+      }
+
+      if (commandPalette.open) {
+        return;
+      }
+
       if (
         doesEventMatchShortcut(
           event,
@@ -2018,7 +2763,13 @@ function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeWorkspace, applicationSettings.keyboardShortcuts]);
+  }, [
+    activeWorkspace,
+    applicationSettings.keyboardShortcuts,
+    closeCommandPalette,
+    commandPalette.open,
+    openCommandPalette,
+  ]);
 
   const handleCreateWorkspace = async () => {
     const validationErrors = validateWorkspaceDialogState(workspaceDialog);
@@ -3033,7 +3784,7 @@ function App() {
     documentVersionId: number,
     sourceFilePaths: string[],
   ) => {
-    if (!activeWorkspacePath || !selectedDocumentDetail) {
+    if (!activeWorkspacePath) {
       return;
     }
 
@@ -3076,7 +3827,7 @@ function App() {
   };
 
   const handleAddFilesToVersion = async (documentVersionId: number) => {
-    if (!activeWorkspacePath || !selectedDocumentDetail) {
+    if (!activeWorkspacePath) {
       return;
     }
 
@@ -3907,6 +4658,14 @@ function App() {
             documentDetailSidebarWidth: nextWidth,
           })
         }
+        documentExportDialogRequest={documentExportDialogRequest}
+        onDocumentExportDialogRequestConsumed={() =>
+          setDocumentExportDialogRequest((current) =>
+            current?.workspacePath === activeWorkspace.workspace.rootPath
+              ? null
+              : current,
+          )
+        }
         dashboardDrilldown={
           dashboardDrilldown?.workspacePath === activeWorkspace.workspace.rootPath
             ? dashboardDrilldown
@@ -4431,6 +5190,32 @@ function App() {
           {activeWorkspaceContent}
         </section>
       </main>
+
+      <CommandPaletteDialog
+        open={commandPalette.open}
+        title={commandPaletteMeta.title}
+        description={commandPaletteMeta.description}
+        query={commandPalette.query}
+        items={currentCommandPaletteCommands}
+        emptyMessage={commandPaletteMeta.emptyMessage}
+        showBackButton={commandPalette.mode !== "root"}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeCommandPalette();
+            return;
+          }
+
+          openCommandPalette();
+        }}
+        onQueryChange={(query) =>
+          setCommandPalette((state) => ({
+            ...state,
+            query,
+          }))
+        }
+        onBack={handleCommandPaletteBack}
+        onSelect={handleCommandPaletteSelect}
+      />
 
       <WorkspaceDialog
         state={workspaceDialog}
@@ -5949,6 +6734,8 @@ function DocumentsView({
   onRequestDeleteDocument,
   onRequestDeleteVersion,
   onUpdateSidebarWidth,
+  documentExportDialogRequest,
+  onDocumentExportDialogRequestConsumed,
   dashboardDrilldown,
   onDashboardDrilldownConsumed,
 }: {
@@ -5982,6 +6769,8 @@ function DocumentsView({
   onRequestDeleteDocument: (documentRecordId?: number) => void;
   onRequestDeleteVersion: (documentVersionId: number) => void;
   onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
+  documentExportDialogRequest: DocumentExportDialogRequestState | null;
+  onDocumentExportDialogRequestConsumed: () => void;
   dashboardDrilldown: DashboardDrilldownState | null;
   onDashboardDrilldownConsumed: () => void;
 }) {
@@ -6071,6 +6860,27 @@ function DocumentsView({
       };
     });
   }, [exportGroupingOptions]);
+
+  useEffect(() => {
+    if (
+      !documentExportDialogRequest ||
+      documentExportDialogRequest.workspacePath !== workspace.workspace.rootPath
+    ) {
+      return;
+    }
+
+    setExportDialog({
+      ...defaultDocumentExportDialogState,
+      open: true,
+      format: documentExportDialogRequest.format,
+      scope: documentExportDialogRequest.scope,
+    });
+    onDocumentExportDialogRequestConsumed();
+  }, [
+    documentExportDialogRequest,
+    onDocumentExportDialogRequestConsumed,
+    workspace.workspace.rootPath,
+  ]);
 
   useEffect(() => {
     if (!dashboardDrilldown) {

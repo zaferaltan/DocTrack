@@ -136,6 +136,7 @@ describe('app catalog service', () => {
             documentDetailSidebarWidth: -40,
             workspaceTabDensity: 'dense',
             keyboardShortcuts: {
+              openCommandPalette: 'meta + k',
               openSettings: 'ctrl + ,',
               newWorkspace: 'meta + shift + n',
               openWorkspaceFolder: 'bad+value+pair',
@@ -154,6 +155,7 @@ describe('app catalog service', () => {
       ...DEFAULT_APPLICATION_SETTINGS,
       keyboardShortcuts: {
         ...DEFAULT_KEYBOARD_SHORTCUTS,
+        openCommandPalette: 'Mod+K',
         openSettings: 'Mod+,',
         newWorkspace: 'Mod+Shift+N',
         openWorkspaceFolder: null,
