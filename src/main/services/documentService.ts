@@ -240,6 +240,7 @@ export class DocumentService {
         row.ReviewBaselineReleasedDate ?? row.ReleasedDate,
         row.RevisionIntervalMonths
       );
+      const effectiveDate = row.ReviewBaselineReleasedDate ?? row.ReleasedDate;
       const isOverdue =
         nextReviewDate !== null &&
         this.isDateInPast(nextReviewDate) &&
@@ -255,6 +256,7 @@ export class DocumentService {
         versionScheme: row.VersionScheme,
         status: row.Status,
         latestVersionLabel: row.LatestVersionLabel,
+        effectiveDate,
         releasedDate: row.ReleasedDate,
         approvedBy: row.ApprovedBy ?? '',
         revisionDescription: row.RevisionDescription ?? '',

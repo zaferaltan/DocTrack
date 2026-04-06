@@ -10,6 +10,12 @@ export const APPLICATION_LAUNCH_BEHAVIORS = [
   "reopen-last-workspace",
 ] as const;
 export const DOCUMENT_DETAIL_VIEW_MODES = ["sidebar", "modal", "page"] as const;
+export const DOCUMENTS_VISUALIZATION_MODES = [
+  "table",
+  "kanban",
+  "timeline",
+  "calendar",
+] as const;
 export const WORKSPACE_VIEWS = [
   "dashboard",
   "documents",
@@ -46,6 +52,8 @@ export type ApplicationLaunchBehavior =
   (typeof APPLICATION_LAUNCH_BEHAVIORS)[number];
 export type DocumentDetailViewMode =
   (typeof DOCUMENT_DETAIL_VIEW_MODES)[number];
+export type DocumentsVisualizationMode =
+  (typeof DOCUMENTS_VISUALIZATION_MODES)[number];
 export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];
 export type DocumentTableDensity = (typeof DOCUMENT_TABLE_DENSITIES)[number];
 export type WorkspaceTabDensity = (typeof WORKSPACE_TAB_DENSITIES)[number];
@@ -70,6 +78,7 @@ export interface ApplicationSettings {
   launchBehavior: ApplicationLaunchBehavior;
   defaultWorkspaceView: WorkspaceView;
   documentDetailViewMode: DocumentDetailViewMode;
+  defaultDocumentsVisualization: DocumentsVisualizationMode;
   documentDetailSidebarWidth: number;
   documentTableDensity: DocumentTableDensity;
   workspaceTabDensity: WorkspaceTabDensity;
@@ -89,6 +98,7 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   launchBehavior: "home",
   defaultWorkspaceView: "documents",
   documentDetailViewMode: "sidebar",
+  defaultDocumentsVisualization: "table",
   documentDetailSidebarWidth: DOCUMENT_DETAIL_SIDEBAR_DEFAULT_WIDTH,
   documentTableDensity: "comfortable",
   workspaceTabDensity: "comfortable",
@@ -212,6 +222,33 @@ export const DOCUMENT_DETAIL_VIEW_MODE_OPTIONS: Array<{
   },
 ];
 
+export const DOCUMENTS_VISUALIZATION_MODE_OPTIONS: Array<{
+  value: DocumentsVisualizationMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "table",
+    label: "Table",
+    description: "Show the traditional sortable documents table.",
+  },
+  {
+    value: "kanban",
+    label: "Kanban",
+    description: "Organize documents into status columns.",
+  },
+  {
+    value: "timeline",
+    label: "Timeline",
+    description: "See documents in chronological order by effective date.",
+  },
+  {
+    value: "calendar",
+    label: "Calendar",
+    description: "See review due dates in a monthly calendar.",
+  },
+];
+
 export const DOCUMENT_TABLE_DENSITY_OPTIONS: Array<{
   value: DocumentTableDensity;
   label: string;
@@ -293,6 +330,11 @@ export const isDocumentDetailViewMode = (
   value: string,
 ): value is DocumentDetailViewMode =>
   DOCUMENT_DETAIL_VIEW_MODES.includes(value as DocumentDetailViewMode);
+
+export const isDocumentsVisualizationMode = (
+  value: string,
+): value is DocumentsVisualizationMode =>
+  DOCUMENTS_VISUALIZATION_MODES.includes(value as DocumentsVisualizationMode);
 
 export const isWorkspaceView = (value: string): value is WorkspaceView =>
   WORKSPACE_VIEWS.includes(value as WorkspaceView);

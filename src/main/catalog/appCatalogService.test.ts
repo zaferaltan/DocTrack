@@ -39,6 +39,7 @@ describe('app catalog service', () => {
       launchBehavior: 'reopen-last-workspace',
       defaultWorkspaceView: 'documentTypes',
       documentDetailViewMode: 'modal',
+      defaultDocumentsVisualization: 'kanban',
       documentDetailSidebarWidth: 820,
       documentTableDensity: 'compact',
       workspaceTabDensity: 'compact',
@@ -133,6 +134,7 @@ describe('app catalog service', () => {
         {
           applicationSettings: {
             documentDetailViewMode: 'invalid',
+            defaultDocumentsVisualization: 'matrix',
             documentDetailSidebarWidth: -40,
             workspaceTabDensity: 'dense',
             keyboardShortcuts: {

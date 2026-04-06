@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   DEFAULT_APPLICATION_SETTINGS,
   type ApplicationSettings,
+  type DocumentsVisualizationMode,
   type WorkspaceView
 } from '@shared/applicationSettings';
 import type {
@@ -14,6 +15,7 @@ import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export interface WorkspaceTabState extends WorkspaceSummary {
   selectedView: WorkspaceView;
+  selectedDocumentsVisualization: DocumentsVisualizationMode;
   selectedDocumentRecordId?: number;
 }
 
@@ -42,6 +44,7 @@ interface AppStoreState {
   updateWorkspaceSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<void>;
   setActiveWorkspace: (rootPath: string) => void;
   setWorkspaceView: (rootPath: string, view: WorkspaceView) => void;
+  setDocumentsVisualization: (rootPath: string, mode: DocumentsVisualizationMode) => void;
   setSelectedDocument: (rootPath: string, documentRecordId?: number) => void;
   updateApplicationSettings: (settings: ApplicationSettings) => Promise<void>;
   setNotification: (notification?: AppStoreState['notification']) => void;
@@ -54,6 +57,8 @@ const buildWorkspaceState = (
 ): WorkspaceTabState => ({
   ...result.summary,
   selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
+  selectedDocumentsVisualization:
+    existing?.selectedDocumentsVisualization ?? applicationSettings.defaultDocumentsVisualization,
   selectedDocumentRecordId: existing?.selectedDocumentRecordId
 });
 
@@ -229,6 +234,24 @@ export const createAppStore = () =>
             [rootPath]: {
               ...workspace,
               selectedView: view
+            }
+          }
+        };
+      });
+    },
+    setDocumentsVisualization: (rootPath, mode) => {
+      set((state) => {
+        const workspace = state.openWorkspaces[rootPath];
+        if (!workspace) {
+          return state;
+        }
+
+        return {
+          openWorkspaces: {
+            ...state.openWorkspaces,
+            [rootPath]: {
+              ...workspace,
+              selectedDocumentsVisualization: mode
             }
           }
         };

@@ -1,4 +1,13 @@
 import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format as formatDateFns,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import {
   startTransition,
   useDeferredValue,
   useEffect,
@@ -12,7 +21,10 @@ import {
   ArrowUpDown,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   CircleDot,
+  Columns3,
+  CalendarDays,
   Download,
   FilePlus2,
   FileStack,
@@ -25,6 +37,7 @@ import {
   Moon,
   Maximize2,
   Minimize2,
+  Milestone,
   Pencil,
   PencilLine,
   Plus,
@@ -81,6 +94,7 @@ import {
   DOCUMENT_DETAIL_SIDEBAR_MAX_WIDTH_PERCENT,
   DOCUMENT_DETAIL_SIDEBAR_MIN_WIDTH_PERCENT,
   DOCUMENT_DETAIL_VIEW_MODE_OPTIONS,
+  DOCUMENTS_VISUALIZATION_MODE_OPTIONS,
   DOCUMENT_TABLE_DENSITY_OPTIONS,
   KEYBOARD_SHORTCUT_ACTIONS,
   KEYBOARD_SHORTCUT_ACTION_DETAILS,
@@ -89,6 +103,7 @@ import {
   WORKSPACE_VIEW_OPTIONS,
   type ApplicationSettings,
   type DocumentDetailViewMode,
+  type DocumentsVisualizationMode,
   type DocumentTableDensity,
   type KeyboardShortcutAction,
   type KeyboardShortcutMap,
@@ -1408,6 +1423,7 @@ function App() {
     updateWorkspaceSettings,
     setActiveWorkspace,
     setWorkspaceView,
+    setDocumentsVisualization,
     setSelectedDocument,
     updateApplicationSettings,
     setNotification,
@@ -4547,6 +4563,9 @@ function App() {
         applicationSettings={applicationSettings}
         isMacOs={isMacOs}
         documentTableDensity={applicationSettings.documentTableDensity}
+        documentsVisualizationMode={
+          activeWorkspace.selectedDocumentsVisualization
+        }
         visibleTableColumns={getEffectiveDocumentTableVisibleColumns(
           applicationSettings.documentTableVisibleColumns,
           activeWorkspace.settings.visibleDocumentColumns,
@@ -4564,6 +4583,9 @@ function App() {
         onRequestStatusChange={handleRequestStatusChange}
         onRequestNewDocument={openCreateDocumentDialog}
         onExportDocuments={handleExportDocuments}
+        onDocumentsVisualizationModeChange={(mode) =>
+          setDocumentsVisualization(activeWorkspace.workspace.rootPath, mode)
+        }
         onOpenTableSettings={() =>
           setTableColumnsDialog({
             open: true,
@@ -5660,6 +5682,11 @@ function ApplicationSettingsDialog({
     DOCUMENT_DETAIL_VIEW_MODE_OPTIONS.find(
       (option) => option.value === state.settings.documentDetailViewMode,
     ) ?? DOCUMENT_DETAIL_VIEW_MODE_OPTIONS[0];
+  const selectedDocumentsVisualization =
+    DOCUMENTS_VISUALIZATION_MODE_OPTIONS.find(
+      (option) =>
+        option.value === state.settings.defaultDocumentsVisualization,
+    ) ?? DOCUMENTS_VISUALIZATION_MODE_OPTIONS[0];
   const selectedDensity =
     DOCUMENT_TABLE_DENSITY_OPTIONS.find(
       (option) => option.value === state.settings.documentTableDensity,
@@ -5830,6 +5857,27 @@ function ApplicationSettingsDialog({
               title="Workspace Interface"
               description="Tune document detail presentation and workspace tab density."
             >
+              <Field label="Default Documents View">
+                <Select
+                  value={state.settings.defaultDocumentsVisualization}
+                  onChange={(event) =>
+                    updateSettings({
+                      defaultDocumentsVisualization: event.target
+                        .value as ApplicationSettings["defaultDocumentsVisualization"],
+                    })
+                  }
+                >
+                  {DOCUMENTS_VISUALIZATION_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  {selectedDocumentsVisualization.description}
+                </div>
+              </Field>
+
               <Field label="Document Detail View">
                 <Select
                   value={state.settings.documentDetailViewMode}
@@ -6714,6 +6762,7 @@ function DocumentsView({
   applicationSettings,
   isMacOs,
   documentTableDensity,
+  documentsVisualizationMode,
   visibleTableColumns,
   selectedDocumentDetail,
   isDetailLoading,
@@ -6723,6 +6772,7 @@ function DocumentsView({
   onRequestStatusChange,
   onRequestNewDocument,
   onExportDocuments,
+  onDocumentsVisualizationModeChange,
   onOpenTableSettings,
   onRequestEditDocument,
   onRequestNewVersion,
@@ -6743,6 +6793,7 @@ function DocumentsView({
   applicationSettings: ApplicationSettings;
   isMacOs: boolean;
   documentTableDensity: DocumentTableDensity;
+  documentsVisualizationMode: DocumentsVisualizationMode;
   visibleTableColumns: DocumentTableColumn[];
   selectedDocumentDetail: DocumentDetail | null;
   isDetailLoading: boolean;
@@ -6758,6 +6809,9 @@ function DocumentsView({
   ) => void;
   onRequestNewDocument: () => void;
   onExportDocuments: (request: DocumentExportRequest) => Promise<void>;
+  onDocumentsVisualizationModeChange: (
+    mode: DocumentsVisualizationMode,
+  ) => void;
   onOpenTableSettings: () => void;
   onRequestEditDocument: (documentRecordId?: number) => void;
   onRequestNewVersion: () => void;
@@ -6802,8 +6856,20 @@ function DocumentsView({
   const projectFeatureEnabled = availableColumns.includes("project");
   const deferredSearch = useDeferredValue(search);
   const detailViewMode = applicationSettings.documentDetailViewMode;
+  const timelineContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineSectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const [calendarMonthKey, setCalendarMonthKey] = useState(() =>
+    getMonthKeyForDate(new Date()),
+  );
+  const [draggedDocumentId, setDraggedDocumentId] = useState<number | null>(
+    null,
+  );
+  const [kanbanDropStatus, setKanbanDropStatus] = useState<
+    DocumentStatus | null
+  >(null);
   const hasSelectedDocument = Boolean(workspace.selectedDocumentRecordId);
   const isSidebarOpen = detailViewMode === "sidebar" && hasSelectedDocument;
+  const isTableView = documentsVisualizationMode === "table";
   const headerCellClassName =
     documentTableDensity === "compact"
       ? "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground"
@@ -6938,6 +7004,13 @@ function DocumentsView({
 
     return () => window.cancelAnimationFrame(frame);
   }, [isSidebarOpen]);
+
+  useEffect(() => {
+    setCalendarMonthKey(getMonthKeyForDate(new Date()));
+    setDraggedDocumentId(null);
+    setKanbanDropStatus(null);
+    timelineSectionRefs.current = {};
+  }, [workspace.workspace.rootPath]);
 
   const filteredDocuments = useMemo(
     () =>
@@ -7292,6 +7365,32 @@ function DocumentsView({
   const affectedCurrentRows = currentTableRows.filter((document) =>
     documentNeedsFilesystemReview(document),
   );
+  const kanbanColumns = useMemo(
+    () => buildKanbanColumns(currentTableRows, workspace.statuses),
+    [currentTableRows, workspace.statuses],
+  );
+  const timelineGroups = useMemo(
+    () => buildTimelineGroups(currentTableRows),
+    [currentTableRows],
+  );
+  const calendarDocuments = useMemo(
+    () =>
+      currentTableRows.filter(
+        (document) => getCanonicalDateKey(document.nextReviewDate) !== null,
+      ),
+    [currentTableRows],
+  );
+  const undatedCalendarDocuments = useMemo(
+    () =>
+      currentTableRows.filter(
+        (document) => getCanonicalDateKey(document.nextReviewDate) === null,
+      ),
+    [currentTableRows],
+  );
+  const calendarMonth = useMemo(
+    () => buildCalendarMonth(calendarMonthKey, calendarDocuments),
+    [calendarDocuments, calendarMonthKey],
+  );
 
   const wholeWorkspaceRows = useMemo(() => {
     const sortingToUse =
@@ -7324,6 +7423,40 @@ function DocumentsView({
       return 0;
     });
   }, [availableColumns, sorting, workspace.documents]);
+
+  useEffect(() => {
+    if (
+      documentsVisualizationMode !== "timeline" ||
+      timelineGroups.orderedMonthKeys.length === 0
+    ) {
+      return;
+    }
+
+    const anchorMonthKey = findNearestMonthKey(
+      timelineGroups.orderedMonthKeys,
+      getMonthKeyForDate(new Date()),
+    );
+    if (!anchorMonthKey) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const container = timelineContainerRef.current;
+      const section = timelineSectionRefs.current[anchorMonthKey];
+      if (!container || !section) {
+        return;
+      }
+
+      const nextTop =
+        section.offsetTop - container.clientTop - 12;
+      container.scrollTo({
+        top: Math.max(0, nextTop),
+        behavior: "auto",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [documentsVisualizationMode, timelineGroups.orderedMonthKeys]);
 
   const handleSubmitExport = async () => {
     const columns =
@@ -7377,6 +7510,60 @@ function DocumentsView({
       setExportDialog((current) => ({ ...current, isSubmitting: false }));
       throw error;
     }
+  };
+
+  const handleKanbanCardDragStart = (
+    document: DocumentListItem,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    if (!document.status || !document.latestVersionLabel) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(document.id));
+    setDraggedDocumentId(document.id);
+    setKanbanDropStatus(null);
+  };
+
+  const handleKanbanCardDragEnd: React.DragEventHandler<HTMLDivElement> = () => {
+    setDraggedDocumentId(null);
+    setKanbanDropStatus(null);
+  };
+
+  const handleKanbanColumnDragOver = (
+    status: DocumentStatus,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    if (draggedDocumentId === null) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setKanbanDropStatus(status);
+  };
+
+  const handleKanbanColumnDrop = (
+    status: DocumentStatus,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    const documentId =
+      Number(event.dataTransfer.getData("text/plain")) || draggedDocumentId;
+    const document =
+      currentTableRows.find((item) => item.id === documentId) ??
+      workspace.documents.find((item) => item.id === documentId);
+
+    setDraggedDocumentId(null);
+    setKanbanDropStatus(null);
+
+    if (!document || !document.status || !document.latestVersionLabel) {
+      return;
+    }
+
+    onRequestStatusChange(document, status);
   };
 
   const renderDetailContent = (layout: "sidebar" | "modal" | "page") => (
@@ -7437,6 +7624,118 @@ function DocumentsView({
     window.addEventListener("pointerup", handlePointerUp);
   };
 
+  const documentsVisualizationContent =
+    documentsVisualizationMode === "table" ? (
+      <div className="h-full overflow-auto rounded-xl border border-border">
+        <table className="min-w-full border-collapse text-[13px]">
+          <thead className="sticky top-0 z-10 bg-card/95">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id} className="border-b border-border">
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className={cn(
+                      headerCellClassName,
+                      header.id === "actions" && "text-right",
+                    )}
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className={emptyStateClassName}>
+                  No documents match the current search and filter settings.
+                </td>
+              </tr>
+            ) : (
+              table.getRowModel().rows.map((row) => {
+                const hasFilesystemReviewIssue = documentNeedsFilesystemReview(
+                  row.original,
+                );
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "cursor-pointer border-b border-border/60 transition hover:bg-accent/70",
+                      hasFilesystemReviewIssue &&
+                        "border-destructive/25 bg-destructive/5 hover:bg-destructive/10",
+                      workspace.selectedDocumentRecordId === row.original.id &&
+                        (hasFilesystemReviewIssue
+                          ? "bg-destructive/10"
+                          : "bg-accent/70"),
+                    )}
+                    onClick={() => onSelectDocument(row.original.id)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          bodyCellClassName,
+                          cell.column.id === "actions" && "min-w-[180px]",
+                        )}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    ) : documentsVisualizationMode === "kanban" ? (
+      <DocumentsKanbanBoard
+        columns={kanbanColumns}
+        selectedDocumentId={workspace.selectedDocumentRecordId}
+        draggedDocumentId={draggedDocumentId}
+        dropStatus={kanbanDropStatus}
+        onSelectDocument={onSelectDocument}
+        onDragStart={handleKanbanCardDragStart}
+        onDragEnd={handleKanbanCardDragEnd}
+        onColumnDragOver={handleKanbanColumnDragOver}
+        onColumnDrop={handleKanbanColumnDrop}
+      />
+    ) : documentsVisualizationMode === "timeline" ? (
+      <DocumentsTimeline
+        containerRef={timelineContainerRef}
+        sectionRefs={timelineSectionRefs}
+        groups={timelineGroups}
+        selectedDocumentId={workspace.selectedDocumentRecordId}
+        onSelectDocument={onSelectDocument}
+      />
+    ) : (
+      <DocumentsCalendar
+        month={calendarMonth}
+        undatedDocuments={undatedCalendarDocuments}
+        selectedDocumentId={workspace.selectedDocumentRecordId}
+        onSelectDocument={onSelectDocument}
+        onPreviousMonth={() =>
+          setCalendarMonthKey((current) =>
+            shiftMonthKey(current, -1),
+          )
+        }
+        onNextMonth={() =>
+          setCalendarMonthKey((current) => shiftMonthKey(current, 1))
+        }
+        onToday={() => setCalendarMonthKey(getMonthKeyForDate(new Date()))}
+      />
+    );
+
   if (detailViewMode === "page" && hasSelectedDocument) {
     return (
       <>
@@ -7474,32 +7773,66 @@ function DocumentsView({
                 {workspace.documents.length} documents tracked in this workspace
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onRequestNewDocument}>
-                <FilePlus2 className="h-4 w-4" />
-                New Document
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  setExportDialog({
-                    ...defaultDocumentExportDialogState,
-                    open: true,
-                  })
-                }
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <div
+                className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-background p-1"
+                aria-label="Documents visualization mode"
               >
-                <FileStack className="h-4 w-4" />
-                Export
-              </Button>
-              <Button
-                aria-label="Table View Settings"
-                variant="outline"
-                size="icon"
-                onClick={onOpenTableSettings}
-                title="Table View Settings"
-              >
-                <Settings2 className="h-4 w-4" />
-              </Button>
+                {DOCUMENTS_VISUALIZATION_MODE_OPTIONS.map((option) => {
+                  const Icon = getDocumentsVisualizationIcon(option.value);
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      data-documents-visualization-button={option.value}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition",
+                        documentsVisualizationMode === option.value
+                          ? "bg-secondary text-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                      aria-pressed={documentsVisualizationMode === option.value}
+                      onClick={() =>
+                        onDocumentsVisualizationModeChange(option.value)
+                      }
+                    >
+                      <Icon className="h-4 w-4" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={onRequestNewDocument}>
+                  <FilePlus2 className="h-4 w-4" />
+                  New Document
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    setExportDialog({
+                      ...defaultDocumentExportDialogState,
+                      open: true,
+                    })
+                  }
+                >
+                  <FileStack className="h-4 w-4" />
+                  Export
+                </Button>
+                {isTableView ? (
+                  <Button
+                    aria-label="Table View Settings"
+                    variant="outline"
+                    size="icon"
+                    onClick={onOpenTableSettings}
+                    title="Table View Settings"
+                  >
+                    <Settings2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -7605,85 +7938,8 @@ function DocumentsView({
             </div>
           ) : null}
 
-          <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
-            <div className="h-full overflow-auto">
-              <table className="min-w-full border-collapse text-[13px]">
-                <thead className="sticky top-0 z-10 bg-card/95">
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <tr key={headerGroup.id} className="border-b border-border">
-                      {headerGroup.headers.map((header) => (
-                        <th
-                          key={header.id}
-                          className={cn(
-                            headerCellClassName,
-                            header.id === "actions" && "text-right",
-                          )}
-                        >
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(
-                                header.column.columnDef.header,
-                                header.getContext(),
-                              )}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={columns.length}
-                        className={emptyStateClassName}
-                      >
-                        No documents match the current search and filter
-                        settings.
-                      </td>
-                    </tr>
-                  ) : (
-                    table.getRowModel().rows.map((row) => (
-                      (() => {
-                        const hasFilesystemReviewIssue =
-                          documentNeedsFilesystemReview(row.original);
-
-                        return (
-                      <tr
-                        key={row.id}
-                        className={cn(
-                          "cursor-pointer border-b border-border/60 transition hover:bg-accent/70",
-                          hasFilesystemReviewIssue &&
-                            "border-destructive/25 bg-destructive/5 hover:bg-destructive/10",
-                          workspace.selectedDocumentRecordId ===
-                            row.original.id &&
-                            (hasFilesystemReviewIssue
-                              ? "bg-destructive/10"
-                              : "bg-accent/70"),
-                        )}
-                        onClick={() => onSelectDocument(row.original.id)}
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className={cn(
-                              bodyCellClassName,
-                              cell.column.id === "actions" && "min-w-[180px]",
-                            )}
-                          >
-                            {flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext(),
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                        );
-                      })()
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+            {documentsVisualizationContent}
           </div>
         </div>
 
@@ -8013,6 +8269,738 @@ function DocumentsView({
         onSubmit={handleSubmitExport}
       />
     </>
+  );
+}
+
+interface DocumentsKanbanColumn {
+  label: DocumentStatus | "Not started";
+  status: DocumentStatus | null;
+  documents: DocumentListItem[];
+}
+
+interface TimelineDocumentEntry {
+  document: DocumentListItem;
+  effectiveDateKey: string;
+}
+
+interface TimelineMonthGroup {
+  monthKey: string;
+  label: string;
+  entries: TimelineDocumentEntry[];
+}
+
+interface TimelineGroupsData {
+  orderedMonthKeys: string[];
+  monthGroups: TimelineMonthGroup[];
+  undatedDocuments: DocumentListItem[];
+}
+
+interface CalendarDayCell {
+  dateKey: string;
+  label: string;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  documents: DocumentListItem[];
+}
+
+interface CalendarMonthData {
+  monthKey: string;
+  label: string;
+  weeks: CalendarDayCell[][];
+}
+
+const DOCUMENTS_VISUALIZATION_ICONS: Record<
+  DocumentsVisualizationMode,
+  typeof Table2
+> = {
+  table: Table2,
+  kanban: Columns3,
+  timeline: Milestone,
+  calendar: CalendarDays,
+};
+
+const getDocumentsVisualizationIcon = (
+  mode: DocumentsVisualizationMode,
+): typeof Table2 => DOCUMENTS_VISUALIZATION_ICONS[mode];
+
+const parseDateKey = (value: string): Date => {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+};
+
+const parseMonthKey = (value: string): Date => {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(year, month - 1, 1, 12);
+};
+
+const getDateKeyForDate = (value: Date): string =>
+  [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
+
+const getMonthKeyForDate = (value: Date): string =>
+  [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+  ].join("-");
+
+const getCanonicalDateKey = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const dateKey = trimmed.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return null;
+  }
+
+  return Number.isNaN(parseDateKey(dateKey).getTime()) ? null : dateKey;
+};
+
+const formatMonthKey = (value: string): string =>
+  formatDateFns(parseMonthKey(value), "MMMM yyyy");
+
+const formatDateKeyLabel = (value: string): string =>
+  formatDateFns(parseDateKey(value), "dd MMM yyyy");
+
+const shiftMonthKey = (monthKey: string, delta: number): string =>
+  getMonthKeyForDate(addMonths(parseMonthKey(monthKey), delta));
+
+const compareDateKeys = (left: string, right: string): number =>
+  left.localeCompare(right);
+
+const getMonthIndex = (monthKey: string): number => {
+  const [year, month] = monthKey.split("-").map(Number);
+  return year * 12 + month;
+};
+
+const findNearestMonthKey = (
+  orderedMonthKeys: string[],
+  targetMonthKey: string,
+): string | null => {
+  if (orderedMonthKeys.length === 0) {
+    return null;
+  }
+
+  const targetIndex = getMonthIndex(targetMonthKey);
+
+  return orderedMonthKeys.reduce((closest, candidate) => {
+    if (!closest) {
+      return candidate;
+    }
+
+    const candidateDistance = Math.abs(getMonthIndex(candidate) - targetIndex);
+    const closestDistance = Math.abs(getMonthIndex(closest) - targetIndex);
+    return candidateDistance < closestDistance ? candidate : closest;
+  }, orderedMonthKeys[0] ?? null);
+};
+
+const buildKanbanColumns = (
+  documents: DocumentListItem[],
+  statuses: DocumentStatus[],
+): DocumentsKanbanColumn[] => {
+  const notStartedDocuments = documents.filter(
+    (document) => !document.status || !document.latestVersionLabel,
+  );
+  const statusColumns = statuses.map((status) => ({
+    label: status,
+    status,
+    documents: documents.filter(
+      (document) =>
+        document.status === status && Boolean(document.latestVersionLabel),
+    ),
+  }));
+
+  return [
+    {
+      label: "Not started",
+      status: null,
+      documents: notStartedDocuments,
+    },
+    ...statusColumns,
+  ];
+};
+
+const buildTimelineGroups = (
+  documents: DocumentListItem[],
+): TimelineGroupsData => {
+  const monthEntries = new Map<string, TimelineDocumentEntry[]>();
+  const undatedDocuments: DocumentListItem[] = [];
+
+  for (const document of documents) {
+    const effectiveDateKey = getCanonicalDateKey(document.effectiveDate);
+    if (!effectiveDateKey) {
+      undatedDocuments.push(document);
+      continue;
+    }
+
+    const monthKey = effectiveDateKey.slice(0, 7);
+    monthEntries.set(monthKey, [
+      ...(monthEntries.get(monthKey) ?? []),
+      { document, effectiveDateKey },
+    ]);
+  }
+
+  const orderedMonthKeys = [...monthEntries.keys()].sort(compareDateKeys);
+
+  return {
+    orderedMonthKeys,
+    monthGroups: orderedMonthKeys.map((monthKey) => ({
+      monthKey,
+      label: formatMonthKey(monthKey),
+      entries: [...(monthEntries.get(monthKey) ?? [])].sort((left, right) => {
+        const dateComparison = compareDateKeys(
+          left.effectiveDateKey,
+          right.effectiveDateKey,
+        );
+        if (dateComparison !== 0) {
+          return dateComparison;
+        }
+
+        return left.document.title.localeCompare(right.document.title, undefined, {
+          sensitivity: "base",
+        });
+      }),
+    })),
+    undatedDocuments,
+  };
+};
+
+const buildCalendarMonth = (
+  monthKey: string,
+  documents: DocumentListItem[],
+): CalendarMonthData => {
+  const documentsByDate = new Map<string, DocumentListItem[]>();
+
+  for (const document of documents) {
+    const reviewDateKey = getCanonicalDateKey(document.nextReviewDate);
+    if (!reviewDateKey) {
+      continue;
+    }
+
+    documentsByDate.set(reviewDateKey, [
+      ...(documentsByDate.get(reviewDateKey) ?? []),
+      document,
+    ]);
+  }
+
+  const monthStart = startOfMonth(parseMonthKey(monthKey));
+  const monthEnd = endOfMonth(monthStart);
+  const calendarStart = startOfWeek(monthStart);
+  const calendarEnd = endOfWeek(monthEnd);
+  const todayKey = getDateKeyForDate(new Date());
+  const cells = eachDayOfInterval({
+    start: calendarStart,
+    end: calendarEnd,
+  }).map((date) => {
+    const dateKey = getDateKeyForDate(date);
+
+    return {
+      dateKey,
+      label: String(date.getDate()),
+      isCurrentMonth: getMonthKeyForDate(date) === monthKey,
+      isToday: dateKey === todayKey,
+      documents: [...(documentsByDate.get(dateKey) ?? [])].sort((left, right) =>
+        left.title.localeCompare(right.title, undefined, {
+          sensitivity: "base",
+        }),
+      ),
+    };
+  });
+
+  const weeks: CalendarDayCell[][] = [];
+  for (let index = 0; index < cells.length; index += 7) {
+    weeks.push(cells.slice(index, index + 7));
+  }
+
+  return {
+    monthKey,
+    label: formatMonthKey(monthKey),
+    weeks,
+  };
+};
+
+function DocumentsVisualizationEmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border bg-background px-6 py-10 text-center">
+      <div className="max-w-md">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="mt-2 text-[13px] text-muted-foreground">
+          {description}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentVisualizationCard({
+  document,
+  selected,
+  detailLines,
+  draggable = false,
+  dimmed = false,
+  onSelectDocument,
+  onDragStart,
+  onDragEnd,
+}: {
+  document: DocumentListItem;
+  selected: boolean;
+  detailLines: string[];
+  draggable?: boolean;
+  dimmed?: boolean;
+  onSelectDocument: (documentRecordId: number) => void;
+  onDragStart?: React.DragEventHandler<HTMLDivElement>;
+  onDragEnd?: React.DragEventHandler<HTMLDivElement>;
+}) {
+  const needsFilesystemReview = documentNeedsFilesystemReview(document);
+
+  return (
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      data-document-visual-card={String(document.id)}
+      className={cn(
+        "rounded-xl border bg-card p-3 shadow-sm transition",
+        selected
+          ? "border-primary/50 ring-1 ring-primary/30"
+          : "border-border hover:border-border/80",
+        needsFilesystemReview &&
+          "border-destructive/35 bg-destructive/5",
+        dimmed && "opacity-60",
+      )}
+    >
+      <button
+        type="button"
+        className="w-full text-left"
+        onClick={() => onSelectDocument(document.id)}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="copyable-text font-mono text-[11px] text-primary">
+              {document.documentId}
+            </div>
+            <div className="mt-1.5 text-sm font-semibold leading-snug">
+              {document.title}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {document.typeName}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {needsFilesystemReview ? (
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <DocumentProgressBadge status={document.status} />
+          {document.isOverdue ? (
+            <Badge variant="destructive">Overdue review</Badge>
+          ) : null}
+        </div>
+
+        {detailLines.length > 0 ? (
+          <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+            {detailLines.map((line, index) => (
+              <div key={`${document.id}-${index}`}>{line}</div>
+            ))}
+          </div>
+        ) : null}
+      </button>
+    </div>
+  );
+}
+
+function DocumentsKanbanBoard({
+  columns,
+  selectedDocumentId,
+  draggedDocumentId,
+  dropStatus,
+  onSelectDocument,
+  onDragStart,
+  onDragEnd,
+  onColumnDragOver,
+  onColumnDrop,
+}: {
+  columns: DocumentsKanbanColumn[];
+  selectedDocumentId?: number;
+  draggedDocumentId: number | null;
+  dropStatus: DocumentStatus | null;
+  onSelectDocument: (documentRecordId: number) => void;
+  onDragStart: (
+    document: DocumentListItem,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
+  onDragEnd: React.DragEventHandler<HTMLDivElement>;
+  onColumnDragOver: (
+    status: DocumentStatus,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
+  onColumnDrop: (
+    status: DocumentStatus,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
+}) {
+  const totalDocuments = columns.reduce(
+    (total, column) => total + column.documents.length,
+    0,
+  );
+
+  if (totalDocuments === 0) {
+    return (
+      <DocumentsVisualizationEmptyState
+        title="No documents to organize"
+        description="Adjust the current search or filters to populate the Kanban board."
+      />
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto rounded-xl border border-border bg-background p-3">
+      <div className="grid min-w-max gap-3 xl:grid-cols-5">
+        {columns.map((column) => {
+          const isDropTarget =
+            column.status !== null && dropStatus === column.status;
+
+          return (
+            <div
+              key={column.label}
+              data-kanban-column={column.status ?? "not-started"}
+              className={cn(
+                "flex min-h-[280px] min-w-[260px] flex-col rounded-2xl border bg-card",
+                isDropTarget &&
+                  "border-primary/50 bg-primary/5",
+              )}
+              onDragOver={
+                column.status
+                  ? (event) => onColumnDragOver(column.status!, event)
+                  : undefined
+              }
+              onDrop={
+                column.status
+                  ? (event) => onColumnDrop(column.status!, event)
+                  : undefined
+              }
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="text-sm font-semibold">{column.label}</div>
+                <Badge variant="outline">{column.documents.length}</Badge>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+                {column.documents.length === 0 ? (
+                  <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-[13px] text-muted-foreground">
+                    {column.status
+                      ? "Drop a document here or change filters."
+                      : "Documents without a started version appear here."}
+                  </div>
+                ) : (
+                  column.documents.map((document) => (
+                    <DocumentVisualizationCard
+                      key={document.id}
+                      document={document}
+                      selected={selectedDocumentId === document.id}
+                      detailLines={[
+                        document.projectName
+                          ? `Project: ${document.projectName}`
+                          : "Project: No project",
+                        document.effectiveDate
+                          ? `Effective: ${formatDateKeyLabel(
+                              getCanonicalDateKey(document.effectiveDate)!,
+                            )}`
+                          : "Effective: Not scheduled",
+                        document.nextReviewDate
+                          ? `Review due: ${formatDateKeyLabel(
+                              getCanonicalDateKey(document.nextReviewDate)!,
+                            )}`
+                          : "Review due: Not set",
+                      ]}
+                      draggable={Boolean(
+                        column.status && document.latestVersionLabel,
+                      )}
+                      dimmed={draggedDocumentId === document.id}
+                      onSelectDocument={onSelectDocument}
+                      onDragStart={(event) => onDragStart(document, event)}
+                      onDragEnd={onDragEnd}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DocumentsTimeline({
+  containerRef,
+  sectionRefs,
+  groups,
+  selectedDocumentId,
+  onSelectDocument,
+}: {
+  containerRef: React.MutableRefObject<HTMLDivElement | null>;
+  sectionRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
+  groups: TimelineGroupsData;
+  selectedDocumentId?: number;
+  onSelectDocument: (documentRecordId: number) => void;
+}) {
+  if (
+    groups.monthGroups.length === 0 &&
+    groups.undatedDocuments.length === 0
+  ) {
+    return (
+      <DocumentsVisualizationEmptyState
+        title="No documents on the timeline"
+        description="Adjust the current search or filters to populate the timeline."
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="h-full overflow-auto rounded-xl border border-border bg-background p-4"
+    >
+      <div className="space-y-6">
+        {groups.monthGroups.map((group) => (
+          <section
+            key={group.monthKey}
+            ref={(node) => {
+              sectionRefs.current[group.monthKey] = node;
+            }}
+            className="space-y-3"
+          >
+            <div className="sticky top-0 z-10 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
+              <div className="text-sm font-semibold">{group.label}</div>
+            </div>
+
+            <div className="space-y-3">
+              {group.entries.map((entry) => (
+                <div
+                  key={entry.document.id}
+                  className="grid gap-3 md:grid-cols-[132px_minmax(0,1fr)]"
+                >
+                  <div className="pt-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {formatDateKeyLabel(entry.effectiveDateKey)}
+                  </div>
+                  <DocumentVisualizationCard
+                    document={entry.document}
+                    selected={selectedDocumentId === entry.document.id}
+                    detailLines={[
+                      entry.document.projectName
+                        ? `Project: ${entry.document.projectName}`
+                        : "Project: No project",
+                      entry.document.nextReviewDate
+                        ? `Review due: ${formatDateKeyLabel(
+                            getCanonicalDateKey(entry.document.nextReviewDate)!,
+                          )}`
+                        : "Review due: Not set",
+                    ]}
+                    onSelectDocument={onSelectDocument}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {groups.undatedDocuments.length > 0 ? (
+          <section className="space-y-3">
+            <div className="rounded-xl border border-dashed border-border bg-card px-4 py-2">
+              <div className="text-sm font-semibold">No effective date</div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {groups.undatedDocuments.map((document) => (
+                <DocumentVisualizationCard
+                  key={document.id}
+                  document={document}
+                  selected={selectedDocumentId === document.id}
+                  detailLines={[
+                    document.projectName
+                      ? `Project: ${document.projectName}`
+                      : "Project: No project",
+                    document.nextReviewDate
+                      ? `Review due: ${formatDateKeyLabel(
+                          getCanonicalDateKey(document.nextReviewDate)!,
+                        )}`
+                      : "Review due: Not set",
+                  ]}
+                  onSelectDocument={onSelectDocument}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DocumentsCalendar({
+  month,
+  undatedDocuments,
+  selectedDocumentId,
+  onSelectDocument,
+  onPreviousMonth,
+  onNextMonth,
+  onToday,
+}: {
+  month: CalendarMonthData;
+  undatedDocuments: DocumentListItem[];
+  selectedDocumentId?: number;
+  onSelectDocument: (documentRecordId: number) => void;
+  onPreviousMonth: () => void;
+  onNextMonth: () => void;
+  onToday: () => void;
+}) {
+  const firstWeek = month.weeks[0] ?? [];
+  const hasDocumentsInMonth = month.weeks.some((week) =>
+    week.some((day) => day.documents.length > 0),
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-border bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div>
+          <div className="text-base font-semibold">{month.label}</div>
+          <div className="mt-1 text-[13px] text-muted-foreground">
+            Documents grouped by review due date.
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onPreviousMonth}>
+            <ChevronLeft className="h-4 w-4" />
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" onClick={onToday}>
+            Today
+          </Button>
+          <Button variant="outline" size="sm" onClick={onNextMonth}>
+            Next
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div className="min-w-[820px] space-y-2">
+          <div className="grid grid-cols-7 gap-2">
+            {firstWeek.map((day) => (
+              <div
+                key={day.dateKey}
+                className="px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+              >
+                {formatDateFns(parseDateKey(day.dateKey), "EEE")}
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            {month.weeks.map((week, weekIndex) => (
+              <div key={`${month.monthKey}-${weekIndex}`} className="grid grid-cols-7 gap-2">
+                {week.map((day) => (
+                  <div
+                    key={day.dateKey}
+                    className={cn(
+                      "flex min-h-[150px] flex-col rounded-xl border p-2",
+                      day.isCurrentMonth
+                        ? "border-border bg-card"
+                        : "border-border/60 bg-muted/20",
+                      day.isToday && "ring-1 ring-primary/40",
+                    )}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span
+                        className={cn(
+                          "text-sm font-semibold",
+                          !day.isCurrentMonth && "text-muted-foreground",
+                        )}
+                      >
+                        {day.label}
+                      </span>
+                      {day.documents.length > 0 ? (
+                        <Badge variant="outline">{day.documents.length}</Badge>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-1.5 overflow-y-auto">
+                      {day.documents.map((document) => (
+                        <button
+                          key={document.id}
+                          type="button"
+                          className={cn(
+                            "w-full rounded-lg border px-2 py-2 text-left transition",
+                            document.isOverdue
+                              ? "border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
+                              : "border-border bg-background hover:bg-accent",
+                            selectedDocumentId === document.id &&
+                              "border-primary/50 ring-1 ring-primary/30",
+                          )}
+                          onClick={() => onSelectDocument(document.id)}
+                        >
+                          <div className="copyable-text font-mono text-[10px] text-primary">
+                            {document.documentId}
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[12px] font-medium">
+                            {document.title}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {!hasDocumentsInMonth ? (
+            <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+              No documents are due for review in {month.label}.
+            </div>
+          ) : null}
+
+          {undatedDocuments.length > 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-card p-4">
+              <div className="text-sm font-semibold">No review due date</div>
+              <div className="mt-1 text-[13px] text-muted-foreground">
+                These filtered documents are not scheduled on the calendar yet.
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {undatedDocuments.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-[13px] transition",
+                      selectedDocumentId === document.id
+                        ? "border-primary/50 bg-secondary text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                    onClick={() => onSelectDocument(document.id)}
+                  >
+                    {document.documentId} • {document.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 

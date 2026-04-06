@@ -898,9 +898,13 @@ describe('document workflow integration', () => {
       documentRecordId: created.id,
       revisionDescription: 'Second revision draft'
     });
+    const listedDocument = documentService
+      .list(workspaceRootPath)
+      .find((item) => item.id === created.id);
 
     expect(afterSecondVersion.versions[0]?.status).toBe('Draft');
     expect(afterSecondVersion.versions[1]?.status).toBe('Obsolete');
+    expect(listedDocument?.effectiveDate).toBe('2026-03-28');
   });
 
   it('keeps the previous version status when auto-obsolete is disabled', () => {
