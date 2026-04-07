@@ -74,6 +74,7 @@ describe("registerIpcHandlers", () => {
       documentTypeService: createServiceStub() as never,
       workspaceCatalogService: createServiceStub() as never,
       templateService: createServiceStub() as never,
+      savedViewService: createServiceStub() as never,
       catalogService: catalogService as never,
       appUpdaterService: appUpdaterService as never,
       prepareForAppQuit,

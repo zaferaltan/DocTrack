@@ -4,6 +4,7 @@ import type { DocumentExportService } from '@main/services/documentExportService
 import type { AppUpdaterService } from '@main/services/appUpdaterService';
 import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
+import type { SavedViewService } from '@main/services/savedViewService';
 import type { TemplateService } from '@main/services/templateService';
 import type { WorkspaceService } from '@main/services/workspaceService';
 import type { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
@@ -16,6 +17,7 @@ interface ServiceContainer {
   documentTypeService: DocumentTypeService;
   workspaceCatalogService: WorkspaceCatalogService;
   templateService: TemplateService;
+  savedViewService: SavedViewService;
   catalogService: AppCatalogService;
   appUpdaterService: AppUpdaterService;
   prepareForAppQuit: () => void;
@@ -42,11 +44,17 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.workspaceGetDashboard, (_event, rootPath: string) =>
     services.workspaceService.getDashboard(rootPath)
   );
+  ipcMain.handle(IPC_CHANNELS.workspaceGetDashboardLayout, (_event, rootPath: string) =>
+    services.workspaceService.getDashboardLayout(rootPath)
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceListActivity, (_event, rootPath: string) =>
     services.workspaceService.listActivity(rootPath)
   );
   ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (_event, rootPath: string, input) =>
     services.workspaceService.updateSettings(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.workspaceUpdateDashboardLayout, (_event, rootPath: string, input) =>
+    services.workspaceService.updateDashboardLayout(rootPath, input)
   );
   ipcMain.handle(IPC_CHANNELS.workspaceListBackups, (_event, rootPath: string) =>
     services.workspaceService.listBackups(rootPath)
@@ -205,6 +213,26 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     IPC_CHANNELS.documentsIgnoreUnmanagedPath,
     (_event, rootPath: string, documentVersionId: number, relativePath: string) =>
       services.documentService.ignoreUnmanagedPath(rootPath, documentVersionId, relativePath)
+  );
+  ipcMain.handle(IPC_CHANNELS.savedViewsList, (_event, rootPath: string) =>
+    services.savedViewService.list(rootPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.savedViewsCreate, (_event, rootPath: string, input) =>
+    services.savedViewService.create(rootPath, input)
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.savedViewsUpdate,
+    (_event, rootPath: string, savedViewId: string, scope, input) =>
+      services.savedViewService.update(rootPath, savedViewId, scope, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.savedViewsDelete, (_event, rootPath: string, input) =>
+    services.savedViewService.delete(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.savedViewsDuplicate, (_event, rootPath: string, input) =>
+    services.savedViewService.duplicate(rootPath, input)
+  );
+  ipcMain.handle(IPC_CHANNELS.savedViewsPromoteToShared, (_event, rootPath: string, input) =>
+    services.savedViewService.promoteToShared(rootPath, input)
   );
 
   ipcMain.handle(IPC_CHANNELS.documentTypesList, (_event, rootPath: string) =>

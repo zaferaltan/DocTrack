@@ -10,6 +10,7 @@ import { DocumentExportService } from '@main/services/documentExportService';
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { SavedViewService } from '@main/services/savedViewService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
@@ -75,6 +76,7 @@ app.whenReady().then(async () => {
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
   const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
+  const savedViewService = new SavedViewService(workspaceManager, catalogService);
   const workspaceService = new WorkspaceService(
     workspaceManager,
     documentService,
@@ -82,6 +84,7 @@ app.whenReady().then(async () => {
     templateService,
     workspaceCatalogService,
     catalogService,
+    savedViewService,
     documentIdGenerator,
     activityLogService,
     workspaceBackupService,
@@ -111,6 +114,7 @@ app.whenReady().then(async () => {
     documentTypeService,
     workspaceCatalogService,
     templateService,
+    savedViewService,
     catalogService,
     appUpdaterService,
     prepareForAppQuit: disposeServices

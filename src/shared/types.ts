@@ -1,4 +1,11 @@
 import type { DocumentVersionFileRole, DocumentVersionScheme, VersionBumpType } from '@shared/documentModel';
+import type {
+  DashboardLayout,
+  SavedView,
+  SavedViewPresentation,
+  SavedViewQuery,
+  SavedViewScope
+} from '@shared/savedViews';
 import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
@@ -434,12 +441,14 @@ export interface WorkspaceSummary {
   settings: WorkspaceSettings;
   documents: DocumentListItem[];
   dashboard: WorkspaceDashboardSummary;
+  dashboardLayout: DashboardLayout;
   documentTypes: DocumentType[];
   projects: Project[];
   templates: TemplateSummary[];
   confidentialityClasses: ConfidentialityClass[];
   languages: WorkspaceLanguage[];
   statuses: DocumentStatus[];
+  savedViews: SavedView[];
 }
 
 export interface OpenWorkspaceResult {
@@ -470,6 +479,42 @@ export interface RecentWorkspace {
   rootPath: string;
   name: string;
   lastOpenedDate: string;
+}
+
+export interface CreateSavedViewInput {
+  name: string;
+  scope: SavedViewScope;
+  query: SavedViewQuery;
+  presentation: SavedViewPresentation;
+}
+
+export interface UpdateSavedViewInput {
+  name: string;
+  query: SavedViewQuery;
+  presentation: SavedViewPresentation;
+}
+
+export interface DuplicateSavedViewInput {
+  savedViewId: string;
+  scope: SavedViewScope;
+  name?: string;
+}
+
+export interface DeleteSavedViewInput {
+  savedViewId: string;
+  scope: SavedViewScope;
+}
+
+export interface PromoteSavedViewToSharedInput {
+  savedViewId: string;
+}
+
+export interface PromoteSavedViewToSharedResult {
+  savedView: SavedView;
+}
+
+export interface UpdateDashboardLayoutInput {
+  layout: DashboardLayout;
 }
 
 export interface WorkspaceBackupSummary {
@@ -589,4 +634,5 @@ export interface ExampleSeedOptions {
 export interface AppCatalogState {
   recentWorkspaces: RecentWorkspace[];
   applicationSettings: ApplicationSettings;
+  personalSavedViewsByWorkspace: Record<string, SavedView[]>;
 }

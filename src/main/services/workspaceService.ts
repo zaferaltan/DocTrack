@@ -7,6 +7,7 @@ import { ActivityLogService } from '@main/services/activityLogService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentService } from '@main/services/documentService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { SavedViewService } from '@main/services/savedViewService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
@@ -24,6 +25,7 @@ import type {
   RestoreBackupInput,
   RestoreBackupPreview,
   RecentActivityItem,
+  UpdateDashboardLayoutInput,
   WorkspaceBackupSummary,
   WorkspaceCreateInput,
   WorkspaceDashboardSummary,
@@ -61,6 +63,7 @@ export class WorkspaceService {
     private readonly templateService: TemplateService,
     private readonly workspaceCatalogService: WorkspaceCatalogService,
     private readonly catalogService: AppCatalogService,
+    private readonly savedViewService: SavedViewService,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly activityLogService: ActivityLogService,
     private readonly workspaceBackupService: WorkspaceBackupService,
@@ -139,12 +142,14 @@ export class WorkspaceService {
         settings: context.settings,
         documents,
         dashboard: this.buildDashboardSummary(context, documents),
+        dashboardLayout: this.savedViewService.getDashboardLayout(rootPath),
         documentTypes: this.mapTypeRows(typeRows),
         projects: this.workspaceCatalogService.listProjects(rootPath),
         templates: this.templateService.list(rootPath),
         confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
         languages: this.workspaceCatalogService.listLanguages(rootPath),
-        statuses: [...DOCUMENT_STATUSES]
+        statuses: [...DOCUMENT_STATUSES],
+        savedViews: this.savedViewService.list(rootPath)
       },
       warnings
     };
@@ -271,6 +276,14 @@ export class WorkspaceService {
   getDashboard(rootPath: string): WorkspaceDashboardSummary {
     const context = this.workspaceManager.getContext(rootPath);
     return this.buildDashboardSummary(context, this.documentService.list(rootPath));
+  }
+
+  getDashboardLayout(rootPath: string) {
+    return this.savedViewService.getDashboardLayout(rootPath);
+  }
+
+  updateDashboardLayout(rootPath: string, input: UpdateDashboardLayoutInput) {
+    return this.savedViewService.updateDashboardLayout(rootPath, input);
   }
 
   listActivity(rootPath: string): RecentActivityItem[] {

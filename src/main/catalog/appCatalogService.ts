@@ -14,12 +14,14 @@ import {
   type ApplicationSettings
 } from '@shared/applicationSettings';
 import { isDocumentVersionScheme } from '@shared/documentModel';
+import { normalizeSavedViews, type SavedView } from '@shared/savedViews';
 import type { AppCatalogState, RecentWorkspace } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 
 const DEFAULT_STATE: AppCatalogState = {
   recentWorkspaces: [],
-  applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS }
+  applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS },
+  personalSavedViewsByWorkspace: {}
 };
 
 export class AppCatalogService {
@@ -63,6 +65,44 @@ export class AppCatalogService {
     return state.applicationSettings;
   }
 
+  listPersonalSavedViews(rootPath: string): SavedView[] {
+    return this.readState().personalSavedViewsByWorkspace[rootPath] ?? [];
+  }
+
+  createPersonalSavedView(rootPath: string, savedView: SavedView): SavedView {
+    const state = this.readState();
+    const currentViews = state.personalSavedViewsByWorkspace[rootPath] ?? [];
+    state.personalSavedViewsByWorkspace[rootPath] = normalizeSavedViews(
+      [...currentViews, savedView],
+      'personal'
+    );
+    this.writeState(state);
+    return savedView;
+  }
+
+  updatePersonalSavedView(rootPath: string, savedView: SavedView): SavedView {
+    const state = this.readState();
+    const currentViews = state.personalSavedViewsByWorkspace[rootPath] ?? [];
+    state.personalSavedViewsByWorkspace[rootPath] = normalizeSavedViews(
+      currentViews.map((item) => (item.id === savedView.id ? savedView : item)),
+      'personal'
+    );
+    this.writeState(state);
+    return savedView;
+  }
+
+  deletePersonalSavedView(rootPath: string, savedViewId: string): void {
+    const state = this.readState();
+    const currentViews = state.personalSavedViewsByWorkspace[rootPath] ?? [];
+    state.personalSavedViewsByWorkspace[rootPath] = currentViews.filter(
+      (item) => item.id !== savedViewId
+    );
+    if (state.personalSavedViewsByWorkspace[rootPath]?.length === 0) {
+      delete state.personalSavedViewsByWorkspace[rootPath];
+    }
+    this.writeState(state);
+  }
+
   private readState(): AppCatalogState {
     if (!existsSync(this.filePath)) {
       return { ...DEFAULT_STATE };
@@ -104,7 +144,10 @@ export class AppCatalogService {
 
       return {
         recentWorkspaces,
-        applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value)
+        applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value),
+        personalSavedViewsByWorkspace: this.normalizePersonalSavedViewsByWorkspace(
+          value.personalSavedViewsByWorkspace
+        )
       };
     } catch {
       return { ...DEFAULT_STATE };
@@ -195,6 +238,19 @@ export class AppCatalogService {
           ? nextSettings.checkForUpdatesOnLaunch
           : DEFAULT_APPLICATION_SETTINGS.checkForUpdatesOnLaunch
     };
+  }
+
+  private normalizePersonalSavedViewsByWorkspace(value: unknown): Record<string, SavedView[]> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([rootPath]) => typeof rootPath === 'string' && rootPath.trim().length > 0)
+        .map(([rootPath, savedViews]) => [rootPath, normalizeSavedViews(savedViews, 'personal')])
+        .filter(([, savedViews]) => savedViews.length > 0)
+    );
   }
 
   private writeState(state: AppCatalogState): void {
