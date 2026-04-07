@@ -5,14 +5,17 @@ import type {
   AddDocumentVersionFilesInput,
   ChangeDocumentVersionFileRoleInput,
   CreateBackupResult,
+  CreateSavedViewInput,
   ConfidentialityClass,
   ConfidentialityClassInput,
   CreateTemplateInput,
   CreateDocumentInput,
   DeleteDocumentInput,
   DeleteDocumentVersionInput,
+  DeleteSavedViewInput,
   CreateVersionInput,
   DeleteDocumentVersionFileInput,
+  DuplicateSavedViewInput,
   DocumentDetail,
   DocumentExportRequest,
   DocumentExportResult,
@@ -26,6 +29,8 @@ import type {
   DocumentTypeInput,
   OpenWorkspaceResult,
   Project,
+  PromoteSavedViewToSharedInput,
+  PromoteSavedViewToSharedResult,
   ProjectInput,
   RecentWorkspace,
   RenameDocumentVersionFileInput,
@@ -40,7 +45,9 @@ import type {
   WorkspaceBackupSummary,
   WorkspaceDashboardSummary,
   UpdateDocumentInput,
+  UpdateDashboardLayoutInput,
   UpdateLatestVersionInput,
+  UpdateSavedViewInput,
   WorkspaceLanguage,
   WorkspaceLanguageInput,
   WorkspaceCreateInput,
@@ -48,6 +55,7 @@ import type {
   RecentActivityItem,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
+import type { DashboardLayout, SavedView } from '@shared/savedViews';
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const IPC_CHANNELS = {
@@ -59,8 +67,10 @@ export const IPC_CHANNELS = {
   workspaceDismissRecent: 'workspace:dismissRecent',
   workspaceGetSummary: 'workspace:getSummary',
   workspaceGetDashboard: 'workspace:getDashboard',
+  workspaceGetDashboardLayout: 'workspace:getDashboardLayout',
   workspaceListActivity: 'workspace:listActivity',
   workspaceUpdateSettings: 'workspace:updateSettings',
+  workspaceUpdateDashboardLayout: 'workspace:updateDashboardLayout',
   workspaceListBackups: 'workspace:listBackups',
   workspaceCreateBackup: 'workspace:createBackup',
   workspaceGetRestorePreview: 'workspace:getRestorePreview',
@@ -98,6 +108,12 @@ export const IPC_CHANNELS = {
   documentsReconcileUnmanagedPath: 'documents:reconcileUnmanagedPath',
   documentsIgnoreUnmanagedPath: 'documents:ignoreUnmanagedPath',
   workspaceFilesystemDrift: 'workspace:filesystemDrift',
+  savedViewsList: 'savedViews:list',
+  savedViewsCreate: 'savedViews:create',
+  savedViewsUpdate: 'savedViews:update',
+  savedViewsDelete: 'savedViews:delete',
+  savedViewsDuplicate: 'savedViews:duplicate',
+  savedViewsPromoteToShared: 'savedViews:promoteToShared',
   documentTypesList: 'documentTypes:list',
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
@@ -137,8 +153,13 @@ export interface DocTrackApi {
     dismissRecent: (rootPath: string) => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
     getDashboard: (rootPath: string) => Promise<WorkspaceDashboardSummary>;
+    getDashboardLayout: (rootPath: string) => Promise<DashboardLayout>;
     listActivity: (rootPath: string) => Promise<RecentActivityItem[]>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
+    updateDashboardLayout: (
+      rootPath: string,
+      input: UpdateDashboardLayoutInput
+    ) => Promise<DashboardLayout>;
     listBackups: (rootPath: string) => Promise<WorkspaceBackupSummary[]>;
     createBackup: (rootPath: string) => Promise<CreateBackupResult>;
     getRestorePreview: (
@@ -220,6 +241,22 @@ export interface DocTrackApi {
       documentVersionId: number,
       relativePath: string
     ) => Promise<DocumentVersion>;
+  };
+  savedViews: {
+    list: (rootPath: string) => Promise<SavedView[]>;
+    create: (rootPath: string, input: CreateSavedViewInput) => Promise<SavedView>;
+    update: (
+      rootPath: string,
+      savedViewId: string,
+      scope: SavedView['scope'],
+      input: UpdateSavedViewInput
+    ) => Promise<SavedView>;
+    delete: (rootPath: string, input: DeleteSavedViewInput) => Promise<void>;
+    duplicate: (rootPath: string, input: DuplicateSavedViewInput) => Promise<SavedView>;
+    promoteToShared: (
+      rootPath: string,
+      input: PromoteSavedViewToSharedInput
+    ) => Promise<PromoteSavedViewToSharedResult>;
   };
   documentTypes: {
     list: (rootPath: string) => Promise<DocumentType[]>;

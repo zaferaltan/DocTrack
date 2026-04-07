@@ -11,9 +11,12 @@ const api: DocTrackApi = {
     dismissRecent: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceDismissRecent, rootPath),
     getSummary: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSummary, rootPath),
     getDashboard: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetDashboard, rootPath),
+    getDashboardLayout: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetDashboardLayout, rootPath),
     listActivity: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListActivity, rootPath),
     updateSettings: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input),
+    updateDashboardLayout: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateDashboardLayout, rootPath, input),
     listBackups: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListBackups, rootPath),
     createBackup: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceCreateBackup, rootPath),
     getRestorePreview: (rootPath, backupId, destinationParentPath, destinationFolderName) =>
@@ -123,6 +126,17 @@ const api: DocTrackApi = {
         documentVersionId,
         relativePath
       )
+  },
+  savedViews: {
+    list: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.savedViewsList, rootPath),
+    create: (rootPath, input) => ipcRenderer.invoke(IPC_CHANNELS.savedViewsCreate, rootPath, input),
+    update: (rootPath, savedViewId, scope, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.savedViewsUpdate, rootPath, savedViewId, scope, input),
+    delete: (rootPath, input) => ipcRenderer.invoke(IPC_CHANNELS.savedViewsDelete, rootPath, input),
+    duplicate: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.savedViewsDuplicate, rootPath, input),
+    promoteToShared: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.savedViewsPromoteToShared, rootPath, input)
   },
   documentTypes: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesList, filePath),

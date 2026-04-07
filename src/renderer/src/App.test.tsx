@@ -8,6 +8,7 @@ import {
 } from '@shared/applicationSettings';
 import type { AppUpdateState } from '@shared/appUpdates';
 import type { DocTrackApi } from '@shared/ipc';
+import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_DOCUMENT_VIEW_STATE } from '@shared/savedViews';
 import type { DocumentDetail, OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -75,6 +76,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
       }
     ],
     dashboard: defaultDashboard,
+    dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
     documentTypes: [
       {
         id: 1,
@@ -96,7 +98,8 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         code: 'EN'
       }
     ],
-    statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete']
+    statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'],
+    savedViews: []
   }
 };
 
@@ -221,7 +224,9 @@ const buildDocTrackMock = (
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
       ,
       getDashboard: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard),
+      getDashboardLayout: vi.fn().mockResolvedValue(workspaceResult.summary.dashboardLayout),
       listActivity: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard.recentActivity),
+      updateDashboardLayout: vi.fn().mockResolvedValue(workspaceResult.summary.dashboardLayout),
       listBackups: vi.fn().mockResolvedValue([]),
       createBackup: vi.fn().mockResolvedValue({
         backup: {
@@ -346,6 +351,14 @@ const buildDocTrackMock = (
       }),
       reconcileUnmanagedPath: vi.fn(),
       ignoreUnmanagedPath: vi.fn()
+    },
+    savedViews: {
+      list: vi.fn().mockResolvedValue(workspaceResult.summary.savedViews),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined),
+      duplicate: vi.fn(),
+      promoteToShared: vi.fn()
     },
     documentTypes: {
       list: vi.fn().mockResolvedValue(workspaceResult.summary.documentTypes),
@@ -804,7 +817,8 @@ describe('App', () => {
         [secondaryWorkspace.workspace.rootPath]: {
           ...secondaryWorkspace.summary,
           selectedView: 'documents',
-          selectedDocumentsVisualization: 'table'
+          selectedDocumentsVisualization: 'table',
+          documentViewState: { ...DEFAULT_DOCUMENT_VIEW_STATE }
         }
       },
       recentWorkspaces: [
@@ -1726,6 +1740,67 @@ describe('App', () => {
     expect(document.body.textContent).toContain('April 2026');
     expect(document.body.textContent).toContain('Supplier Checklist');
     expect(document.body.textContent).not.toContain('Operating Procedure');
+
+    await view.unmount();
+  });
+
+  it('renders saved views in the documents panel and applies them from the UI', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.documents[0] = {
+      ...workspaceResult.summary.documents[0]!,
+      healthFlags: ['missingFiles'],
+      revisionDescription: 'Missing working file import'
+    };
+    workspaceResult.summary.savedViews = [
+      {
+        id: 'saved-view-1',
+        name: 'Drafts with missing files',
+        scope: 'shared',
+        query: {
+          search: 'Operating',
+          statusFilter: 'Draft',
+          projectFilter: 'All',
+          healthFilter: 'All',
+          rules: [
+            {
+              id: 'rule-1',
+              field: 'healthFlag',
+              operator: 'is',
+              value: 'missingFiles'
+            }
+          ]
+        },
+        presentation: {
+          visualizationMode: 'kanban',
+          sorting: [
+            {
+              column: 'modifiedDate',
+              desc: true
+            }
+          ]
+        },
+        createdDate: '2026-04-06T09:00:00.000Z',
+        modifiedDate: '2026-04-06T09:00:00.000Z'
+      }
+    ];
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    await click(getButton('Saved Views'));
+    expect(document.body.textContent).toContain('Drafts with missing files');
+    await click(getButton('Drafts with missing files'));
+
+    expect(getDocumentsVisualizationButton('kanban').getAttribute('aria-pressed')).toBe('true');
+    expect(
+      (document.querySelector('[data-doc-search="true"]') as HTMLInputElement).value
+    ).toBe('Operating');
 
     await view.unmount();
   });

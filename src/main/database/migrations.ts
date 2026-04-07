@@ -10,6 +10,7 @@ import documentReviewMetadataMigration from '../../../migrations/008_document_re
 import workspaceRootDirectoriesMigration from '../../../migrations/009_workspace_root_directories.sql?raw';
 import activityLogSettingsMigration from '../../../migrations/010_activity_log_settings.sql?raw';
 import alphaVersionSchemeMigration from '../../../migrations/011_alpha_version_scheme.sql?raw';
+import savedViewsAndDashboardMigration from '../../../migrations/012_saved_views_and_dashboard.sql?raw';
 import { nowIso } from '@main/utils/date';
 
 const MIGRATIONS = [
@@ -56,6 +57,10 @@ const MIGRATIONS = [
   {
     id: '011_alpha_version_scheme',
     sql: alphaVersionSchemeMigration
+  },
+  {
+    id: '012_saved_views_and_dashboard',
+    sql: savedViewsAndDashboardMigration
   }
 ] as const;
 

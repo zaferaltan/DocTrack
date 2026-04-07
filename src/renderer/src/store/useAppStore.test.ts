@@ -4,6 +4,11 @@ import {
   DEFAULT_APPLICATION_SETTINGS,
   type ApplicationSettings
 } from '@shared/applicationSettings';
+import {
+  DEFAULT_DASHBOARD_LAYOUT,
+  DEFAULT_DOCUMENT_VIEW_STATE,
+  type SavedView
+} from '@shared/savedViews';
 import type { OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,6 +39,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     settings: DEFAULT_WORKSPACE_SETTINGS,
     documents: [],
     dashboard: defaultDashboard,
+    dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
     documentTypes: [
       {
         id: 1,
@@ -45,7 +51,8 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     templates: [],
     confidentialityClasses: [],
     languages: [],
-    statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete']
+    statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'],
+    savedViews: []
   }
 };
 
@@ -60,8 +67,10 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
       getDashboard: vi.fn().mockResolvedValue(defaultDashboard),
+      getDashboardLayout: vi.fn().mockResolvedValue(DEFAULT_DASHBOARD_LAYOUT),
       listActivity: vi.fn().mockResolvedValue([]),
       updateSettings: vi.fn(),
+      updateDashboardLayout: vi.fn().mockResolvedValue(DEFAULT_DASHBOARD_LAYOUT),
       listBackups: vi.fn().mockResolvedValue([]),
       createBackup: vi.fn(),
       getRestorePreview: vi.fn(),
@@ -104,6 +113,14 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       planVersionFileImport: vi.fn(),
       reconcileUnmanagedPath: vi.fn(),
       ignoreUnmanagedPath: vi.fn()
+    },
+    savedViews: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      duplicate: vi.fn(),
+      promoteToShared: vi.fn()
     },
     documentTypes: {
       list: vi.fn(),
@@ -193,6 +210,9 @@ describe('useAppStore', () => {
     expect(
       store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedDocumentsVisualization
     ).toBe('timeline');
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.documentViewState).toEqual(
+      DEFAULT_DOCUMENT_VIEW_STATE
+    );
   });
 
   it('can persist templates as the default workspace view', async () => {
@@ -251,6 +271,101 @@ describe('useAppStore', () => {
         companyLogoSourceFilePath: 'C:\\logos\\company.png',
         clearCompanyLogo: false
       })
+    );
+  });
+
+  it('applies a saved view into the active workspace document state', async () => {
+    installDocTrackMock();
+    const store = createAppStore();
+    const savedView: SavedView = {
+      id: 'view-1',
+      name: 'Released this month',
+      scope: 'shared',
+      query: {
+        search: '',
+        statusFilter: 'Released',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: [
+          {
+            id: 'rule-1',
+            field: 'releasedDate',
+            operator: 'thisMonth'
+          }
+        ]
+      },
+      presentation: {
+        visualizationMode: 'timeline',
+        sorting: [
+          {
+            column: 'releasedDate',
+            desc: true
+          }
+        ]
+      },
+      createdDate: '2026-04-06T09:00:00.000Z',
+      modifiedDate: '2026-04-06T09:00:00.000Z'
+    };
+
+    await store.getState().bootstrap();
+    store.getState().applySavedView(workspaceInfo.rootPath, savedView);
+
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedView).toBe('documents');
+    expect(
+      store.getState().openWorkspaces[workspaceInfo.rootPath]?.selectedDocumentsVisualization
+    ).toBe('timeline');
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.documentViewState).toEqual({
+      search: '',
+      statusFilter: 'Released',
+      projectFilter: 'All',
+      healthFilter: 'All',
+      rules: [
+        {
+          id: 'rule-1',
+          field: 'releasedDate',
+          operator: 'thisMonth'
+        }
+      ],
+      sorting: [
+        {
+          column: 'releasedDate',
+          desc: true
+        }
+      ]
+    });
+  });
+
+  it('updates the shared dashboard layout in workspace state', async () => {
+    const docTrack = installDocTrackMock();
+    const nextLayout = {
+      widgets: [
+        {
+          id: 'saved-view-widget',
+          type: 'savedView' as const,
+          title: 'Pinned',
+          x: 0,
+          y: 0,
+          w: 6,
+          h: 2,
+          config: {},
+          savedViewId: 'view-1'
+        }
+      ]
+    };
+    docTrack.workspace.updateDashboardLayout.mockResolvedValue(nextLayout);
+    const store = createAppStore();
+
+    await store.getState().bootstrap();
+    await store.getState().updateDashboardLayout(workspaceInfo.rootPath, {
+      layout: nextLayout
+    });
+
+    expect(docTrack.workspace.updateDashboardLayout).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      { layout: nextLayout }
+    );
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.dashboardLayout).toEqual(
+      nextLayout
     );
   });
 });

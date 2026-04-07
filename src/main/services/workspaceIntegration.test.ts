@@ -10,10 +10,12 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { SavedViewService } from '@main/services/savedViewService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_SAVED_VIEW_PRESENTATION } from '@shared/savedViews';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DATABASE_DIRECTORY_NAME,
@@ -38,6 +40,7 @@ describe('workspace integration', () => {
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
   let templateService: TemplateService;
+  let savedViewService: SavedViewService;
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-workspace-'));
@@ -57,6 +60,7 @@ describe('workspace integration', () => {
     );
     new DocumentTypeService(workspaceManager, fileStorageService);
     const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
+    savedViewService = new SavedViewService(workspaceManager, catalogService);
     workspaceService = new WorkspaceService(
       workspaceManager,
       documentService,
@@ -64,6 +68,7 @@ describe('workspace integration', () => {
       templateService,
       workspaceCatalogService,
       catalogService,
+      savedViewService,
       documentIdGenerator,
       activityLogService,
       workspaceBackupService
@@ -116,6 +121,109 @@ describe('workspace integration', () => {
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Report'))).toBe(true);
     expect(existsSync(path.join(workspaceRootPath, WORKSPACE_TEMPLATES_DIRECTORY_NAME))).toBe(true);
     expect(result.summary.templates).toEqual([]);
+    expect(result.summary.dashboardLayout).toEqual(DEFAULT_DASHBOARD_LAYOUT);
+    expect(result.summary.savedViews).toEqual([]);
+  });
+
+  it('persists shared saved views and includes them in workspace summaries', () => {
+    const created = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    const savedView = savedViewService.create(created.workspace.rootPath, {
+      name: 'Released this month',
+      scope: 'shared',
+      query: {
+        search: '',
+        statusFilter: 'Released',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: [
+          {
+            id: 'rule-1',
+            field: 'releasedDate',
+            operator: 'thisMonth'
+          }
+        ]
+      },
+      presentation: {
+        ...DEFAULT_SAVED_VIEW_PRESENTATION,
+        visualizationMode: 'timeline'
+      }
+    });
+
+    const summary = workspaceService.getSummary(created.workspace.rootPath);
+    expect(summary.summary.savedViews).toContainEqual(savedView);
+    expect(summary.summary.savedViews.map((item) => item.scope)).toContain('shared');
+  });
+
+  it('updates the shared dashboard layout and keeps saved-view widgets portable', () => {
+    const created = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    const sharedView = savedViewService.create(created.workspace.rootPath, {
+      name: 'Drafts with missing files',
+      scope: 'shared',
+      query: {
+        search: '',
+        statusFilter: 'Draft',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: [
+          {
+            id: 'rule-1',
+            field: 'healthFlag',
+            operator: 'is',
+            value: 'missingFiles'
+          }
+        ]
+      },
+      presentation: DEFAULT_SAVED_VIEW_PRESENTATION
+    });
+
+    const nextLayout = workspaceService.updateDashboardLayout(created.workspace.rootPath, {
+      layout: {
+        widgets: [
+          {
+            id: 'saved-view-widget',
+            type: 'savedView',
+            title: 'Pinned drafts',
+            x: 0,
+            y: 0,
+            w: 6,
+            h: 2,
+            config: {},
+            savedViewId: sharedView.id
+          }
+        ]
+      }
+    });
+
+    expect(nextLayout.widgets).toEqual([
+      expect.objectContaining({
+        id: 'saved-view-widget',
+        type: 'savedView',
+        savedViewId: sharedView.id
+      })
+    ]);
+    expect(workspaceService.getSummary(created.workspace.rootPath).summary.dashboardLayout).toEqual(
+      nextLayout
+    );
   });
 
   it('stores the workspace name separately from a custom workspace folder name', () => {

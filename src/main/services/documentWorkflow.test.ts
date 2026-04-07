@@ -9,6 +9,7 @@ import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorSe
 import { DocumentService } from '@main/services/documentService';
 import { DocumentTypeService } from '@main/services/documentTypeService';
 import { FileStorageService } from '@main/services/fileStorageService';
+import { SavedViewService } from '@main/services/savedViewService';
 import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
@@ -55,6 +56,7 @@ describe('document workflow integration', () => {
     );
     documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
     workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
+    const savedViewService = new SavedViewService(workspaceManager, catalogService);
     workspaceService = new WorkspaceService(
       workspaceManager,
       documentService,
@@ -62,6 +64,7 @@ describe('document workflow integration', () => {
       templateService,
       workspaceCatalogService,
       catalogService,
+      savedViewService,
       documentIdGenerator,
       activityLogService,
       workspaceBackupService

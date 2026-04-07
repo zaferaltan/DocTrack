@@ -147,10 +147,31 @@ import {
   type WorkspaceRootDirectorySettingKey,
   type WorkspaceSettings,
 } from "@shared/workspaceLayout";
+import {
+  filterDocumentsBySavedViewQuery,
+  getDashboardWidgetTypeLabel,
+  normalizeDashboardLayout,
+  sortDocumentsBySavedView,
+  type DashboardLayout,
+  type DashboardWidget,
+  type DashboardWidgetType,
+  type DocumentViewState,
+  type SavedView,
+  type SavedViewHealthFlagValue,
+  type SavedViewPresentation,
+  type SavedViewQuery,
+  type SavedViewRule,
+  type SavedViewRuleField,
+  type SavedViewRuleOperator,
+  type SavedViewSort,
+} from "@shared/savedViews";
 import type {
   ConfidentialityClass,
+  CreateSavedViewInput,
   CreateDocumentInput,
   CreateVersionInput,
+  DeleteSavedViewInput,
+  DuplicateSavedViewInput,
   DocumentHealthFlag,
   DocumentDetail,
   DocumentExportGrouping,
@@ -164,14 +185,18 @@ import type {
   FilePreviewResult,
   IntegrityCheckResult,
   Project,
+  PromoteSavedViewToSharedInput,
+  PromoteSavedViewToSharedResult,
   RecentActivityItem,
   RestoreBackupDiffChangeType,
   RestoreBackupDiffItem,
   RestoreBackupDiffResult,
   TemplateSummary,
+  UpdateDashboardLayoutInput,
   UpdateDocumentInput,
   UpdateDocumentVersionInput,
   UpdateLatestVersionInput,
+  UpdateSavedViewInput,
   VersionComparisonResult,
   VersionFilesystemChange,
   WorkspaceBackupSummary,
@@ -214,6 +239,88 @@ const ACTIVITY_LOG_DISABLED_MESSAGE =
   "This feature has been disabled in the workspace settings.";
 const APP_UPDATE_MANUAL_ACTION_MESSAGE =
   "Save updater preference changes before checking for updates.";
+const DASHBOARD_GRID_COLUMNS = 12;
+const DASHBOARD_GRID_ROW_HEIGHT = 144;
+const DASHBOARD_WIDGET_MIN_WIDTH = 3;
+const DASHBOARD_WIDGET_MIN_HEIGHT = 1;
+const SAVED_VIEW_WIDGET_PREVIEW_LIMIT = 5;
+
+const DASHBOARD_RESIZE_HANDLE_CONFIGS = [
+  {
+    id: "top",
+    direction: { top: true, right: false, bottom: false, left: false },
+    className: "absolute left-3 right-3 top-0 h-2 -translate-y-1/2 cursor-n-resize",
+  },
+  {
+    id: "right",
+    direction: { top: false, right: true, bottom: false, left: false },
+    className: "absolute right-0 top-3 bottom-3 w-2 translate-x-1/2 cursor-e-resize",
+  },
+  {
+    id: "bottom",
+    direction: { top: false, right: false, bottom: true, left: false },
+    className: "absolute left-3 right-3 bottom-0 h-2 translate-y-1/2 cursor-s-resize",
+  },
+  {
+    id: "left",
+    direction: { top: false, right: false, bottom: false, left: true },
+    className: "absolute left-0 top-3 bottom-3 w-2 -translate-x-1/2 cursor-w-resize",
+  },
+  {
+    id: "top-left",
+    direction: { top: true, right: false, bottom: false, left: true },
+    className: "absolute left-0 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-nw-resize",
+  },
+  {
+    id: "top-right",
+    direction: { top: true, right: true, bottom: false, left: false },
+    className: "absolute right-0 top-0 h-3 w-3 translate-x-1/2 -translate-y-1/2 cursor-ne-resize",
+  },
+  {
+    id: "bottom-right",
+    direction: { top: false, right: true, bottom: true, left: false },
+    className: "absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize",
+  },
+  {
+    id: "bottom-left",
+    direction: { top: false, right: false, bottom: true, left: true },
+    className: "absolute bottom-0 left-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 cursor-sw-resize",
+  },
+] as const;
+
+const SAVED_VIEW_RULE_FIELD_LABELS: Record<SavedViewRuleField, string> = {
+  documentType: "Document Type",
+  status: "Status",
+  project: "Project",
+  language: "Language",
+  confidentialityClass: "Confidentiality Class",
+  author: "Author",
+  company: "Company",
+  department: "Department",
+  reviewedBy: "Reviewed By",
+  approvedBy: "Approved By",
+  latestVersion: "Latest Version",
+  healthFlag: "Health Flag",
+  createdDate: "Created Date",
+  modifiedDate: "Modified Date",
+  releasedDate: "Released Date",
+  effectiveDate: "Effective Date",
+  startDate: "Start Date",
+  nextReviewDate: "Next Review Date",
+};
+
+const SAVED_VIEW_RULE_OPERATOR_LABELS: Record<SavedViewRuleOperator, string> = {
+  is: "Is",
+  isNot: "Is Not",
+  contains: "Contains",
+  isEmpty: "Is Empty",
+  isNotEmpty: "Is Not Empty",
+  before: "Before",
+  after: "After",
+  between: "Between",
+  withinLastDays: "Within Last N Days",
+  thisMonth: "This Month",
+};
 
 const buildAppUpdatePromptKey = (state: AppUpdateState): string | null => {
   if (!state.release) {
@@ -491,14 +598,6 @@ interface RenameFileDialogState {
   nextFileName: string;
   isSubmitting: boolean;
   validationErrors: ValidationErrors;
-}
-
-interface DashboardDrilldownState {
-  workspacePath: string;
-  status?: DocumentStatus | "Not started";
-  projectFilter?: string;
-  healthFlag?: DocumentHealthFlag;
-  token: number;
 }
 
 type CommandPaletteMode =
@@ -1423,9 +1522,18 @@ function App() {
     closeWorkspace,
     dismissRecentWorkspace,
     updateWorkspaceSettings,
+    updateDashboardLayout,
+    createSavedView,
+    updateSavedView,
+    deleteSavedView,
+    duplicateSavedView,
+    promoteSavedViewToShared,
     setActiveWorkspace,
     setWorkspaceView,
     setDocumentsVisualization,
+    setDocumentViewState,
+    applySavedView,
+    applyDashboardDrilldown,
     setSelectedDocument,
     updateApplicationSettings,
     setNotification,
@@ -1495,8 +1603,6 @@ function App() {
   );
   const [documentExportDialogRequest, setDocumentExportDialogRequest] =
     useState<DocumentExportDialogRequestState | null>(null);
-  const [dashboardDrilldown, setDashboardDrilldown] =
-    useState<DashboardDrilldownState | null>(null);
   const [selectedDocumentDetail, setSelectedDocumentDetail] =
     useState<DocumentDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -2945,6 +3051,69 @@ function App() {
       }
     } catch (error) {
       notifyError(error, "Unable to export the documents report.");
+      throw error;
+    }
+  };
+
+  const pinSavedViewToDashboard = async (
+    rootPath: string,
+    savedView: SavedView,
+  ) => {
+    const workspace = openWorkspaces[rootPath];
+    if (!workspace) {
+      return;
+    }
+
+    try {
+      const promoted =
+        savedView.scope === "shared"
+          ? { savedView }
+          : await promoteSavedViewToShared(rootPath, {
+              savedViewId: savedView.id,
+            });
+      const sharedView = promoted.savedView;
+      const currentLayout = normalizeDashboardLayout(workspace.dashboardLayout);
+      const alreadyPinned = currentLayout.widgets.some(
+        (widget) =>
+          widget.type === "savedView" && widget.savedViewId === sharedView.id,
+      );
+      if (alreadyPinned) {
+        setNotification({
+          tone: "success",
+          message: `"${sharedView.name}" is already pinned to the dashboard.`,
+        });
+        return;
+      }
+
+      const nextY = currentLayout.widgets.reduce(
+        (max, widget) => Math.max(max, widget.y + widget.h),
+        0,
+      );
+      await updateDashboardLayout(rootPath, {
+        layout: {
+          widgets: [
+            ...currentLayout.widgets,
+            {
+              id: createClientId("dashboard-widget"),
+              type: "savedView",
+              title: sharedView.name,
+              x: 0,
+              y: nextY,
+              w: 6,
+              h: 2,
+              config: {},
+              savedViewId: sharedView.id,
+            },
+          ],
+        },
+      });
+
+      setNotification({
+        tone: "success",
+        message: `"${sharedView.name}" was pinned to the dashboard.`,
+      });
+    } catch (error) {
+      notifyError(error, "Unable to pin the saved view to the dashboard.");
       throw error;
     }
   };
@@ -4534,17 +4703,32 @@ function App() {
       <DashboardView
         workspace={activeWorkspace}
         onOpenDocuments={(drilldown) => {
-          setDashboardDrilldown({
-            workspacePath: activeWorkspace.workspace.rootPath,
-            token: Date.now(),
-            ...drilldown,
-          });
-          setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
+          applyDashboardDrilldown(activeWorkspace.workspace.rootPath, drilldown);
         }}
         onOpenDocument={(documentRecordId) => {
           setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
           setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId);
         }}
+        onApplySavedView={(savedView) =>
+          applySavedView(activeWorkspace.workspace.rootPath, savedView)
+        }
+        onUpdateDashboardLayout={(input) =>
+          updateDashboardLayout(activeWorkspace.workspace.rootPath, input).catch(
+            (error: Error) => {
+              notifyError(error, "Unable to save the dashboard layout.");
+              throw error;
+            },
+          )
+        }
+        onPromoteSavedViewToShared={(input) =>
+          promoteSavedViewToShared(
+            activeWorkspace.workspace.rootPath,
+            input,
+          ).catch((error: Error) => {
+            notifyError(error, "Unable to promote the saved view.");
+            throw error;
+          })
+        }
         onShowAllActivity={() => {
           void openActivityLogDialog();
         }}
@@ -4565,6 +4749,7 @@ function App() {
         applicationSettings={applicationSettings}
         isMacOs={isMacOs}
         documentTableDensity={applicationSettings.documentTableDensity}
+        documentViewState={activeWorkspace.documentViewState}
         documentsVisualizationMode={
           activeWorkspace.selectedDocumentsVisualization
         }
@@ -4572,6 +4757,7 @@ function App() {
           applicationSettings.documentTableVisibleColumns,
           activeWorkspace.settings.visibleDocumentColumns,
         )}
+        savedViews={activeWorkspace.savedViews}
         selectedDocumentDetail={selectedDocumentDetail}
         isDetailLoading={isDetailLoading}
         onSelectDocument={(documentRecordId) =>
@@ -4682,21 +4868,62 @@ function App() {
             documentDetailSidebarWidth: nextWidth,
           })
         }
+        onDocumentViewStateChange={(updater) =>
+          setDocumentViewState(activeWorkspace.workspace.rootPath, updater)
+        }
+        onApplySavedView={(savedView) =>
+          applySavedView(activeWorkspace.workspace.rootPath, savedView)
+        }
+        onCreateSavedView={(input) =>
+          createSavedView(activeWorkspace.workspace.rootPath, input).catch(
+            (error: Error) => {
+              notifyError(error, "Unable to save the current view.");
+              throw error;
+            },
+          )
+        }
+        onUpdateSavedView={(savedViewId, scope, input) =>
+          updateSavedView(
+            activeWorkspace.workspace.rootPath,
+            savedViewId,
+            scope,
+            input,
+          ).catch((error: Error) => {
+            notifyError(error, "Unable to update the saved view.");
+            throw error;
+          })
+        }
+        onDeleteSavedView={(input) =>
+          deleteSavedView(activeWorkspace.workspace.rootPath, input).catch(
+            (error: Error) => {
+              notifyError(error, "Unable to delete the saved view.");
+              throw error;
+            },
+          )
+        }
+        onDuplicateSavedView={(input) =>
+          duplicateSavedView(activeWorkspace.workspace.rootPath, input).catch(
+            (error: Error) => {
+              notifyError(error, "Unable to duplicate the saved view.");
+              throw error;
+            },
+          )
+        }
+        onPromoteSavedViewToShared={(input) =>
+          promoteSavedViewToShared(
+            activeWorkspace.workspace.rootPath,
+            input,
+          ).catch((error: Error) => {
+            notifyError(error, "Unable to promote the saved view.");
+            throw error;
+          })
+        }
+        onPinSavedViewToDashboard={(savedView) =>
+          pinSavedViewToDashboard(activeWorkspace.workspace.rootPath, savedView)
+        }
         documentExportDialogRequest={documentExportDialogRequest}
         onDocumentExportDialogRequestConsumed={() =>
           setDocumentExportDialogRequest((current) =>
-            current?.workspacePath === activeWorkspace.workspace.rootPath
-              ? null
-              : current,
-          )
-        }
-        dashboardDrilldown={
-          dashboardDrilldown?.workspacePath === activeWorkspace.workspace.rootPath
-            ? dashboardDrilldown
-            : null
-        }
-        onDashboardDrilldownConsumed={() =>
-          setDashboardDrilldown((current) =>
             current?.workspacePath === activeWorkspace.workspace.rootPath
               ? null
               : current,
@@ -4838,7 +5065,7 @@ function App() {
 
   if (!isBootstrapped) {
     return (
-      <div className="app-surface flex h-full items-center justify-center">
+      <div className="app-surface flex min-h-full items-center justify-center">
         {bootError ? (
           <div className="max-w-xl rounded-2xl border border-[#F0D5D3] bg-[#FFF7F6] px-6 py-5 shadow-sm dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60">
             <div className="text-base font-semibold text-[#C4554D] dark:text-[#FFB7B2]">
@@ -4883,7 +5110,7 @@ function App() {
   return (
     <div
       className={cn(
-        "app-surface flex h-full flex-col",
+        "app-surface flex min-h-full flex-col",
         isMacOs && "platform-macos",
       )}
     >
@@ -6508,6 +6735,9 @@ function DashboardView({
   workspace,
   onOpenDocuments,
   onOpenDocument,
+  onApplySavedView,
+  onUpdateDashboardLayout,
+  onPromoteSavedViewToShared,
   onShowAllActivity,
 }: {
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
@@ -6517,22 +6747,451 @@ function DashboardView({
     healthFlag?: DocumentHealthFlag;
   }) => void;
   onOpenDocument: (documentRecordId: number) => void;
+  onApplySavedView: (savedView: SavedView) => void;
+  onUpdateDashboardLayout: (
+    input: UpdateDashboardLayoutInput,
+  ) => Promise<DashboardLayout>;
+  onPromoteSavedViewToShared: (
+    input: PromoteSavedViewToSharedInput,
+  ) => Promise<PromoteSavedViewToSharedResult>;
   onShowAllActivity: () => void;
 }) {
   const filesystemAttention = getWorkspaceFilesystemAttentionCounts(workspace);
   const hasFilesystemAttention = filesystemAttention.totalAttentionCount > 0;
+  const [isEditing, setIsEditing] = useState(false);
+  const [layout, setLayout] = useState<DashboardLayout>(() =>
+    normalizeDashboardLayout(workspace.dashboardLayout),
+  );
+  const [widgetDialog, setWidgetDialog] = useState<{
+    open: boolean;
+    type: DashboardWidgetType;
+    title: string;
+    savedViewId: string;
+    isSubmitting: boolean;
+    validationErrors: ValidationErrors;
+  }>({
+    open: false,
+    type: "savedView",
+    title: "",
+    savedViewId: "",
+    isSubmitting: false,
+    validationErrors: {},
+  });
+  const [interaction, setInteraction] = useState<{
+    widgetId: string;
+    mode: "drag" | "resize";
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originW: number;
+    originH: number;
+    previewLeft: number;
+    previewTop: number;
+    previewWidth: number;
+    previewHeight: number;
+    pointerOffsetX: number;
+    pointerOffsetY: number;
+    resizeDirection?: {
+      top: boolean;
+      right: boolean;
+      bottom: boolean;
+      left: boolean;
+    };
+  } | null>(null);
+  const layoutRef = useRef(layout);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const dragPointerRef = useRef<{ clientX: number; clientY: number } | null>(
+    null,
+  );
+  const savedViewsById = useMemo(
+    () => Object.fromEntries(workspace.savedViews.map((item) => [item.id, item])),
+    [workspace.savedViews],
+  );
+  const draggedWidget =
+    interaction?.mode === "drag"
+      ? layout.widgets.find((widget) => widget.id === interaction.widgetId) ?? null
+      : null;
+
+  useEffect(() => {
+    const normalized = normalizeDashboardLayout(workspace.dashboardLayout);
+    layoutRef.current = normalized;
+    setLayout(normalized);
+  }, [workspace.dashboardLayout]);
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setInteraction(null);
+      dragPointerRef.current = null;
+    }
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!interaction) {
+      return;
+    }
+
+    const updateInteractionFromPointer = (clientX: number, clientY: number) => {
+      const container = gridRef.current;
+      if (!container) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const columnWidth = rect.width / DASHBOARD_GRID_COLUMNS || 1;
+      const deltaColumns = Math.round(
+        (clientX - interaction.startX) / columnWidth,
+      );
+      const deltaRows = Math.round(
+        (clientY - interaction.startY) / DASHBOARD_GRID_ROW_HEIGHT,
+      );
+
+      let nextLeft = interaction.previewLeft;
+      let nextTop = interaction.previewTop;
+      if (interaction.mode === "drag") {
+        nextLeft = clientX - interaction.pointerOffsetX;
+        nextTop = clientY - interaction.pointerOffsetY;
+        setInteraction((current) =>
+          current && current.widgetId === interaction.widgetId
+            ? {
+                ...current,
+                previewLeft: nextLeft,
+                previewTop: nextTop,
+              }
+            : current,
+        );
+      }
+
+      setLayout((current) => {
+        const nextWidgets = current.widgets.map((widget) => {
+          if (widget.id !== interaction.widgetId) {
+            return widget;
+          }
+
+          if (interaction.mode === "drag") {
+            return {
+              ...widget,
+              x: clampNumber(
+                Math.round(
+                  (nextLeft - rect.left + interaction.previewWidth / 2) /
+                    columnWidth -
+                    widget.w / 2,
+                ),
+                0,
+                DASHBOARD_GRID_COLUMNS - widget.w,
+              ),
+              y: Math.max(
+                0,
+                Math.round(
+                  (nextTop - rect.top + interaction.previewHeight / 2) /
+                    DASHBOARD_GRID_ROW_HEIGHT -
+                    widget.h / 2,
+                ),
+              ),
+            };
+          }
+
+          const direction = interaction.resizeDirection ?? {
+            top: false,
+            right: true,
+            bottom: true,
+            left: false,
+          };
+          let nextX = interaction.originX;
+          let nextY = interaction.originY;
+          let nextW = interaction.originW;
+          let nextH = interaction.originH;
+
+          if (direction.left) {
+            nextX = clampNumber(
+              interaction.originX + deltaColumns,
+              0,
+              interaction.originX +
+                interaction.originW -
+                DASHBOARD_WIDGET_MIN_WIDTH,
+            );
+            nextW = interaction.originW + (interaction.originX - nextX);
+          }
+
+          if (direction.right) {
+            nextW = clampNumber(
+              interaction.originW + deltaColumns,
+              DASHBOARD_WIDGET_MIN_WIDTH,
+              DASHBOARD_GRID_COLUMNS - nextX,
+            );
+          }
+
+          if (direction.top) {
+            nextY = Math.max(
+              0,
+              Math.min(
+                interaction.originY + deltaRows,
+                interaction.originY +
+                  interaction.originH -
+                  DASHBOARD_WIDGET_MIN_HEIGHT,
+              ),
+            );
+            nextH = interaction.originH + (interaction.originY - nextY);
+          }
+
+          if (direction.bottom) {
+            nextH = Math.max(
+              DASHBOARD_WIDGET_MIN_HEIGHT,
+              interaction.originH + deltaRows,
+            );
+          }
+
+          return {
+            ...widget,
+            x: nextX,
+            y: nextY,
+            w: nextW,
+            h: nextH,
+          };
+        });
+
+        return {
+          widgets: resolveDashboardLayoutConflicts(nextWidgets, {
+            prioritizedWidgetId: interaction.widgetId,
+          }),
+        };
+      });
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      dragPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      updateInteractionFromPointer(event.clientX, event.clientY);
+    };
+
+    const handlePointerUp = () => {
+      const nextLayout = normalizeDashboardLayout(layoutRef.current);
+      setInteraction(null);
+      dragPointerRef.current = null;
+      void onUpdateDashboardLayout({ layout: nextLayout }).catch(() => undefined);
+    };
+
+    let autoScrollFrameId: number | null = null;
+    const runAutoScroll = () => {
+      if (interaction.mode !== "drag") {
+        return;
+      }
+
+      const pointer = dragPointerRef.current;
+      if (pointer) {
+        const threshold = 96;
+        const topDistance = pointer.clientY;
+        const bottomDistance = window.innerHeight - pointer.clientY;
+        let scrollDelta = 0;
+
+        if (topDistance < threshold) {
+          scrollDelta = -Math.max(10, Math.round((threshold - topDistance) / 4));
+        } else if (bottomDistance < threshold) {
+          scrollDelta = Math.max(
+            10,
+            Math.round((threshold - bottomDistance) / 4),
+          );
+        }
+
+        if (scrollDelta !== 0) {
+          const previousScrollY = window.scrollY;
+          try {
+            window.scrollBy(0, scrollDelta);
+          } catch {
+            // JSDOM does not implement scrolling; ignore in tests.
+          }
+
+          if (window.scrollY !== previousScrollY) {
+            updateInteractionFromPointer(pointer.clientX, pointer.clientY);
+          }
+        }
+      }
+
+      autoScrollFrameId = window.requestAnimationFrame(runAutoScroll);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    if (interaction.mode === "drag") {
+      autoScrollFrameId = window.requestAnimationFrame(runAutoScroll);
+    }
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      if (autoScrollFrameId !== null) {
+        window.cancelAnimationFrame(autoScrollFrameId);
+      }
+    };
+  }, [interaction, onUpdateDashboardLayout]);
+
+  const beginWidgetInteraction = (
+    widget: DashboardWidget,
+    mode: "drag" | "resize",
+    event: React.PointerEvent<HTMLElement>,
+    resizeDirection?: {
+      top: boolean;
+      right: boolean;
+      bottom: boolean;
+      left: boolean;
+    },
+  ) => {
+    if (!isEditing) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const widgetElement = gridRef.current?.querySelector<HTMLElement>(
+      `[data-dashboard-widget-card="${widget.id}"]`,
+    );
+    const widgetRect = widgetElement?.getBoundingClientRect();
+    if (mode === "drag") {
+      dragPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+    }
+    setInteraction({
+      widgetId: widget.id,
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: widget.x,
+      originY: widget.y,
+      originW: widget.w,
+      originH: widget.h,
+      previewLeft: widgetRect?.left ?? event.clientX - 160,
+      previewTop: widgetRect?.top ?? event.clientY - 32,
+      previewWidth: widgetRect?.width ?? 320,
+      previewHeight:
+        widgetRect?.height ?? widget.h * DASHBOARD_GRID_ROW_HEIGHT,
+      pointerOffsetX: widgetRect ? event.clientX - widgetRect.left : 32,
+      pointerOffsetY: widgetRect ? event.clientY - widgetRect.top : 24,
+      resizeDirection,
+    });
+  };
+
+  const handleWidgetPointerDown = (
+    widget: DashboardWidget,
+    event: React.PointerEvent<HTMLElement>,
+  ) => {
+    if (!isEditing || interaction) {
+      return;
+    }
+
+    if (shouldIgnoreDashboardDragStart(event.target)) {
+      return;
+    }
+
+    beginWidgetInteraction(widget, "drag", event);
+  };
+
+  const handleDeleteWidget = (widgetId: string) => {
+    const nextLayout = {
+      widgets: layout.widgets.filter((widget) => widget.id !== widgetId),
+    };
+    setLayout(nextLayout);
+    void onUpdateDashboardLayout({ layout: nextLayout }).catch(() => undefined);
+  };
+
+  const handleSubmitWidgetDialog = async () => {
+    if (widgetDialog.type === "savedView" && !widgetDialog.savedViewId) {
+      setWidgetDialog((current) => ({
+        ...current,
+        validationErrors: {
+          savedViewId: "Choose a saved view to pin.",
+        },
+      }));
+      return;
+    }
+
+    try {
+      setWidgetDialog((current) => ({
+        ...current,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
+
+      let savedViewId: string | null = null;
+      if (widgetDialog.type === "savedView") {
+        const selectedSavedView = savedViewsById[widgetDialog.savedViewId];
+        if (!selectedSavedView) {
+          throw new Error("The selected saved view could not be found.");
+        }
+
+        if (selectedSavedView.scope === "shared") {
+          savedViewId = selectedSavedView.id;
+        } else {
+          const result = await onPromoteSavedViewToShared({
+            savedViewId: selectedSavedView.id,
+          });
+          savedViewId = result.savedView.id;
+        }
+      }
+
+      const nextY = layout.widgets.reduce(
+        (max, widget) => Math.max(max, widget.y + widget.h),
+        0,
+      );
+      const nextWidget: DashboardWidget = {
+        id: createClientId("dashboard-widget"),
+        type: widgetDialog.type,
+        title:
+          widgetDialog.title.trim() ||
+          (savedViewId && savedViewsById[widgetDialog.savedViewId]
+            ? savedViewsById[widgetDialog.savedViewId]!.name
+            : getDashboardWidgetTypeLabel(widgetDialog.type)),
+        x: 0,
+        y: nextY,
+        w: widgetDialog.type === "recentActivity" || widgetDialog.type === "statusSummary" ? 12 : 4,
+        h:
+          widgetDialog.type === "filesystemAttention"
+            ? 1
+            : widgetDialog.type === "savedView"
+              ? 2
+              : 3,
+        config: {},
+        savedViewId,
+      };
+      const nextLayout = {
+        widgets: resolveDashboardLayoutConflicts([...layout.widgets, nextWidget]),
+      };
+      setLayout(nextLayout);
+      await onUpdateDashboardLayout({ layout: nextLayout });
+      setWidgetDialog({
+        open: false,
+        type: "savedView",
+        title: "",
+        savedViewId: "",
+        isSubmitting: false,
+        validationErrors: {},
+      });
+    } catch (error) {
+      setWidgetDialog((current) => ({ ...current, isSubmitting: false }));
+    }
+  };
 
   return (
     <div className="space-y-3">
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold">
-              {workspace.workspace.name}
-            </div>
+            <div className="text-lg font-semibold">{workspace.workspace.name}</div>
             <div className="mt-1 text-[13px] text-muted-foreground">
               Dashboard refreshed {formatDateTime(workspace.dashboard.generatedDate)}
             </div>
+            {isEditing ? (
+              <div className="mt-2 text-[13px] text-muted-foreground">
+                Grab a card anywhere to move it, or drag an edge to resize it.
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {hasFilesystemAttention ? (
@@ -6544,210 +7203,553 @@ function DashboardView({
             <Badge variant="outline">
               {workspace.dashboard.totalDocuments} documents
             </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsEditing((current) => !current)}
+            >
+              {isEditing ? "Done Editing" : "Edit Dashboard"}
+            </Button>
+            {isEditing ? (
+              <Button
+                size="sm"
+                onClick={() =>
+                  setWidgetDialog({
+                    open: true,
+                    type: "savedView",
+                    title: "",
+                    savedViewId: "",
+                    isSubmitting: false,
+                    validationErrors: {},
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Add Widget
+              </Button>
+            ) : null}
           </div>
         </div>
+      </div>
 
-        {hasFilesystemAttention ? (
-          <div className="mt-4 rounded-2xl border border-destructive/50 bg-destructive/10 p-4 text-destructive">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+      {layout.widgets.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-8 text-center text-[13px] text-muted-foreground shadow-sm">
+          This dashboard is empty. Enter edit mode to add summary or saved-view widgets.
+        </div>
+      ) : (
+        <div
+          ref={gridRef}
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${DASHBOARD_GRID_COLUMNS}, minmax(0, 1fr))`,
+            gridAutoRows: `${DASHBOARD_GRID_ROW_HEIGHT}px`,
+          }}
+        >
+          {layout.widgets.map((widget) => {
+            const savedView =
+              widget.savedViewId !== null ? savedViewsById[widget.savedViewId] : undefined;
+            const savedViewRows =
+              widget.type === "savedView" && savedView
+                ? sortDocumentsBySavedView(
+                    filterDocumentsBySavedViewQuery(
+                      workspace.documents,
+                      savedView.query,
+                    ),
+                    savedView.presentation.sorting,
+                  ).slice(0, SAVED_VIEW_WIDGET_PREVIEW_LIMIT)
+                : [];
+            const isDraggingWidget =
+              interaction?.mode === "drag" && interaction.widgetId === widget.id;
+            const isResizingWidget =
+              interaction?.mode === "resize" && interaction.widgetId === widget.id;
+            const interactionLocked =
+              interaction !== null && interaction.widgetId !== widget.id;
+
+            return (
+              <section
+                key={widget.id}
+                data-dashboard-widget-card={widget.id}
+                className={cn(
+                  "relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card p-4 shadow-sm transition",
+                  isEditing && "select-none",
+                  isEditing && !interactionLocked && "cursor-grab",
+                  isDraggingWidget && "cursor-grabbing",
+                  isDraggingWidget &&
+                    "border-dashed border-blue-500/50 bg-blue-500/5 shadow-inner",
+                  isResizingWidget && "ring-2 ring-blue-500/20",
+                )}
+                style={{
+                  gridColumn: `${widget.x + 1} / span ${widget.w}`,
+                  gridRow: `${widget.y + 1} / span ${widget.h}`,
+                }}
+                onPointerDown={(event) => handleWidgetPointerDown(widget, event)}
+              >
+                {isDraggingWidget ? (
+                  <div className="flex h-full flex-1 items-center justify-center rounded-xl border-2 border-dashed border-blue-500/50 bg-background/70 px-4 text-center text-sm font-medium text-blue-700">
+                    Release to place this card here
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {widget.title}
+                        </div>
+                        <div className="mt-1 text-[12px] text-muted-foreground">
+                          {widget.type === "savedView"
+                            ? savedView
+                              ? `${savedView.scope === "shared" ? "Shared" : "Personal"} saved view`
+                              : "Saved view widget"
+                            : getDashboardWidgetTypeLabel(widget.type)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {widget.type === "recentActivity" &&
+                        workspace.settings.activityLogEnabled ? (
+                          <button
+                            type="button"
+                            className="text-[12px] font-medium text-blue-600 transition hover:text-blue-700"
+                            onClick={onShowAllActivity}
+                          >
+                            Show all
+                          </button>
+                        ) : null}
+                        {isEditing ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteWidget(widget.id)}
+                            disabled={interactionLocked}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-auto pr-1">
+                      {widget.type === "filesystemAttention" ? (
+                        hasFilesystemAttention ? (
+                          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+                            <div className="text-sm font-semibold">
+                              {filesystemAttention.totalAttentionCount} document
+                              {filesystemAttention.totalAttentionCount === 1
+                                ? ""
+                                : "s"}{" "}
+                              need filesystem review
+                            </div>
+                            <div className="mt-1 text-[13px] text-destructive/90">
+                              Open affected documents and use Review Files on
+                              highlighted rows.
+                            </div>
+                            <div className="mt-3">
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() =>
+                                  onOpenDocuments({ healthFlag: "unmanagedPaths" })
+                                }
+                              >
+                                Open affected documents
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                            No filesystem drift needs attention right now.
+                          </div>
+                        )
+                      ) : null}
+
+                      {widget.type === "statusSummary" ? (
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {workspace.dashboard.countsByStatus.map((item) => (
+                            <button
+                              key={item.id}
+                              className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
+                              onClick={() => onOpenDocuments({ status: item.status })}
+                            >
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                {item.label}
+                              </div>
+                              <div className="mt-2 text-2xl font-semibold">
+                                {item.count}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {widget.type === "healthInsights" ? (
+                        workspace.dashboard.healthInsights.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                            No document health issues detected right now.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {workspace.dashboard.healthInsights.map((item) => (
+                              <button
+                                key={item.id}
+                                className={cn(
+                                  "flex w-full items-center justify-between rounded-xl border bg-background px-3 py-3 text-left transition",
+                                  item.tone === "danger"
+                                    ? "border-destructive/35 hover:bg-destructive/5"
+                                    : "border-border hover:bg-accent",
+                                )}
+                                onClick={() =>
+                                  onOpenDocuments({ healthFlag: item.healthFlag })
+                                }
+                              >
+                                <div>
+                                  <div className="text-sm font-semibold">
+                                    {item.label}
+                                  </div>
+                                  <div className="mt-1 text-xs text-muted-foreground">
+                                    Open the filtered documents table
+                                  </div>
+                                </div>
+                                <Badge
+                                  variant={
+                                    item.tone === "danger"
+                                      ? "destructive"
+                                      : item.tone === "warning"
+                                        ? "warning"
+                                        : "outline"
+                                  }
+                                >
+                                  {item.count}
+                                </Badge>
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      ) : null}
+
+                      {widget.type === "typeGrouping" ? (
+                        <div className="space-y-2">
+                          {workspace.dashboard.countsByType.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5"
+                            >
+                              <span className="text-[13px]">{item.label}</span>
+                              <Badge variant="outline">{item.count}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {widget.type === "projectGrouping" ? (
+                        <div className="space-y-2">
+                          {workspace.dashboard.countsByProject.map((item) => (
+                            <button
+                              key={item.id}
+                              className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
+                              onClick={() =>
+                                onOpenDocuments({
+                                  projectFilter:
+                                    item.projectId === null
+                                      ? ""
+                                      : String(item.projectId),
+                                })
+                              }
+                            >
+                              <span className="text-[13px]">{item.label}</span>
+                              <Badge variant="outline">{item.count}</Badge>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {widget.type === "recentActivity" ? (
+                        !workspace.settings.activityLogEnabled ? (
+                          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                            {ACTIVITY_LOG_DISABLED_MESSAGE}
+                          </div>
+                        ) : workspace.dashboard.recentActivity.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                            No recent activity has been recorded yet.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {workspace.dashboard.recentActivity.map((item) => (
+                              <button
+                                key={item.id}
+                                className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
+                                onClick={() =>
+                                  item.documentRecordId &&
+                                  onOpenDocument(item.documentRecordId)
+                                }
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">
+                                    {formatActivityEventTypeLabel(item.eventType)}
+                                  </Badge>
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatDateTime(item.createdDate)}
+                                  </div>
+                                </div>
+                                <div className="mt-2 text-[13px] font-medium">
+                                  {item.message}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      ) : null}
+
+                      {widget.type === "savedView" ? (
+                        !savedView ? (
+                          <div className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 px-4 py-5 text-[13px] text-destructive">
+                            The linked saved view is no longer available.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                variant={
+                                  savedView.scope === "shared"
+                                    ? "outline"
+                                    : "default"
+                                }
+                              >
+                                {savedView.scope === "shared"
+                                  ? "Shared"
+                                  : "Personal"}
+                              </Badge>
+                              <Badge variant="outline">
+                                {
+                                  filterDocumentsBySavedViewQuery(
+                                    workspace.documents,
+                                    savedView.query,
+                                  ).length
+                                }{" "}
+                                matches
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onApplySavedView(savedView)}
+                              >
+                                Open View
+                              </Button>
+                            </div>
+                            {savedView.query.rules.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {savedView.query.rules.map((rule) => (
+                                  <Badge key={rule.id} variant="outline">
+                                    {formatSavedViewRuleSummary(rule)}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : null}
+                            <div className="space-y-2">
+                              {savedViewRows.length === 0 ? (
+                                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                                  No documents match this saved view right now.
+                                </div>
+                              ) : (
+                                savedViewRows.map((document) => (
+                                  <button
+                                    key={document.id}
+                                    className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
+                                    onClick={() => onOpenDocument(document.id)}
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-semibold">
+                                        {document.title}
+                                      </div>
+                                      <div className="mt-1 text-xs text-muted-foreground">
+                                        {document.documentId} • {document.typeName}
+                                      </div>
+                                    </div>
+                                    <Badge variant="outline">
+                                      {document.status ?? "Not started"}
+                                    </Badge>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+
+                    {isEditing ? (
+                      <>
+                        {DASHBOARD_RESIZE_HANDLE_CONFIGS.map((handle) => (
+                          <div
+                            key={handle.id}
+                            data-dashboard-resize-handle="true"
+                            className={cn(
+                              handle.className,
+                              interactionLocked && "pointer-events-none",
+                            )}
+                            onPointerDown={(event) =>
+                              beginWidgetInteraction(
+                                widget,
+                                "resize",
+                                event,
+                                handle.direction,
+                              )
+                            }
+                            title="Resize card"
+                          />
+                        ))}
+                        <div className="pointer-events-none absolute inset-0 rounded-2xl border border-dashed border-blue-500/30" />
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      {interaction?.mode === "drag" && draggedWidget ? (
+        <div
+          className="pointer-events-none fixed z-50"
+          style={{
+            left: interaction.previewLeft,
+            top: interaction.previewTop,
+            width: interaction.previewWidth,
+            height: interaction.previewHeight,
+          }}
+        >
+          <div className="flex h-full flex-col rounded-2xl border border-blue-500/40 bg-card/95 p-4 shadow-2xl ring-1 ring-blue-500/15 backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <GripVertical className="h-4 w-4 text-blue-600" />
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <AlertTriangle className="h-4 w-4" />
-                  Fix filesystem issues before they spread
+                <div className="truncate text-sm font-semibold">
+                  {draggedWidget.title}
                 </div>
-                <div className="mt-1 text-[13px] text-destructive/90">
-                  {filesystemAttention.totalAttentionCount} document
-                  {filesystemAttention.totalAttentionCount === 1 ? "" : "s"}{" "}
-                  need attention because files changed outside DocTrack. Open the
-                  affected documents table, then use{" "}
-                  <span className="font-semibold">Review Files</span> on the
-                  highlighted rows.
+                <div className="mt-1 text-[12px] text-muted-foreground">
+                  Release to place this card.
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() =>
-                    onOpenDocuments({
-                      healthFlag: "unmanagedPaths",
-                    })
-                  }
-                >
-                  Open affected documents
-                </Button>
               </div>
             </div>
+            <div className="mt-4 flex-1 rounded-xl border border-dashed border-border/70 bg-background/70" />
           </div>
-        ) : null}
+        </div>
+      ) : null}
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {workspace.dashboard.countsByStatus.map((item) => (
-            <button
-              key={item.id}
-              className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
+      <Dialog
+        open={widgetDialog.open}
+        onOpenChange={(open) =>
+          setWidgetDialog((current) =>
+            open
+              ? current
+              : {
+                  open: false,
+                  type: "savedView",
+                  title: "",
+                  savedViewId: "",
+                  isSubmitting: false,
+                  validationErrors: {},
+                },
+          )
+        }
+      >
+        <DialogContent className="w-[min(92vw,520px)]">
+          <DialogHeader>
+            <DialogTitle>Add Dashboard Widget</DialogTitle>
+            <DialogDescription>
+              Build a shared dashboard with built-in summaries and pinned saved views.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field label="Widget Type">
+              <Select
+                value={widgetDialog.type}
+                onChange={(event) =>
+                  setWidgetDialog((current) => ({
+                    ...current,
+                    type: event.target.value as DashboardWidgetType,
+                    title:
+                      event.target.value === "savedView"
+                        ? current.title
+                        : getDashboardWidgetTypeLabel(
+                            event.target.value as DashboardWidgetType,
+                          ),
+                    validationErrors: {},
+                  }))
+                }
+              >
+                <option value="savedView">Saved View</option>
+                <option value="filesystemAttention">Filesystem Attention</option>
+                <option value="statusSummary">Status Summary</option>
+                <option value="healthInsights">Document Health</option>
+                <option value="typeGrouping">Document Types</option>
+                <option value="projectGrouping">Projects</option>
+                <option value="recentActivity">Recent Activity</option>
+              </Select>
+            </Field>
+            {widgetDialog.type === "savedView" ? (
+              <Field
+                label="Saved View"
+                error={widgetDialog.validationErrors.savedViewId}
+              >
+                <Select
+                  value={widgetDialog.savedViewId}
+                  onChange={(event) =>
+                    setWidgetDialog((current) => ({
+                      ...current,
+                      savedViewId: event.target.value,
+                      validationErrors: {},
+                    }))
+                  }
+                >
+                  <option value="">Choose a saved view</option>
+                  {workspace.savedViews.map((savedView) => (
+                    <option key={savedView.id} value={savedView.id}>
+                      {savedView.name} ({savedView.scope})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            <Field label="Widget Title">
+              <Input
+                value={widgetDialog.title}
+                onChange={(event) =>
+                  setWidgetDialog((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
+                }
+                placeholder="Optional custom title"
+              />
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={widgetDialog.isSubmitting}
               onClick={() =>
-                onOpenDocuments({
-                  status: item.status,
+                setWidgetDialog({
+                  open: false,
+                  type: "savedView",
+                  title: "",
+                  savedViewId: "",
+                  isSubmitting: false,
+                  validationErrors: {},
                 })
               }
             >
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {item.label}
-              </div>
-              <div className="mt-2 text-2xl font-semibold">{item.count}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-3">
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold">Document Health</div>
-              <div className="mt-1 text-[13px] text-muted-foreground">
-                Review the highest-signal issues in this workspace.
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 h-[320px] space-y-2 overflow-y-auto pr-1">
-            {workspace.dashboard.healthInsights.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                No document health issues detected right now.
-              </div>
-            ) : (
-              workspace.dashboard.healthInsights.map((item) => (
-                <button
-                  key={item.id}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-xl border bg-background px-3 py-3 text-left transition",
-                    item.tone === "danger"
-                      ? "border-destructive/35 hover:bg-destructive/5"
-                      : "border-border hover:bg-accent",
-                  )}
-                  onClick={() =>
-                    onOpenDocuments({
-                      healthFlag: item.healthFlag,
-                    })
-                  }
-                >
-                  <div>
-                    <div className="text-sm font-semibold">{item.label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Open the filtered documents table
-                    </div>
-                  </div>
-                  <Badge
-                    variant={
-                      item.tone === "danger"
-                        ? "destructive"
-                        : item.tone === "warning"
-                          ? "warning"
-                          : "outline"
-                    }
-                  >
-                    {item.count}
-                  </Badge>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-          <div className="text-sm font-semibold">Groupings</div>
-          <div className="mt-1 text-[13px] text-muted-foreground">
-            Open focused document slices by type or project.
-          </div>
-
-          <div className="mt-4 h-[320px] space-y-4 overflow-y-auto pr-1">
-            <div className="space-y-2">
-              {workspace.dashboard.countsByType.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5"
-                >
-                  <span className="text-[13px]">{item.label}</span>
-                  <Badge variant="outline">{item.count}</Badge>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              {workspace.dashboard.countsByProject.map((item) => (
-                <button
-                  key={item.id}
-                  className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
-                  onClick={() =>
-                    onOpenDocuments({
-                      projectFilter:
-                        item.projectId === null ? "" : String(item.projectId),
-                    })
-                  }
-                >
-                  <span className="text-[13px]">{item.label}</span>
-                  <Badge variant="outline">{item.count}</Badge>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold">Recent Activity</div>
-              <div className="mt-1 text-[13px] text-muted-foreground">
-                Latest tracked changes from the workspace history.
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {workspace.settings.activityLogEnabled ? (
-                <button
-                  type="button"
-                  className="text-[13px] font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
-                  onClick={onShowAllActivity}
-                >
-                  Show all
-                </button>
-              ) : null}
-              <History className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </div>
-          <div className="mt-4 h-[320px] space-y-2 overflow-y-auto pr-1">
-            {!workspace.settings.activityLogEnabled ? (
-              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                {ACTIVITY_LOG_DISABLED_MESSAGE}
-              </div>
-            ) : workspace.dashboard.recentActivity.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                No recent activity has been recorded yet.
-              </div>
-            ) : (
-              workspace.dashboard.recentActivity.map((item) => (
-                <button
-                  key={item.id}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-3 text-left transition hover:bg-accent"
-                  onClick={() =>
-                    item.documentRecordId && onOpenDocument(item.documentRecordId)
-                  }
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">
-                      {formatActivityEventTypeLabel(item.eventType)}
-                    </Badge>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDateTime(item.createdDate)}
-                    </div>
-                  </div>
-                  <div className="mt-2 text-[13px] font-medium">{item.message}</div>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-      </div>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleSubmitWidgetDialog()}
+              disabled={widgetDialog.isSubmitting}
+            >
+              {widgetDialog.isSubmitting ? "Adding..." : "Add Widget"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -6764,8 +7766,10 @@ function DocumentsView({
   applicationSettings,
   isMacOs,
   documentTableDensity,
+  documentViewState,
   documentsVisualizationMode,
   visibleTableColumns,
+  savedViews,
   selectedDocumentDetail,
   isDetailLoading,
   onSelectDocument,
@@ -6786,17 +7790,25 @@ function DocumentsView({
   onRequestDeleteDocument,
   onRequestDeleteVersion,
   onUpdateSidebarWidth,
+  onDocumentViewStateChange,
+  onApplySavedView,
+  onCreateSavedView,
+  onUpdateSavedView,
+  onDeleteSavedView,
+  onDuplicateSavedView,
+  onPromoteSavedViewToShared,
+  onPinSavedViewToDashboard,
   documentExportDialogRequest,
   onDocumentExportDialogRequestConsumed,
-  dashboardDrilldown,
-  onDashboardDrilldownConsumed,
 }: {
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   applicationSettings: ApplicationSettings;
   isMacOs: boolean;
   documentTableDensity: DocumentTableDensity;
+  documentViewState: DocumentViewState;
   documentsVisualizationMode: DocumentsVisualizationMode;
   visibleTableColumns: DocumentTableColumn[];
+  savedViews: SavedView[];
   selectedDocumentDetail: DocumentDetail | null;
   isDetailLoading: boolean;
   onSelectDocument: (documentRecordId: number) => void;
@@ -6825,38 +7837,56 @@ function DocumentsView({
   onRequestDeleteDocument: (documentRecordId?: number) => void;
   onRequestDeleteVersion: (documentVersionId: number) => void;
   onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
+  onDocumentViewStateChange: (
+    updater: DocumentViewState | ((current: DocumentViewState) => DocumentViewState),
+  ) => void;
+  onApplySavedView: (savedView: SavedView) => void;
+  onCreateSavedView: (input: CreateSavedViewInput) => Promise<SavedView>;
+  onUpdateSavedView: (
+    savedViewId: string,
+    scope: SavedView["scope"],
+    input: UpdateSavedViewInput,
+  ) => Promise<SavedView>;
+  onDeleteSavedView: (input: DeleteSavedViewInput) => Promise<void>;
+  onDuplicateSavedView: (input: DuplicateSavedViewInput) => Promise<SavedView>;
+  onPromoteSavedViewToShared: (
+    input: PromoteSavedViewToSharedInput,
+  ) => Promise<PromoteSavedViewToSharedResult>;
+  onPinSavedViewToDashboard: (savedView: SavedView) => Promise<void>;
   documentExportDialogRequest: DocumentExportDialogRequestState | null;
   onDocumentExportDialogRequestConsumed: () => void;
-  dashboardDrilldown: DashboardDrilldownState | null;
-  onDashboardDrilldownConsumed: () => void;
 }) {
   const fallbackSortingColumn = visibleTableColumns.includes("modifiedDate")
     ? "modifiedDate"
     : (visibleTableColumns[0] ?? "documentId");
-  const [search, setSearch] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([
-    {
-      id: fallbackSortingColumn,
-      desc: fallbackSortingColumn === "modifiedDate",
-    },
-  ]);
-  const [statusFilter, setStatusFilter] = useState<
-    DocumentStatus | "All" | "Not started"
-  >("All");
-  const [projectFilter, setProjectFilter] = useState<string>("All");
-  const [healthFilter, setHealthFilter] = useState<DocumentHealthFlag | "All">(
-    "All",
-  );
   const [exportDialog, setExportDialog] = useState(
     defaultDocumentExportDialogState,
   );
+  const [savedViewDialog, setSavedViewDialog] = useState<{
+    open: boolean;
+    mode: "create" | "edit";
+    savedView?: SavedView;
+    name: string;
+    scope: SavedView["scope"];
+    isSubmitting: boolean;
+    validationErrors: ValidationErrors;
+  }>({
+    open: false,
+    mode: "create",
+    name: "",
+    scope: "personal",
+    isSubmitting: false,
+    validationErrors: {},
+  });
+  const [savedViewsDialogOpen, setSavedViewsDialogOpen] = useState(false);
+  const [rulesDialogOpen, setRulesDialogOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(
     applicationSettings.documentDetailSidebarWidth,
   );
   const [isSidebarEntered, setIsSidebarEntered] = useState(false);
   const availableColumns = workspace.settings.visibleDocumentColumns;
   const projectFeatureEnabled = availableColumns.includes("project");
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDeferredValue(documentViewState.search);
   const detailViewMode = applicationSettings.documentDetailViewMode;
   const timelineContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineSectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -6884,6 +7914,27 @@ function DocumentsView({
     documentTableDensity === "compact"
       ? "px-6 py-10 text-center text-muted-foreground"
       : "px-6 py-12 text-center text-muted-foreground";
+  const sorting = useMemo<SortingState>(() => {
+    const currentSorting = documentViewState.sorting.map((entry) => ({
+      id: entry.column,
+      desc: entry.desc,
+    }));
+    if (
+      currentSorting.length > 0 &&
+      currentSorting.every((entry) =>
+        visibleTableColumns.includes(entry.id as DocumentTableColumn),
+      )
+    ) {
+      return currentSorting;
+    }
+
+    return [
+      {
+        id: fallbackSortingColumn,
+        desc: fallbackSortingColumn === "modifiedDate",
+      },
+    ];
+  }, [documentViewState.sorting, fallbackSortingColumn, visibleTableColumns]);
 
   const statusOptions = useMemo(
     () => ["All", "Not started", ...workspace.statuses] as const,
@@ -6894,25 +7945,6 @@ function DocumentsView({
     [availableColumns],
   );
   const latestVersion = selectedDocumentDetail?.versions[0] ?? null;
-
-  useEffect(() => {
-    setSorting((current) => {
-      if (
-        current.every((entry) =>
-          visibleTableColumns.includes(entry.id as DocumentTableColumn),
-        )
-      ) {
-        return current;
-      }
-
-      return [
-        {
-          id: fallbackSortingColumn,
-          desc: fallbackSortingColumn === "modifiedDate",
-        },
-      ];
-    });
-  }, [fallbackSortingColumn, visibleTableColumns]);
 
   useEffect(() => {
     setExportDialog((current) => {
@@ -6949,32 +7981,6 @@ function DocumentsView({
     onDocumentExportDialogRequestConsumed,
     workspace.workspace.rootPath,
   ]);
-
-  useEffect(() => {
-    if (!dashboardDrilldown) {
-      return;
-    }
-
-    if (dashboardDrilldown.status) {
-      setStatusFilter(dashboardDrilldown.status);
-    } else {
-      setStatusFilter("All");
-    }
-
-    if (dashboardDrilldown.projectFilter !== undefined) {
-      setProjectFilter(dashboardDrilldown.projectFilter);
-    } else {
-      setProjectFilter("All");
-    }
-
-    if (dashboardDrilldown.healthFlag) {
-      setHealthFilter(dashboardDrilldown.healthFlag);
-    } else {
-      setHealthFilter("All");
-    }
-
-    onDashboardDrilldownConsumed();
-  }, [dashboardDrilldown, onDashboardDrilldownConsumed]);
 
   useEffect(() => {
     const appWidth = window.innerWidth;
@@ -7016,27 +8022,22 @@ function DocumentsView({
 
   const filteredDocuments = useMemo(
     () =>
-      workspace.documents.filter((document) => {
-        const matchesStatus =
-          statusFilter === "All"
-            ? true
-            : statusFilter === "Not started"
-              ? document.status === null
-              : document.status === statusFilter;
-        const matchesProject =
-          !projectFeatureEnabled ||
-          projectFilter === "All" ||
-          String(document.projectId ?? "") === projectFilter;
-        const matchesHealth =
-          healthFilter === "All" ||
-          document.healthFlags.includes(healthFilter);
-        return matchesStatus && matchesProject && matchesHealth;
+      filterDocumentsBySavedViewQuery(workspace.documents, {
+        search: deferredSearch.trim(),
+        statusFilter: documentViewState.statusFilter,
+        projectFilter: projectFeatureEnabled
+          ? documentViewState.projectFilter
+          : "All",
+        healthFilter: documentViewState.healthFilter,
+        rules: documentViewState.rules,
       }),
     [
-      healthFilter,
+      deferredSearch,
+      documentViewState.healthFilter,
+      documentViewState.projectFilter,
+      documentViewState.rules,
+      documentViewState.statusFilter,
       projectFeatureEnabled,
-      projectFilter,
-      statusFilter,
       workspace.documents,
     ],
   );
@@ -7327,43 +8328,37 @@ function DocumentsView({
     columns,
     state: {
       sorting,
-      globalFilter: deferredSearch,
     },
-    onSortingChange: setSorting,
-    globalFilterFn: (row, _columnId, filterValue) => {
-      const haystack = [
-        row.original.documentId,
-        row.original.title,
-        row.original.typeName,
-        availableColumns.includes("author") ? row.original.author : "",
-        row.original.status ?? "",
-        availableColumns.includes("language")
-          ? (row.original.languageCode ?? "")
-          : "",
-        availableColumns.includes("confidentialityClass")
-          ? (row.original.confidentialityClassName ?? "")
-          : "",
-        projectFeatureEnabled ? (row.original.projectName ?? "") : "",
-        availableColumns.includes("company") ? row.original.company : "",
-        availableColumns.includes("department") ? row.original.department : "",
-        availableColumns.includes("startDate") ? row.original.startDate : "",
-        availableColumns.includes("reviewedBy") ? row.original.reviewedBy : "",
-        availableColumns.includes("approvedBy") ? row.original.approvedBy : "",
-        availableColumns.includes("revisionDescription")
-          ? row.original.revisionDescription
-          : "",
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(String(filterValue).toLowerCase());
+    onSortingChange: (updater) => {
+      const nextSorting =
+        typeof updater === "function" ? updater(sorting) : updater;
+      onDocumentViewStateChange((current) => ({
+        ...current,
+        sorting: nextSorting
+          .filter((entry) =>
+            DOCUMENT_TABLE_COLUMNS.includes(entry.id as DocumentTableColumn),
+          )
+          .map((entry) => ({
+            column: entry.id as DocumentTableColumn,
+            desc: entry.desc,
+          })),
+      }));
     },
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
   const currentTableRows = table.getRowModel().rows.map((row) => row.original);
+  const savedViewMatchCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        savedViews.map((savedView) => [
+          savedView.id,
+          filterDocumentsBySavedViewQuery(workspace.documents, savedView.query).length,
+        ]),
+      ),
+    [savedViews, workspace.documents],
+  );
   const affectedCurrentRows = currentTableRows.filter((document) =>
     documentNeedsFilesystemReview(document),
   );
@@ -7410,20 +8405,13 @@ function DocumentsView({
             },
           ];
 
-    return [...workspace.documents].sort((left, right) => {
-      for (const entry of sortingToUse) {
-        const column = entry.id as DocumentTableColumn;
-        const result = compareSortValues(
-          getSortValue(left, column),
-          getSortValue(right, column),
-        );
-        if (result !== 0) {
-          return entry.desc ? -result : result;
-        }
-      }
-
-      return 0;
-    });
+    return sortDocumentsBySavedView(
+      workspace.documents,
+      sortingToUse.map((entry) => ({
+        column: entry.id as DocumentTableColumn,
+        desc: entry.desc,
+      })),
+    );
   }, [availableColumns, sorting, workspace.documents]);
 
   useEffect(() => {
@@ -7474,8 +8462,12 @@ function DocumentsView({
     const selectedProject =
       exportDialog.scope === "current-table" && projectFeatureEnabled
         ? (workspace.projects.find(
-            (project) => String(project.id) === projectFilter,
-          )?.name ?? (projectFilter === "" ? "No project" : "All projects"))
+            (project) =>
+              String(project.id) === documentViewState.projectFilter,
+          )?.name ??
+          (documentViewState.projectFilter === ""
+            ? "No project"
+            : "All projects"))
         : "";
 
     try {
@@ -7498,7 +8490,7 @@ function DocumentsView({
           exportDialog.scope === "current-table"
             ? {
                 search: deferredSearch.trim(),
-                status: statusFilter,
+                status: documentViewState.statusFilter,
                 project: selectedProject,
               }
             : {
@@ -7512,6 +8504,96 @@ function DocumentsView({
       setExportDialog((current) => ({ ...current, isSubmitting: false }));
       throw error;
     }
+  };
+
+  const currentSavedViewQuery: SavedViewQuery = {
+    search: documentViewState.search,
+    statusFilter: documentViewState.statusFilter,
+    projectFilter: projectFeatureEnabled ? documentViewState.projectFilter : "All",
+    healthFilter: documentViewState.healthFilter,
+    rules: documentViewState.rules,
+  };
+  const currentSavedViewPresentation: SavedViewPresentation = {
+    visualizationMode: documentsVisualizationMode,
+    sorting: sorting.map((entry) => ({
+      column: entry.id as DocumentTableColumn,
+      desc: entry.desc,
+    })),
+  };
+
+  const handleSubmitSavedView = async () => {
+    if (!savedViewDialog.name.trim()) {
+      setSavedViewDialog((current) => ({
+        ...current,
+        validationErrors: {
+          name: "View name is required.",
+        },
+      }));
+      return;
+    }
+
+    try {
+      setSavedViewDialog((current) => ({
+        ...current,
+        isSubmitting: true,
+        validationErrors: {},
+      }));
+
+      if (savedViewDialog.mode === "edit" && savedViewDialog.savedView) {
+        await onUpdateSavedView(
+          savedViewDialog.savedView.id,
+          savedViewDialog.savedView.scope,
+          {
+            name: savedViewDialog.name,
+            query: currentSavedViewQuery,
+            presentation: currentSavedViewPresentation,
+          },
+        );
+      } else {
+        await onCreateSavedView({
+          name: savedViewDialog.name,
+          scope: savedViewDialog.scope,
+          query: currentSavedViewQuery,
+          presentation: currentSavedViewPresentation,
+        });
+      }
+
+      setSavedViewDialog({
+        open: false,
+        mode: "create",
+        name: "",
+        scope: "personal",
+        isSubmitting: false,
+        validationErrors: {},
+      });
+    } catch (error) {
+      setSavedViewDialog((current) => ({ ...current, isSubmitting: false }));
+    }
+  };
+
+  const openCreateSavedViewDialog = () => {
+    setSavedViewsDialogOpen(false);
+    setSavedViewDialog({
+      open: true,
+      mode: "create",
+      name: buildSuggestedSavedViewName(currentSavedViewQuery),
+      scope: "personal",
+      isSubmitting: false,
+      validationErrors: {},
+    });
+  };
+
+  const openEditSavedViewDialog = (savedView: SavedView) => {
+    setSavedViewsDialogOpen(false);
+    setSavedViewDialog({
+      open: true,
+      mode: "edit",
+      savedView,
+      name: savedView.name,
+      scope: savedView.scope,
+      isSubmitting: false,
+      validationErrors: {},
+    });
   };
 
   const handleKanbanCardDragStart = (
@@ -7867,10 +8949,13 @@ function DocumentsView({
                   data-doc-search="true"
                   className="pl-10"
                   placeholder="ID, title, type, author, project, status, metadata..."
-                  value={search}
+                  value={documentViewState.search}
                   onChange={(event) => {
                     startTransition(() => {
-                      setSearch(event.target.value);
+                      onDocumentViewStateChange((current) => ({
+                        ...current,
+                        search: event.target.value,
+                      }));
                     });
                   }}
                 />
@@ -7889,11 +8974,16 @@ function DocumentsView({
                     type="button"
                     className={cn(
                       "rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition",
-                      statusFilter === status
+                      documentViewState.statusFilter === status
                         ? "border-border bg-secondary text-foreground"
                         : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
-                    onClick={() => setStatusFilter(status)}
+                    onClick={() =>
+                      onDocumentViewStateChange((current) => ({
+                        ...current,
+                        statusFilter: status,
+                      }))
+                    }
                   >
                     {status}
                   </button>
@@ -7905,8 +8995,13 @@ function DocumentsView({
             {projectFeatureEnabled ? (
               <Field label="Project">
                 <Select
-                  value={projectFilter}
-                  onChange={(event) => setProjectFilter(event.target.value)}
+                  value={documentViewState.projectFilter}
+                  onChange={(event) =>
+                    onDocumentViewStateChange((current) => ({
+                      ...current,
+                      projectFilter: event.target.value,
+                    }))
+                  }
                 >
                   <option value="All">All projects</option>
                   {workspace.projects.map((project) => (
@@ -7921,9 +9016,12 @@ function DocumentsView({
 
             <Field label="Health">
               <Select
-                value={healthFilter}
+                value={documentViewState.healthFilter}
                 onChange={(event) =>
-                  setHealthFilter(event.target.value as DocumentHealthFlag | "All")
+                  onDocumentViewStateChange((current) => ({
+                    ...current,
+                    healthFilter: event.target.value as DocumentHealthFlag | "All",
+                  }))
                 }
               >
                 <option value="All">All health states</option>
@@ -7934,6 +9032,78 @@ function DocumentsView({
                 <option value="staleDocument">Stale documents</option>
               </Select>
             </Field>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-border bg-background px-3 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold">Views & Rules</div>
+                  <Badge variant="outline">
+                    {savedViews.length} saved view
+                    {savedViews.length === 1 ? "" : "s"}
+                  </Badge>
+                  <Badge
+                    variant={
+                      documentViewState.rules.length > 0 ? "warning" : "outline"
+                    }
+                  >
+                    {documentViewState.rules.length} smart rule
+                    {documentViewState.rules.length === 1 ? "" : "s"}
+                  </Badge>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {documentViewState.rules.length === 0 ? (
+                    <span className="text-[13px] text-muted-foreground">
+                      No smart rules applied.
+                    </span>
+                  ) : (
+                    <>
+                      {documentViewState.rules.slice(0, 2).map((rule) => (
+                        <button
+                          key={rule.id}
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] text-foreground transition hover:bg-accent"
+                          onClick={() =>
+                            onDocumentViewStateChange((current) => ({
+                              ...current,
+                              rules: current.rules.filter(
+                                (item) => item.id !== rule.id,
+                              ),
+                            }))
+                          }
+                          title="Remove rule"
+                        >
+                          <span>{formatSavedViewRuleSummary(rule)}</span>
+                          <X className="h-3 w-3" />
+                        </button>
+                      ))}
+                      {documentViewState.rules.length > 2 ? (
+                        <Badge variant="outline">
+                          +{documentViewState.rules.length - 2} more
+                        </Badge>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSavedViewsDialogOpen(true)}
+                >
+                  Saved Views
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setRulesDialogOpen(true)}
+                >
+                  Smart Rules
+                </Button>
+              </div>
+            </div>
           </div>
 
           {affectedCurrentRows.length > 0 ? (
@@ -8283,8 +9453,774 @@ function DocumentsView({
         onStateChange={setExportDialog}
         onSubmit={handleSubmitExport}
       />
+      <Dialog open={savedViewsDialogOpen} onOpenChange={setSavedViewsDialogOpen}>
+        <DialogContent className="w-[min(96vw,920px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Saved Views</DialogTitle>
+            <DialogDescription>
+              Reopen saved filters, smart collections, and dashboard pins without
+              taking over the documents page.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto pr-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+                <Badge variant="outline">
+                  {savedViews.length} saved view{savedViews.length === 1 ? "" : "s"}
+                </Badge>
+                <Badge
+                  variant={
+                    documentViewState.rules.length > 0 ? "warning" : "outline"
+                  }
+                >
+                  {documentViewState.rules.length} active smart rule
+                  {documentViewState.rules.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+              <Button size="sm" onClick={openCreateSavedViewDialog}>
+                Save Current View
+              </Button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {savedViews.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-[13px] text-muted-foreground">
+                  No saved views yet. Save the current filters to reuse them from
+                  the documents page or pin them to the dashboard later.
+                </div>
+              ) : (
+                savedViews.map((savedView) => (
+                  <div
+                    key={savedView.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => {
+                        setSavedViewsDialogOpen(false);
+                        onApplySavedView(savedView);
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold">
+                          {savedView.name}
+                        </span>
+                        <Badge
+                          variant={
+                            savedView.scope === "shared" ? "outline" : "default"
+                          }
+                        >
+                          {savedView.scope === "shared" ? "Shared" : "Personal"}
+                        </Badge>
+                        <Badge variant="outline">
+                          {savedViewMatchCounts[savedView.id] ?? 0} matches
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-[12px] text-muted-foreground">
+                        {savedView.presentation.visualizationMode
+                          .charAt(0)
+                          .toUpperCase() +
+                          savedView.presentation.visualizationMode.slice(1)}{" "}
+                        view
+                        {savedView.query.rules.length > 0
+                          ? ` • ${savedView.query.rules.length} smart rule${savedView.query.rules.length === 1 ? "" : "s"}`
+                          : ""}
+                      </div>
+                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditSavedViewDialog(savedView)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void onDuplicateSavedView({
+                            savedViewId: savedView.id,
+                            scope: savedView.scope,
+                          }).catch(() => undefined)
+                        }
+                      >
+                        Copy
+                      </Button>
+                      {savedView.scope === "personal" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void onPromoteSavedViewToShared({
+                              savedViewId: savedView.id,
+                            }).catch(() => undefined)
+                          }
+                        >
+                          Share
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void onPinSavedViewToDashboard(savedView).catch(
+                            () => undefined,
+                          )
+                        }
+                      >
+                        Pin
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          void onDeleteSavedView({
+                            savedViewId: savedView.id,
+                            scope: savedView.scope,
+                          }).catch(() => undefined)
+                        }
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <SavedViewRulesDialog
+        open={rulesDialogOpen}
+        workspace={workspace}
+        rules={documentViewState.rules}
+        onOpenChange={setRulesDialogOpen}
+        onSave={(rules) =>
+          onDocumentViewStateChange((current) => ({
+            ...current,
+            rules,
+          }))
+        }
+      />
+      <Dialog
+        open={savedViewDialog.open}
+        onOpenChange={(open) =>
+          setSavedViewDialog((current) =>
+            open
+              ? current
+              : {
+                  open: false,
+                  mode: "create",
+                  name: "",
+                  scope: "personal",
+                  isSubmitting: false,
+                  validationErrors: {},
+                },
+          )
+        }
+      >
+        <DialogContent className="w-[min(92vw,520px)]">
+          <DialogHeader>
+            <DialogTitle>
+              {savedViewDialog.mode === "edit" ? "Update Saved View" : "Save Current View"}
+            </DialogTitle>
+            <DialogDescription>
+              This stores the current search, quick filters, smart rules, sorting, and visualization mode.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field label="View Name" error={savedViewDialog.validationErrors.name}>
+              <Input
+                value={savedViewDialog.name}
+                onChange={(event) =>
+                  setSavedViewDialog((current) => ({
+                    ...current,
+                    name: event.target.value,
+                    validationErrors: {},
+                  }))
+                }
+                placeholder="Overdue procedures"
+              />
+            </Field>
+            <Field label="Scope">
+              <Select
+                value={savedViewDialog.scope}
+                disabled={savedViewDialog.mode === "edit"}
+                onChange={(event) =>
+                  setSavedViewDialog((current) => ({
+                    ...current,
+                    scope: event.target.value as SavedView["scope"],
+                  }))
+                }
+              >
+                <option value="personal">Personal</option>
+                <option value="shared">Shared</option>
+              </Select>
+            </Field>
+            <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px] text-muted-foreground">
+              {currentTableRows.length} matching document{currentTableRows.length === 1 ? "" : "s"} in the current view.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setSavedViewDialog({
+                  open: false,
+                  mode: "create",
+                  name: "",
+                  scope: "personal",
+                  isSubmitting: false,
+                  validationErrors: {},
+                })
+              }
+              disabled={savedViewDialog.isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSubmitSavedView()} disabled={savedViewDialog.isSubmitting}>
+              {savedViewDialog.isSubmitting ? "Saving..." : "Save View"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
+}
+
+function SavedViewRulesDialog({
+  open,
+  workspace,
+  rules,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
+  rules: SavedViewRule[];
+  onOpenChange: (open: boolean) => void;
+  onSave: (rules: SavedViewRule[]) => void;
+}) {
+  const [draftRules, setDraftRules] = useState<SavedViewRule[]>(rules);
+
+  useEffect(() => {
+    if (open) {
+      setDraftRules(rules);
+    }
+  }, [open, rules]);
+
+  const addRule = () => {
+    setDraftRules((current) => [
+      ...current,
+      {
+        id: createClientId("saved-view-rule"),
+        field: "documentType",
+        operator: "is",
+        value: "",
+      },
+    ]);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(96vw,860px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Smart Rules</DialogTitle>
+          <DialogDescription>
+            Build structured, reusable rules for the current documents view.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 overflow-y-auto pr-2">
+          <div className="grid gap-3">
+            {draftRules.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
+                No smart rules yet. Add rules for dates, metadata, or missing-file conditions.
+              </div>
+            ) : (
+              draftRules.map((rule) => {
+                const operatorOptions = getSavedViewOperatorOptions(rule.field);
+                const showValue = !["isEmpty", "isNotEmpty", "thisMonth"].includes(
+                  rule.operator,
+                );
+                const showSecondaryValue = rule.operator === "between";
+                const showAmount = rule.operator === "withinLastDays";
+                const isDateField = isSavedViewDateField(rule.field);
+
+                return (
+                  <div
+                    key={rule.id}
+                    className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-[180px_180px_minmax(0,1fr)_auto]"
+                  >
+                    <Field label="Field">
+                      <Select
+                        value={rule.field}
+                        onChange={(event) =>
+                          setDraftRules((current) =>
+                            current.map((item) =>
+                              item.id === rule.id
+                                ? {
+                                    ...item,
+                                    field: event.target.value as SavedViewRuleField,
+                                    operator: getSavedViewOperatorOptions(
+                                      event.target.value as SavedViewRuleField,
+                                    )[0],
+                                    value: "",
+                                    secondaryValue: "",
+                                    amount: undefined,
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        {(
+                          Object.keys(SAVED_VIEW_RULE_FIELD_LABELS) as SavedViewRuleField[]
+                        ).map((field) => (
+                          <option key={field} value={field}>
+                            {SAVED_VIEW_RULE_FIELD_LABELS[field]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Operator">
+                      <Select
+                        value={rule.operator}
+                        onChange={(event) =>
+                          setDraftRules((current) =>
+                            current.map((item) =>
+                              item.id === rule.id
+                                ? {
+                                    ...item,
+                                    operator: event.target.value as SavedViewRuleOperator,
+                                    secondaryValue:
+                                      event.target.value === "between"
+                                        ? item.secondaryValue
+                                        : "",
+                                    amount:
+                                      event.target.value === "withinLastDays"
+                                        ? item.amount ?? 30
+                                        : undefined,
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        {operatorOptions.map((operator) => (
+                          <option key={operator} value={operator}>
+                            {SAVED_VIEW_RULE_OPERATOR_LABELS[operator]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <div className="grid gap-2">
+                      {showValue ? (
+                        <Field label={showSecondaryValue ? "From" : "Value"}>
+                          {renderSavedViewRuleValueInput({
+                            workspace,
+                            rule,
+                            value: rule.value ?? "",
+                            isDateField,
+                            onChange: (value) =>
+                              setDraftRules((current) =>
+                                current.map((item) =>
+                                  item.id === rule.id
+                                    ? {
+                                        ...item,
+                                        value,
+                                      }
+                                    : item,
+                                ),
+                              ),
+                          })}
+                        </Field>
+                      ) : null}
+                      {showSecondaryValue ? (
+                        <Field label="To">
+                          <Input
+                            type={isDateField ? "date" : "text"}
+                            value={rule.secondaryValue ?? ""}
+                            onChange={(event) =>
+                              setDraftRules((current) =>
+                                current.map((item) =>
+                                  item.id === rule.id
+                                    ? {
+                                        ...item,
+                                        secondaryValue: event.target.value,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </Field>
+                      ) : null}
+                      {showAmount ? (
+                        <Field label="Days">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={String(rule.amount ?? 30)}
+                            onChange={(event) =>
+                              setDraftRules((current) =>
+                                current.map((item) =>
+                                  item.id === rule.id
+                                    ? {
+                                        ...item,
+                                        amount: Math.max(
+                                          0,
+                                          Number(event.target.value) || 0,
+                                        ),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </Field>
+                      ) : null}
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          setDraftRules((current) =>
+                            current.filter((item) => item.id !== rule.id),
+                          )
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={addRule}>
+            <Plus className="h-4 w-4" />
+            Add Rule
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onSave([]);
+              onOpenChange(false);
+            }}
+          >
+            Clear Rules
+          </Button>
+          <Button
+            onClick={() => {
+              onSave(draftRules);
+              onOpenChange(false);
+            }}
+          >
+            Apply Rules
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function renderSavedViewRuleValueInput({
+  workspace,
+  rule,
+  value,
+  isDateField,
+  onChange,
+}: {
+  workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
+  rule: SavedViewRule;
+  value: string;
+  isDateField: boolean;
+  onChange: (value: string) => void;
+}) {
+  if (rule.field === "documentType") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a document type</option>
+        {workspace.documentTypes.map((item) => (
+          <option key={item.id} value={item.name}>
+            {item.name}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "status") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a status</option>
+        <option value="Not started">Not started</option>
+        {workspace.statuses.map((item) => (
+          <option key={item} value={item}>
+            {item}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "project") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a project</option>
+        <option value="No project">No project</option>
+        {workspace.projects.map((item) => (
+          <option key={item.id} value={item.name}>
+            {item.name}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "language") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a language</option>
+        {workspace.languages.map((item) => (
+          <option key={item.id} value={item.code}>
+            {item.code}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "confidentialityClass") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a class</option>
+        {workspace.confidentialityClasses.map((item) => (
+          <option key={item.id} value={item.name}>
+            {item.name}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "healthFlag") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a health flag</option>
+        <option value="overdueReview">Overdue review</option>
+        <option value="missingFiles">Missing tracked files</option>
+        <option value="unversionedShell">Unversioned shells</option>
+        <option value="unmanagedPaths">Unmanaged paths</option>
+        <option value="staleDocument">Stale documents</option>
+      </Select>
+    );
+  }
+
+  return (
+    <Input
+      type={isDateField ? "date" : "text"}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+function isSavedViewDateField(field: SavedViewRuleField): boolean {
+  return (
+    field === "createdDate" ||
+    field === "modifiedDate" ||
+    field === "releasedDate" ||
+    field === "effectiveDate" ||
+    field === "startDate" ||
+    field === "nextReviewDate"
+  );
+}
+
+function getSavedViewOperatorOptions(
+  field: SavedViewRuleField,
+): SavedViewRuleOperator[] {
+  if (field === "latestVersion") {
+    return ["isEmpty", "isNotEmpty"];
+  }
+
+  if (field === "healthFlag") {
+    return ["is", "isNot"];
+  }
+
+  if (isSavedViewDateField(field)) {
+    return ["before", "after", "between", "withinLastDays", "thisMonth", "isEmpty", "isNotEmpty"];
+  }
+
+  return ["is", "isNot", "contains", "isEmpty", "isNotEmpty"];
+}
+
+function formatSavedViewRuleSummary(rule: SavedViewRule): string {
+  const fieldLabel = SAVED_VIEW_RULE_FIELD_LABELS[rule.field];
+  const operatorLabel = SAVED_VIEW_RULE_OPERATOR_LABELS[rule.operator];
+
+  if (rule.operator === "withinLastDays") {
+    return `${fieldLabel} ${operatorLabel} ${rule.amount ?? 0}`;
+  }
+
+  if (rule.operator === "thisMonth" || rule.operator === "isEmpty" || rule.operator === "isNotEmpty") {
+    return `${fieldLabel} ${operatorLabel}`;
+  }
+
+  if (rule.operator === "between") {
+    return `${fieldLabel} ${operatorLabel} ${rule.value || "?"} and ${rule.secondaryValue || "?"}`;
+  }
+
+  return `${fieldLabel} ${operatorLabel} ${rule.value || "?"}`;
+}
+
+function buildSuggestedSavedViewName(query: SavedViewQuery): string {
+  const overdueRule = query.rules.find(
+    (rule) => rule.field === "healthFlag" && rule.value === "overdueReview",
+  );
+  const typeRule = query.rules.find((rule) => rule.field === "documentType");
+  const releasedThisMonthRule = query.rules.find(
+    (rule) => rule.field === "releasedDate" && rule.operator === "thisMonth",
+  );
+  const missingFilesRule = query.rules.find(
+    (rule) => rule.field === "healthFlag" && rule.value === "missingFiles",
+  );
+
+  if (overdueRule && typeRule?.value) {
+    return `Overdue ${typeRule.value.toLowerCase()}s`;
+  }
+
+  if (releasedThisMonthRule) {
+    return "Released this month";
+  }
+
+  if (query.statusFilter === "Draft" && missingFilesRule) {
+    return "Drafts with missing files";
+  }
+
+  if (query.statusFilter !== "All") {
+    return `${query.statusFilter} documents`;
+  }
+
+  if (query.search.trim()) {
+    return `Search: ${query.search.trim()}`;
+  }
+
+  return "Saved view";
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function shouldIgnoreDashboardDragStart(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      'button, input, select, textarea, a, [role="button"], [data-dashboard-resize-handle="true"]',
+    ),
+  );
+}
+
+function resolveDashboardLayoutConflicts(
+  widgets: DashboardWidget[],
+  options?: {
+    prioritizedWidgetId?: string;
+  },
+): DashboardWidget[] {
+  const nextWidgets = widgets
+    .map((widget) => ({
+      ...widget,
+      x: clampNumber(widget.x, 0, DASHBOARD_GRID_COLUMNS - widget.w),
+      y: Math.max(0, widget.y),
+      w: clampNumber(widget.w, DASHBOARD_WIDGET_MIN_WIDTH, DASHBOARD_GRID_COLUMNS),
+      h: Math.max(DASHBOARD_WIDGET_MIN_HEIGHT, widget.h),
+    }))
+    .sort((left, right) => left.y - right.y || left.x - right.x);
+  const prioritizedWidget = options?.prioritizedWidgetId
+    ? nextWidgets.find((widget) => widget.id === options.prioritizedWidgetId)
+    : undefined;
+  const orderedWidgets = prioritizedWidget
+    ? nextWidgets.filter((widget) => widget.id !== prioritizedWidget.id)
+    : nextWidgets;
+  const placedWidgets: DashboardWidget[] = prioritizedWidget
+    ? [{ ...prioritizedWidget }]
+    : [];
+
+  for (const widget of orderedWidgets) {
+    placedWidgets.push(
+      placeDashboardWidget(widget, placedWidgets, {
+        preferredX: widget.x,
+      }),
+    );
+  }
+
+  return placedWidgets.sort((left, right) => left.y - right.y || left.x - right.x);
+}
+
+function placeDashboardWidget(
+  widget: DashboardWidget,
+  placedWidgets: DashboardWidget[],
+  options?: {
+    preferredX?: number;
+  },
+): DashboardWidget {
+  const maxX = Math.max(0, DASHBOARD_GRID_COLUMNS - widget.w);
+  const preferredX = clampNumber(options?.preferredX ?? widget.x, 0, maxX);
+  const candidateXs = Array.from({ length: maxX + 1 }, (_, index) => index).sort(
+    (left, right) =>
+      Math.abs(left - preferredX) - Math.abs(right - preferredX) || left - right,
+  );
+  const maxY =
+    Math.max(0, ...placedWidgets.map((item) => item.y + item.h)) + widget.h + 4;
+
+  for (let candidateY = 0; candidateY <= maxY; candidateY += 1) {
+    for (const candidateX of candidateXs) {
+      const candidate = {
+        ...widget,
+        x: candidateX,
+        y: candidateY,
+      };
+
+      if (
+        placedWidgets.every(
+          (placedWidget) => !dashboardWidgetsOverlap(candidate, placedWidget),
+        )
+      ) {
+        return candidate;
+      }
+    }
+  }
+
+  return {
+    ...widget,
+    x: preferredX,
+    y: maxY,
+  };
+}
+
+function dashboardWidgetsOverlap(left: DashboardWidget, right: DashboardWidget): boolean {
+  return (
+    left.x < right.x + right.w &&
+    left.x + left.w > right.x &&
+    left.y < right.y + right.h &&
+    left.y + left.h > right.y
+  );
+}
+
+function createClientId(prefix: string): string {
+  const identifier =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.round(Math.random() * 1_000_000)}`;
+  return `${prefix}-${identifier}`;
 }
 
 interface DocumentsKanbanColumn {
