@@ -8,6 +8,12 @@ import {
   hasWorkspaceSignature
 } from '@main/database/migrations';
 import { nowIso } from '@main/utils/date';
+import {
+  createDefaultWorkspaceLifecycle,
+  isDocumentStatusRole,
+  normalizeWorkspaceLifecycle,
+  type WorkspaceLifecycle
+} from '@shared/documentLifecycle';
 import type { WorkspaceCreateInput, WorkspaceInfo } from '@shared/types';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
@@ -64,6 +70,7 @@ export interface WorkspaceContext {
   backupsDirectoryPath: string;
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
+  lifecycle: WorkspaceLifecycle;
 }
 
 type WorkspaceInitializer = (context: WorkspaceContext) => void;
@@ -168,6 +175,7 @@ export class WorkspaceManager {
     if (existingContext) {
       existingContext.workspace = this.readWorkspaceInfo(existingContext.db, resolvedRootPath);
       existingContext.settings = this.readWorkspaceSettings(existingContext.db);
+      existingContext.lifecycle = this.readWorkspaceLifecycle(existingContext.db);
       this.refreshContextLayoutPaths(existingContext);
       return existingContext;
     }
@@ -259,7 +267,8 @@ export class WorkspaceManager {
       templatesDirectoryPath,
       backupsDirectoryPath: this.getWorkspaceBackupsDirectoryPath(rootPath, settings),
       workspace: this.readWorkspaceInfo(db, rootPath),
-      settings
+      settings,
+      lifecycle: this.readWorkspaceLifecycle(db)
     };
   }
 
@@ -380,6 +389,123 @@ export class WorkspaceManager {
           : DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled,
       activityLogMaxRows: normalizeWorkspaceActivityLogMaxRows(row.ActivityLogMaxRows)
     };
+  }
+
+  private readWorkspaceLifecycle(db: Database.Database): WorkspaceLifecycle {
+    const workspaceColumns = new Set(
+      (
+        db.prepare('PRAGMA table_info(Workspaces)').all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name)
+    );
+    const statusColumns = new Set(
+      (
+        db.prepare('PRAGMA table_info(Statuses)').all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name)
+    );
+    const hasLifecycleColumns =
+      workspaceColumns.has('LifecycleMode') &&
+      workspaceColumns.has('InitialStatusKey') &&
+      workspaceColumns.has('AutoPreviousVersionStatusKey');
+    const hasStatusLifecycleColumns =
+      statusColumns.has('Key') &&
+      statusColumns.has('SortOrder') &&
+      statusColumns.has('SemanticRole') &&
+      statusColumns.has('RequiresReleasedDate') &&
+      statusColumns.has('RequiresReviewedBy') &&
+      statusColumns.has('RequiresApprovedBy');
+
+    if (!hasLifecycleColumns || !hasStatusLifecycleColumns) {
+      return createDefaultWorkspaceLifecycle();
+    }
+
+    const row = db
+      .prepare(
+        `
+          SELECT
+            LifecycleMode,
+            InitialStatusKey,
+            AutoPreviousVersionStatusKey
+          FROM Workspaces
+          WHERE Id = 1
+        `
+      )
+      .get() as
+      | {
+          LifecycleMode: string;
+          InitialStatusKey: string;
+          AutoPreviousVersionStatusKey: string | null;
+        }
+      | undefined;
+
+    if (!row) {
+      return createDefaultWorkspaceLifecycle();
+    }
+
+    if (row.LifecycleMode === 'default') {
+      return createDefaultWorkspaceLifecycle();
+    }
+
+    const statuses = db
+      .prepare(
+        `
+          SELECT
+            Key,
+            Name,
+            SortOrder,
+            SemanticRole,
+            RequiresReleasedDate,
+            RequiresReviewedBy,
+            RequiresApprovedBy
+          FROM Statuses
+          ORDER BY SortOrder ASC, Name ASC
+        `
+      )
+      .all() as Array<{
+      Key: string | null;
+      Name: string;
+      SortOrder: number;
+      SemanticRole: string;
+      RequiresReleasedDate: number;
+      RequiresReviewedBy: number;
+      RequiresApprovedBy: number;
+    }>;
+    const transitions = db
+      .prepare(
+        `
+          SELECT FromStatusKey, ToStatusKey
+          FROM StatusTransitions
+          ORDER BY FromStatusKey ASC, ToStatusKey ASC
+        `
+      )
+      .all() as Array<{
+      FromStatusKey: string;
+      ToStatusKey: string;
+    }>;
+
+    return normalizeWorkspaceLifecycle({
+      mode: 'custom',
+      statuses: statuses
+        .filter((status) => typeof status.Key === 'string' && status.Key.trim().length > 0)
+        .map((status) => ({
+          key: status.Key!,
+          name: status.Name,
+          role: isDocumentStatusRole(status.SemanticRole) ? status.SemanticRole : 'draft',
+          sortOrder: status.SortOrder,
+          requiresReleasedDate: Boolean(status.RequiresReleasedDate),
+          requiresReviewedBy: Boolean(status.RequiresReviewedBy),
+          requiresApprovedBy: Boolean(status.RequiresApprovedBy)
+        })),
+      initialStatusKey: row.InitialStatusKey,
+      autoPreviousVersionStatusKey: row.AutoPreviousVersionStatusKey,
+      allowedTransitions: transitions.map((transition) => ({
+        fromStatusKey: transition.FromStatusKey,
+        toStatusKey: transition.ToStatusKey
+      }))
+    });
   }
 
   private normalizeWorkspaceSettings(settings: WorkspaceCreateInput['settings']): WorkspaceSettings {

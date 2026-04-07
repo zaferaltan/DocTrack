@@ -284,7 +284,7 @@ describe('app catalog service', () => {
         scope: 'personal',
         query: {
           search: '',
-          statusFilter: 'All',
+          statusFilter: 'bad',
           projectFilter: 'All',
           healthFilter: 'All',
           rules: [

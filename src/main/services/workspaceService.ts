@@ -13,11 +13,22 @@ import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import type { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
 import { nowIso } from '@main/utils/date';
-import { DOCUMENT_HEALTH_FLAGS, DOCUMENT_STATUSES } from '@shared/types';
+import {
+  createDefaultWorkspaceLifecycle,
+  getLifecycleDashboardTone,
+  getWorkspaceLifecycleStatusNames,
+  getWorkspaceLifecycleStatuses,
+  normalizeWorkspaceLifecycle,
+  validateWorkspaceLifecycle,
+  type WorkspaceLifecycle
+} from '@shared/documentLifecycle';
+import type { SavedView, SavedViewStatusNameRemap } from '@shared/savedViews';
+import { DOCUMENT_HEALTH_FLAGS } from '@shared/types';
 import type {
   CreateBackupResult,
   DashboardInsight,
   DocumentListItem,
+  DocumentStatus,
   DocumentType,
   IntegrityCheckResult,
   OpenWorkspaceResult,
@@ -74,8 +85,15 @@ export class WorkspaceService {
   ) {}
 
   create(input: WorkspaceCreateInput): OpenWorkspaceResult {
-    this.assertDocumentIdTemplateIsValid(this.normalizeWorkspaceSettings(input.settings));
+    const nextSettings = this.normalizeWorkspaceSettings(input.settings);
+    const nextLifecycle = this.normalizeWorkspaceLifecycle(
+      input.lifecycle,
+      nextSettings.autoMarkPreviousVersionObsolete
+    );
+    this.assertDocumentIdTemplateIsValid(nextSettings);
     const context = this.workspaceManager.createWorkspace(input, (workspaceContext) => {
+      this.persistWorkspaceLifecycle(workspaceContext, nextLifecycle);
+      workspaceContext.lifecycle = nextLifecycle;
       this.seedStarterTypes(workspaceContext.db);
       this.ensureDocumentTypeDirectories(workspaceContext);
       if (input.includeExampleData ?? true) {
@@ -140,6 +158,7 @@ export class WorkspaceService {
       summary: {
         workspace: context.workspace,
         settings: context.settings,
+        lifecycle: context.lifecycle,
         documents,
         dashboard: this.buildDashboardSummary(context, documents),
         dashboardLayout: this.savedViewService.getDashboardLayout(rootPath),
@@ -148,7 +167,7 @@ export class WorkspaceService {
         templates: this.templateService.list(rootPath),
         confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
         languages: this.workspaceCatalogService.listLanguages(rootPath),
-        statuses: [...DOCUMENT_STATUSES],
+        statuses: getWorkspaceLifecycleStatusNames(context.lifecycle),
         savedViews: this.savedViewService.list(rootPath)
       },
       warnings
@@ -167,6 +186,10 @@ export class WorkspaceService {
             settings: input
           } satisfies WorkspaceSettingsUpdateInput);
     let nextSettings = this.normalizeWorkspaceSettings(normalizedInput.settings);
+    const nextLifecycle = this.normalizeWorkspaceLifecycle(
+      normalizedInput.lifecycle ?? context.lifecycle,
+      nextSettings.autoMarkPreviousVersionObsolete
+    );
     this.assertWorkspaceRootDirectoriesAreValid(nextSettings);
     this.assertDocumentIdTemplateIsValid(nextSettings);
     const requiresStorageMigration =
@@ -190,6 +213,7 @@ export class WorkspaceService {
 
     if (
       this.areWorkspaceSettingsEqual(context.settings, nextSettings) &&
+      this.areWorkspaceLifecyclesEqual(context.lifecycle, nextLifecycle) &&
       !normalizedInput.clearCompanyLogo &&
       !normalizedInput.companyLogoSourceFilePath
     ) {
@@ -235,6 +259,11 @@ export class WorkspaceService {
     }
 
     this.persistWorkspaceSettings(context, nextSettings);
+    const savedViewStatusRemaps = this.persistWorkspaceLifecycleUpdate(
+      context,
+      nextLifecycle,
+      normalizedInput.statusRemaps ?? []
+    );
 
     if (databaseDirectoryChanged) {
       this.workspaceManager.closeWorkspace(rootPath);
@@ -256,9 +285,15 @@ export class WorkspaceService {
       }
     } else {
       context.settings = nextSettings;
+      context.lifecycle = nextLifecycle;
       this.refreshContextLayoutPaths(context);
       this.ensureDocumentTypeDirectories(context);
       this.workspaceFilesystemWatcherService?.ensureWatching(rootPath, context.settings);
+    }
+
+    if (savedViewStatusRemaps.length > 0) {
+      this.savedViewService.remapSharedSavedViewStatuses(rootPath, savedViewStatusRemaps);
+      this.catalogService.remapPersonalSavedViewStatuses(rootPath, savedViewStatusRemaps);
     }
 
     const finalContext = this.workspaceManager.getContext(rootPath);
@@ -461,14 +496,339 @@ export class WorkspaceService {
       );
   }
 
+  private normalizeWorkspaceLifecycle(
+    lifecycle: WorkspaceLifecycle | undefined,
+    requireAutoPreviousVersionStatus: boolean
+  ): WorkspaceLifecycle {
+    const nextLifecycle = normalizeWorkspaceLifecycle(lifecycle);
+    const errors = validateWorkspaceLifecycle(nextLifecycle, {
+      requireAutoPreviousVersionStatus
+    });
+    if (errors.length > 0) {
+      throw new Error(errors[0]);
+    }
+
+    const initialStatus =
+      nextLifecycle.statuses.find((status) => status.key === nextLifecycle.initialStatusKey) ?? null;
+    if (
+      initialStatus &&
+      (initialStatus.requiresReleasedDate ||
+        initialStatus.requiresReviewedBy ||
+        initialStatus.requiresApprovedBy)
+    ) {
+      throw new Error('The initial lifecycle status cannot require release metadata.');
+    }
+
+    const autoPreviousStatus =
+      nextLifecycle.autoPreviousVersionStatusKey === null
+        ? null
+        : nextLifecycle.statuses.find(
+            (status) => status.key === nextLifecycle.autoPreviousVersionStatusKey
+          ) ?? null;
+    if (
+      requireAutoPreviousVersionStatus &&
+      autoPreviousStatus &&
+      (autoPreviousStatus.requiresReleasedDate ||
+        autoPreviousStatus.requiresReviewedBy ||
+        autoPreviousStatus.requiresApprovedBy)
+    ) {
+      throw new Error('The previous-version lifecycle status cannot require release metadata.');
+    }
+
+    return nextLifecycle;
+  }
+
+  private persistWorkspaceLifecycle(context: WorkspaceContext, lifecycle: WorkspaceLifecycle): void {
+    context.db.transaction(() => {
+      context.db.prepare('DELETE FROM StatusTransitions').run();
+      context.db.prepare('DELETE FROM Statuses').run();
+      this.insertLifecycleStatuses(context.db, lifecycle);
+      this.insertLifecycleTransitions(context.db, lifecycle);
+      this.persistWorkspaceLifecycleMetadata(context.db, lifecycle);
+    })();
+  }
+
+  private persistWorkspaceLifecycleUpdate(
+    context: WorkspaceContext,
+    nextLifecycle: WorkspaceLifecycle,
+    statusRemaps: Array<{ fromStatusKey: string; toStatusKey: string }>
+  ): SavedViewStatusNameRemap[] {
+    if (this.areWorkspaceLifecyclesEqual(context.lifecycle, nextLifecycle)) {
+      return [];
+    }
+
+    const currentStatusByKey = new Map(context.lifecycle.statuses.map((status) => [status.key, status]));
+    const nextStatusByKey = new Map(nextLifecycle.statuses.map((status) => [status.key, status]));
+    const removedStatuses = context.lifecycle.statuses.filter((status) => !nextStatusByKey.has(status.key));
+    const remapByFromKey = new Map(
+      statusRemaps
+        .filter(
+          (remap) =>
+            typeof remap.fromStatusKey === 'string' &&
+            remap.fromStatusKey.trim().length > 0 &&
+            typeof remap.toStatusKey === 'string' &&
+            remap.toStatusKey.trim().length > 0
+        )
+        .map((remap) => [remap.fromStatusKey, remap.toStatusKey])
+    );
+    const requiredRemovedStatusKeys = this.getRemovedStatusKeysRequiringRemap(
+      context,
+      removedStatuses.map((status) => status.name)
+    );
+
+    for (const status of removedStatuses) {
+      if (!requiredRemovedStatusKeys.has(status.key)) {
+        continue;
+      }
+
+      const destinationKey = remapByFromKey.get(status.key);
+      if (!destinationKey || !nextStatusByKey.has(destinationKey)) {
+        throw new Error(
+          `Map the removed status "${status.name}" to a replacement status before saving the lifecycle.`
+        );
+      }
+    }
+
+    const savedViewStatusRemaps = this.buildSavedViewStatusRemaps(
+      context.lifecycle,
+      nextLifecycle,
+      remapByFromKey
+    );
+
+    context.db.transaction(() => {
+      const updateStatus = context.db.prepare(
+        `
+          UPDATE Statuses
+          SET
+            Name = ?,
+            SortOrder = ?,
+            SemanticRole = ?,
+            RequiresReleasedDate = ?,
+            RequiresReviewedBy = ?,
+            RequiresApprovedBy = ?
+          WHERE Key = ?
+        `
+      );
+      const insertStatus = context.db.prepare(
+        `
+          INSERT INTO Statuses (
+            Key,
+            Name,
+            SortOrder,
+            SemanticRole,
+            RequiresReleasedDate,
+            RequiresReviewedBy,
+            RequiresApprovedBy
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `
+      );
+
+      for (const status of nextLifecycle.statuses) {
+        if (currentStatusByKey.has(status.key)) {
+          updateStatus.run(
+            status.name,
+            status.sortOrder,
+            status.role,
+            status.requiresReleasedDate ? 1 : 0,
+            status.requiresReviewedBy ? 1 : 0,
+            status.requiresApprovedBy ? 1 : 0,
+            status.key
+          );
+          continue;
+        }
+
+        insertStatus.run(
+          status.key,
+          status.name,
+          status.sortOrder,
+          status.role,
+          status.requiresReleasedDate ? 1 : 0,
+          status.requiresReviewedBy ? 1 : 0,
+          status.requiresApprovedBy ? 1 : 0
+        );
+      }
+
+      const updateDocumentVersions = context.db.prepare(
+        'UPDATE DocumentVersions SET Status = ? WHERE Status = ?'
+      );
+      for (const status of removedStatuses) {
+        const destinationKey = remapByFromKey.get(status.key);
+        if (!destinationKey) {
+          continue;
+        }
+
+        const destinationStatus = nextStatusByKey.get(destinationKey);
+        if (!destinationStatus) {
+          throw new Error(`The replacement status for "${status.name}" could not be found.`);
+        }
+
+        updateDocumentVersions.run(destinationStatus.name, status.name);
+      }
+
+      context.db.prepare('DELETE FROM StatusTransitions').run();
+
+      if (removedStatuses.length > 0) {
+        const deleteStatus = context.db.prepare('DELETE FROM Statuses WHERE Key = ?');
+        for (const status of removedStatuses) {
+          deleteStatus.run(status.key);
+        }
+      }
+
+      this.insertLifecycleTransitions(context.db, nextLifecycle);
+      this.persistWorkspaceLifecycleMetadata(context.db, nextLifecycle);
+    })();
+
+    return savedViewStatusRemaps;
+  }
+
+  private insertLifecycleStatuses(db: Database.Database, lifecycle: WorkspaceLifecycle): void {
+    const insertStatus = db.prepare(
+      `
+        INSERT INTO Statuses (
+          Key,
+          Name,
+          SortOrder,
+          SemanticRole,
+          RequiresReleasedDate,
+          RequiresReviewedBy,
+          RequiresApprovedBy
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+    );
+
+    for (const status of lifecycle.statuses) {
+      insertStatus.run(
+        status.key,
+        status.name,
+        status.sortOrder,
+        status.role,
+        status.requiresReleasedDate ? 1 : 0,
+        status.requiresReviewedBy ? 1 : 0,
+        status.requiresApprovedBy ? 1 : 0
+      );
+    }
+  }
+
+  private insertLifecycleTransitions(db: Database.Database, lifecycle: WorkspaceLifecycle): void {
+    const insertTransition = db.prepare(
+      'INSERT INTO StatusTransitions (FromStatusKey, ToStatusKey) VALUES (?, ?)'
+    );
+
+    for (const transition of lifecycle.allowedTransitions) {
+      insertTransition.run(transition.fromStatusKey, transition.toStatusKey);
+    }
+  }
+
+  private persistWorkspaceLifecycleMetadata(
+    db: Database.Database,
+    lifecycle: WorkspaceLifecycle
+  ): void {
+    db.prepare(
+      `
+        UPDATE Workspaces
+        SET
+          LifecycleMode = ?,
+          InitialStatusKey = ?,
+          AutoPreviousVersionStatusKey = ?
+        WHERE Id = 1
+      `
+    ).run(
+      lifecycle.mode,
+      lifecycle.initialStatusKey,
+      lifecycle.autoPreviousVersionStatusKey
+    );
+  }
+
+  private getRemovedStatusKeysRequiringRemap(
+    context: WorkspaceContext,
+    removedStatusNames: string[]
+  ): Set<string> {
+    if (removedStatusNames.length === 0) {
+      return new Set<string>();
+    }
+
+    const inUseStatusNames = new Set<string>();
+    const placeholders = removedStatusNames.map(() => '?').join(', ');
+    const rows = context.db
+      .prepare(
+        `SELECT DISTINCT Status FROM DocumentVersions WHERE Status IN (${placeholders})`
+      )
+      .all(...removedStatusNames) as Array<{ Status: string }>;
+    for (const row of rows) {
+      inUseStatusNames.add(row.Status);
+    }
+
+    const savedViews = this.savedViewService.list(context.rootPath);
+    for (const removedStatusName of removedStatusNames) {
+      if (savedViews.some((savedView) => this.savedViewReferencesStatus(savedView, removedStatusName))) {
+        inUseStatusNames.add(removedStatusName);
+      }
+    }
+
+    return new Set(
+      context.lifecycle.statuses
+        .filter((status) => inUseStatusNames.has(status.name))
+        .map((status) => status.key)
+    );
+  }
+
+  private savedViewReferencesStatus(savedView: SavedView, statusName: string): boolean {
+    return (
+      savedView.query.statusFilter === statusName ||
+      savedView.query.rules.some(
+        (rule) =>
+          rule.field === 'status' &&
+          (rule.value === statusName || rule.secondaryValue === statusName)
+      )
+    );
+  }
+
+  private buildSavedViewStatusRemaps(
+    currentLifecycle: WorkspaceLifecycle,
+    nextLifecycle: WorkspaceLifecycle,
+    remapByFromKey: Map<string, string>
+  ): SavedViewStatusNameRemap[] {
+    const remaps: SavedViewStatusNameRemap[] = [];
+    const nextStatusByKey = new Map(nextLifecycle.statuses.map((status) => [status.key, status]));
+
+    for (const currentStatus of currentLifecycle.statuses) {
+      const nextStatus = nextStatusByKey.get(currentStatus.key);
+      if (nextStatus && nextStatus.name !== currentStatus.name) {
+        remaps.push({
+          from: currentStatus.name,
+          to: nextStatus.name
+        });
+      }
+    }
+
+    for (const [fromKey, toKey] of remapByFromKey.entries()) {
+      const currentStatus = currentLifecycle.statuses.find((status) => status.key === fromKey);
+      const nextStatus = nextStatusByKey.get(toKey);
+      if (!currentStatus || !nextStatus) {
+        continue;
+      }
+
+      remaps.push({
+        from: currentStatus.name,
+        to: nextStatus.name
+      });
+    }
+
+    return remaps.filter(
+      (remap, index, items) =>
+        remap.from !== remap.to &&
+        items.findIndex((item) => item.from === remap.from && item.to === remap.to) === index
+    );
+  }
+
   private buildDashboardSummary(
     context: WorkspaceContext,
     documents: DocumentListItem[]
   ): WorkspaceDashboardSummary {
     const statusCounts = new Map<string, number>();
     statusCounts.set('Not started', 0);
-    for (const status of DOCUMENT_STATUSES) {
-      statusCounts.set(status, 0);
+    for (const status of getWorkspaceLifecycleStatuses(context.lifecycle)) {
+      statusCounts.set(status.name, 0);
     }
 
     for (const document of documents) {
@@ -518,21 +878,19 @@ export class WorkspaceService {
     return {
       generatedDate: nowIso(),
       totalDocuments: documents.length,
-      countsByStatus: [...statusCounts.entries()].map(([status, count]) => ({
-        id: status.toLowerCase().replace(/\s+/g, '-'),
-        label: status,
-        count,
-        tone: (
-          status === 'Released'
-            ? 'success'
-            : status === 'Draft' || status === 'In Review'
-              ? 'warning'
-              : status === 'Obsolete'
-                ? 'danger'
-                : 'default'
-        ) as DashboardInsight['tone'],
-        status: status as 'Not started' | (typeof DOCUMENT_STATUSES)[number]
-      })),
+      countsByStatus: [...statusCounts.entries()].map(([status, count]) => {
+        const lifecycleStatus = status === 'Not started'
+          ? null
+          : context.lifecycle.statuses.find((item) => item.name === status) ?? null;
+
+        return {
+          id: status.toLowerCase().replace(/\s+/g, '-'),
+          label: status,
+          count,
+          tone: lifecycleStatus ? getLifecycleDashboardTone(lifecycleStatus.role) : 'default',
+          status: status as 'Not started' | DocumentStatus
+        };
+      }),
       countsByType,
       countsByProject,
       healthInsights,
@@ -577,6 +935,10 @@ export class WorkspaceService {
       left.visibleDocumentColumns.length === right.visibleDocumentColumns.length &&
       left.visibleDocumentColumns.every((column, index) => column === right.visibleDocumentColumns[index])
     );
+  }
+
+  private areWorkspaceLifecyclesEqual(left: WorkspaceLifecycle, right: WorkspaceLifecycle): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
   }
 
   private ensureDocumentTypeDirectories(context: WorkspaceContext): void {
@@ -849,6 +1211,13 @@ export class WorkspaceService {
       return;
     }
 
+    const resolveStatusName = (
+      role: WorkspaceLifecycle['statuses'][number]['role']
+    ): string =>
+      context.lifecycle.statuses.find((status) => status.role === role)?.name ??
+      context.lifecycle.statuses[0]?.name ??
+      'Draft';
+
     const transaction = context.db.transaction(() => {
       this.createSeedDocument(context, {
         title: 'Quality Manual',
@@ -858,7 +1227,7 @@ export class WorkspaceService {
           {
             versionLabel: '001',
             sequenceNumber: 1,
-            status: 'Draft',
+            status: resolveStatusName('draft'),
             notes: 'Initial scope and process baseline.',
             role: 'working',
             fileName: 'quality-manual.docx',
@@ -875,7 +1244,7 @@ export class WorkspaceService {
           {
             versionLabel: '001',
             sequenceNumber: 1,
-            status: 'In Review',
+            status: resolveStatusName('review'),
             notes: 'Drafted for review by QA leads.',
             role: 'working',
             fileName: 'audit-procedure.docx',
@@ -884,7 +1253,7 @@ export class WorkspaceService {
           {
             versionLabel: '002',
             sequenceNumber: 2,
-            status: 'Released',
+            status: resolveStatusName('released'),
             notes: 'Approved release after stakeholder review.',
             role: 'final-pdf',
             fileName: 'audit-procedure.pdf',
@@ -901,7 +1270,7 @@ export class WorkspaceService {
           {
             versionLabel: '001',
             sequenceNumber: 1,
-            status: 'Archived',
+            status: resolveStatusName('archived'),
             notes: 'Historical supplier baseline report.',
             role: 'final-pdf',
             fileName: 'supplier-report.pdf',
@@ -923,7 +1292,7 @@ export class WorkspaceService {
       versions: Array<{
         versionLabel: string;
         sequenceNumber: number;
-        status: 'Draft' | 'In Review' | 'Released' | 'Archived' | 'Obsolete';
+        status: string;
         notes: string;
         role: 'working' | 'concept-pdf' | 'final-pdf' | 'other';
         fileName: string;

@@ -9,6 +9,7 @@ import {
   DEFAULT_DOCUMENT_VIEW_STATE,
   type SavedView
 } from '@shared/savedViews';
+import { createDefaultWorkspaceLifecycle } from '@shared/documentLifecycle';
 import type { OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,6 +38,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
   summary: {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
+    lifecycle: createDefaultWorkspaceLifecycle(),
     documents: [],
     dashboard: defaultDashboard,
     dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
@@ -366,6 +368,58 @@ describe('useAppStore', () => {
     );
     expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.dashboardLayout).toEqual(
       nextLayout
+    );
+  });
+
+  it('resets stale status filters when a refreshed workspace lifecycle removes them', async () => {
+    const docTrack = installDocTrackMock();
+    const store = createAppStore();
+
+    await store.getState().bootstrap();
+    store.getState().setDocumentViewState(workspaceInfo.rootPath, (current) => ({
+      ...current,
+      statusFilter: 'Archived'
+    }));
+
+    const refreshedWorkspaceResult: OpenWorkspaceResult = {
+      ...openWorkspaceResult,
+      summary: {
+        ...openWorkspaceResult.summary,
+        lifecycle: {
+          mode: 'custom',
+          statuses: [
+            {
+              key: 'draft',
+              name: 'Draft',
+              role: 'draft',
+              sortOrder: 0,
+              requiresReleasedDate: false,
+              requiresReviewedBy: false,
+              requiresApprovedBy: false
+            },
+            {
+              key: 'released',
+              name: 'Released',
+              role: 'released',
+              sortOrder: 1,
+              requiresReleasedDate: false,
+              requiresReviewedBy: false,
+              requiresApprovedBy: false
+            }
+          ],
+          initialStatusKey: 'draft',
+          autoPreviousVersionStatusKey: 'released',
+          allowedTransitions: [{ fromStatusKey: 'draft', toStatusKey: 'released' }]
+        },
+        statuses: ['Draft', 'Released']
+      }
+    };
+    docTrack.workspace.getSummary.mockResolvedValue(refreshedWorkspaceResult);
+
+    await store.getState().refreshWorkspace(workspaceInfo.rootPath);
+
+    expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.documentViewState.statusFilter).toBe(
+      'All'
     );
   });
 });

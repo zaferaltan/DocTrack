@@ -15,6 +15,14 @@ import { TemplateService } from '@main/services/templateService';
 import type { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { nowIso } from '@main/utils/date';
 import {
+  getMissingLifecycleMetadata,
+  getWorkspaceStatusByKey,
+  getWorkspaceStatusByName,
+  isLifecycleStatusTerminal,
+  isLifecycleTransitionAllowed,
+  type WorkspaceStatusDefinition
+} from '@shared/documentLifecycle';
+import {
   getAlphaUppercaseVersionLabel,
   isDocumentVersionFileRole,
   isDocumentVersionScheme,
@@ -241,11 +249,11 @@ export class DocumentService {
         row.RevisionIntervalMonths
       );
       const effectiveDate = row.ReviewBaselineReleasedDate ?? row.ReleasedDate;
+      const currentStatus = getWorkspaceStatusByName(context.lifecycle, row.Status);
       const isOverdue =
         nextReviewDate !== null &&
         this.isDateInPast(nextReviewDate) &&
-        row.Status !== 'Archived' &&
-        row.Status !== 'Obsolete';
+        !(currentStatus && isLifecycleStatusTerminal(currentStatus.role));
 
       return {
         id: row.Id,
@@ -412,6 +420,7 @@ export class DocumentService {
         });
 
         if (template) {
+          const initialLifecycleStatus = this.getInitialLifecycleStatus(context.rootPath);
           const versionLabel = this.getNextVersionLabel(input.versionScheme, undefined, undefined);
           this.assertTemplateFilesFitVersionLayout(context, documentFolderPath, versionLabel, template.files);
           this.fileStorageService.ensureVersionFolder(
@@ -443,7 +452,7 @@ export class DocumentService {
               documentId,
               1,
               versionLabel,
-              'Draft',
+              initialLifecycleStatus.name,
               null,
               '',
               '',
@@ -533,6 +542,8 @@ export class DocumentService {
   createVersion(rootPath: string, input: CreateVersionInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
     this.assertCreateVersionInput(input);
+    const initialLifecycleStatus = this.getInitialLifecycleStatus(rootPath);
+    const previousVersionLifecycleStatus = this.getAutoPreviousVersionStatus(rootPath);
 
     const documentRecordId = context.db.transaction(() => {
       const document = this.getDocumentRow(context.db, input.documentRecordId);
@@ -556,10 +567,14 @@ export class DocumentService {
         versionLabel
       );
 
-      if (latestVersion && context.settings.autoMarkPreviousVersionObsolete) {
+      if (
+        latestVersion &&
+        context.settings.autoMarkPreviousVersionObsolete &&
+        previousVersionLifecycleStatus
+      ) {
         context.db
           .prepare('UPDATE DocumentVersions SET Status = ? WHERE Id = ?')
-          .run('Obsolete', latestVersion.Id);
+          .run(previousVersionLifecycleStatus.name, latestVersion.Id);
       }
 
       const versionInsert = context.db
@@ -584,7 +599,7 @@ export class DocumentService {
           versionDocumentId,
           sequenceNumber,
           versionLabel,
-          'Draft',
+          initialLifecycleStatus.name,
           null,
           '',
           '',
@@ -1540,14 +1555,33 @@ export class DocumentService {
 
   updateVersion(rootPath: string, input: UpdateDocumentVersionInput): DocumentDetail {
     const context = this.workspaceManager.getContext(rootPath);
-    this.assertStatus(input.status);
 
     const version = this.getVersionRow(context.db, input.documentVersionId);
     const document = this.getDocumentRow(context.db, version.DocumentId);
+    const currentStatus = this.assertStatus(context.rootPath, version.Status);
+    const nextStatus = this.assertStatus(context.rootPath, input.status);
     const releasedDate = this.normalizeOptionalDateString(input.releasedDate);
     const reviewedBy = input.reviewedBy.trim();
     const approvedBy = input.approvedBy.trim();
     const revisionDescription = input.revisionDescription.trim();
+    const missingMetadata = getMissingLifecycleMetadata(nextStatus, {
+      releasedDate,
+      reviewedBy,
+      approvedBy
+    });
+
+    if (
+      version.Status !== input.status &&
+      !isLifecycleTransitionAllowed(context.lifecycle, currentStatus.name, nextStatus.name)
+    ) {
+      throw new Error(
+        `The workspace lifecycle does not allow moving a version from "${currentStatus.name}" to "${nextStatus.name}".`
+      );
+    }
+
+    if (missingMetadata.length > 0) {
+      throw new Error(this.getMissingLifecycleMetadataError(nextStatus, missingMetadata));
+    }
 
     context.db.transaction(() => {
       context.db
@@ -1556,10 +1590,10 @@ export class DocumentService {
             UPDATE DocumentVersions
             SET Status = ?, ReleasedDate = ?, ReviewedBy = ?, ApprovedBy = ?, Notes = ?
             WHERE Id = ?
-          `
+        `
         )
         .run(
-          input.status,
+          nextStatus.name,
           releasedDate,
           reviewedBy,
           approvedBy,
@@ -1572,7 +1606,7 @@ export class DocumentService {
         message: `Updated ${this.describeVersionActivity(
           version.VersionDocumentID?.trim() || document.DocumentID,
           version.VersionLabel
-        )} to ${input.status}.`,
+        )} to ${nextStatus.name}.`,
         documentRecordId: document.Id,
         documentVersionId: version.Id
       });
@@ -2476,10 +2510,59 @@ export class DocumentService {
     }
   }
 
-  private assertStatus(status: string): asserts status is DocumentStatus {
-    if (!['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'].includes(status)) {
+  private getInitialLifecycleStatus(rootPath: string): WorkspaceStatusDefinition {
+    const context = this.workspaceManager.getContext(rootPath);
+    const lifecycleStatus =
+      getWorkspaceStatusByKey(context.lifecycle, context.lifecycle.initialStatusKey) ??
+      context.lifecycle.statuses[0];
+
+    if (!lifecycleStatus) {
+      throw new Error('The workspace lifecycle does not define any statuses.');
+    }
+
+    return lifecycleStatus;
+  }
+
+  private getAutoPreviousVersionStatus(rootPath: string): WorkspaceStatusDefinition | null {
+    const context = this.workspaceManager.getContext(rootPath);
+    if (!context.lifecycle.autoPreviousVersionStatusKey) {
+      return null;
+    }
+
+    return getWorkspaceStatusByKey(
+      context.lifecycle,
+      context.lifecycle.autoPreviousVersionStatusKey
+    );
+  }
+
+  private assertStatus(rootPath: string, status: string): WorkspaceStatusDefinition {
+    const context = this.workspaceManager.getContext(rootPath);
+    const lifecycleStatus = getWorkspaceStatusByName(context.lifecycle, status);
+    if (!lifecycleStatus) {
       throw new Error('Invalid document status.');
     }
+
+    return lifecycleStatus;
+  }
+
+  private getMissingLifecycleMetadataError(
+    status: WorkspaceStatusDefinition,
+    missingFields: string[]
+  ): string {
+    const labels = missingFields.map((field) => {
+      switch (field) {
+        case 'releasedDate':
+          return 'Released Date';
+        case 'reviewedBy':
+          return 'Reviewed By';
+        case 'approvedBy':
+          return 'Approved By';
+        default:
+          return field;
+      }
+    });
+
+    return `The status "${status.name}" requires ${labels.join(', ')}.`;
   }
 
   private normalizeOptionalReference(

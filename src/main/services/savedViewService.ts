@@ -9,8 +9,10 @@ import {
   normalizeDashboardLayout,
   normalizeSavedViewPresentation,
   normalizeSavedViewQuery,
+  remapSavedViewStatuses,
   type DashboardLayout,
-  type SavedView
+  type SavedView,
+  type SavedViewStatusNameRemap
 } from '@shared/savedViews';
 import type {
   CreateSavedViewInput,
@@ -134,6 +136,38 @@ export class SavedViewService {
       .getContext(rootPath)
       .db.prepare('DELETE FROM SavedViews WHERE Id = ?')
       .run(input.savedViewId);
+  }
+
+  remapSharedSavedViewStatuses(rootPath: string, remaps: SavedViewStatusNameRemap[]): SavedView[] {
+    if (remaps.length === 0) {
+      return this.listShared(rootPath);
+    }
+
+    const context = this.workspaceManager.getContext(rootPath);
+    const sharedViews = this.listShared(rootPath);
+    const updateSavedView = context.db.prepare(
+      `
+        UPDATE SavedViews
+        SET
+          QueryJson = ?,
+          ModifiedDate = ?
+        WHERE Id = ?
+      `
+    );
+    const modifiedDate = nowIso();
+
+    context.db.transaction(() => {
+      for (const savedView of sharedViews) {
+        const nextSavedView = remapSavedViewStatuses(savedView, remaps);
+        updateSavedView.run(
+          JSON.stringify(nextSavedView.query),
+          modifiedDate,
+          nextSavedView.id
+        );
+      }
+    })();
+
+    return this.listShared(rootPath);
   }
 
   duplicate(rootPath: string, input: DuplicateSavedViewInput): SavedView {
