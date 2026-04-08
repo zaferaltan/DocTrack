@@ -18,6 +18,8 @@ const api: DocTrackApi = {
     signOut: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceSignOut, rootPath),
     getSession: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSession, rootPath),
     listUsers: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListUsers, rootPath),
+    recoverAccess: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceRecoverAccess, rootPath, input),
     createUser: (rootPath, input) => ipcRenderer.invoke(IPC_CHANNELS.workspaceCreateUser, rootPath, input),
     updateUser: (rootPath, userId, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateUser, rootPath, userId, input),

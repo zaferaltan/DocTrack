@@ -308,6 +308,7 @@ const buildDocTrackMock = (
       signOut: vi.fn().mockResolvedValue(undefined),
       getSession: vi.fn().mockResolvedValue(workspaceSession),
       listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      recoverAccess: vi.fn().mockResolvedValue(workspaceResult),
       createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
@@ -905,6 +906,7 @@ describe('App', () => {
           ...secondaryWorkspace.summary,
           users: secondaryWorkspace.summary.users ?? [],
           authKind: 'authenticated',
+          canRecoverAccess: false,
           session: workspaceSession,
           selectedView: 'documents',
           selectedDocumentsVisualization: 'table',
@@ -2939,6 +2941,114 @@ describe('App', () => {
 
     expect(authorSelect.getAttribute('aria-invalid')).not.toBe('true');
     expect(normalizeText(dialog.textContent)).not.toContain('Author is required.');
+
+    await view.unmount();
+  });
+
+  it('keeps workspace user validation inside the modal and protects the signed-in account', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    const inactiveUser: WorkspaceUser = {
+      ...workspaceUsers[0],
+      id: 2,
+      username: 'casey',
+      displayName: 'Casey Holt',
+      role: 'viewer',
+      signInEnabled: false
+    };
+    workspaceResult.summary.users = [workspaceUsers[0], inactiveUser];
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    ).workspace.listUsers.mockResolvedValue(workspaceResult.summary.users);
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Users'));
+    const dialog = getDialog();
+    const activeBadge = [...dialog.querySelectorAll('div')].find(
+      (element) => normalizeText(element.textContent) === 'Active'
+    );
+    const inactiveBadge = [...dialog.querySelectorAll('div')].find(
+      (element) => normalizeText(element.textContent) === 'Inactive'
+    );
+    const deactivateButton = getButton('Deactivate', dialog);
+    const userList = [...dialog.querySelectorAll('div')].find((element) =>
+      element.className.includes('flex-1 space-y-2 overflow-y-auto')
+    );
+
+    expect(activeBadge?.className).toContain('bg-[#E8F3EC]');
+    expect(inactiveBadge?.className).toContain('bg-destructive');
+    expect(userList?.className).toContain('overflow-y-auto');
+    expect(deactivateButton.disabled).toBe(true);
+    expect(normalizeText(dialog.textContent)).toContain(
+      'cannot be set to inactive'
+    );
+
+    await click(getButton('New', dialog));
+    await click(getButton('Create User', dialog));
+
+    expect(normalizeText(dialog.textContent)).toContain(
+      'Fix the highlighted fields before saving.'
+    );
+    expect(document.body.querySelector('[aria-label="Dismiss notification"]')).toBeNull();
+
+    await view.unmount();
+  });
+
+  it('offers recovery when a locked workspace has no active users left', async () => {
+    const lockedWorkspaceResult: OpenWorkspaceResult = {
+      kind: 'unauthenticated',
+      workspace: workspaceInfo,
+      summary: {
+        ...cloneWorkspaceResult().summary,
+        workspace: workspaceInfo,
+        users: workspaceUsers
+      },
+      users: [],
+      canRecoverAccess: true,
+      session: null
+    };
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      lockedWorkspaceResult
+    );
+    docTrack.workspace.recoverAccess.mockResolvedValue(cloneWorkspaceResult());
+
+    const view = await renderApp();
+
+    expect(normalizeText(document.body.textContent)).toContain(
+      'Recover access to Quality'
+    );
+
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Admin Display Name', 'input') as HTMLInputElement,
+      'Recovery Admin'
+    );
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Admin Username', 'input') as HTMLInputElement,
+      'recovery-admin'
+    );
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Password or PIN', 'input') as HTMLInputElement,
+      'rescue123'
+    );
+    await click(getButton('Recover Access'));
+
+    expect(docTrack.workspace.recoverAccess).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      {
+        username: 'recovery-admin',
+        displayName: 'Recovery Admin',
+        password: 'rescue123'
+      }
+    );
 
     await view.unmount();
   });

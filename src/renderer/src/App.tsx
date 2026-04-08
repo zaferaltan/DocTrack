@@ -179,6 +179,7 @@ import {
 } from "@shared/savedViews";
 import type {
   ConfidentialityClass,
+  WorkspaceAccessRecoveryInput,
   CreateSavedViewInput,
   CreateDocumentInput,
   CreateVersionInput,
@@ -784,6 +785,17 @@ interface WorkspaceUsersDialogState {
   password: string;
   isLoading: boolean;
   isSubmitting: boolean;
+  formMessage: string;
+  formTone: "warning" | "error";
+  validationErrors: ValidationErrors;
+}
+
+interface AccessRecoveryState {
+  username: string;
+  displayName: string;
+  password: string;
+  isSubmitting: boolean;
+  error: string;
   validationErrors: ValidationErrors;
 }
 
@@ -1059,6 +1071,17 @@ const defaultWorkspaceUsersDialogState: WorkspaceUsersDialogState = {
   password: "",
   isLoading: false,
   isSubmitting: false,
+  formMessage: "",
+  formTone: "warning",
+  validationErrors: {},
+};
+
+const defaultAccessRecoveryState: AccessRecoveryState = {
+  username: "admin",
+  displayName: "",
+  password: "",
+  isSubmitting: false,
+  error: "",
   validationErrors: {},
 };
 
@@ -1161,6 +1184,7 @@ const applyInputChange = <
   patch: Partial<TState>,
 ): TState => ({
   ...state,
+  ...(("formMessage" in state ? { formMessage: "" } : {}) as Partial<TState>),
   ...patch,
   validationErrors: clearValidationError(state.validationErrors, field),
 });
@@ -1817,6 +1841,7 @@ function App() {
     updateWorkspaceSettings,
     updateDashboardLayout,
     signInWorkspace,
+    recoverWorkspaceAccess,
     signOutWorkspace,
     createSavedView,
     updateSavedView,
@@ -1874,6 +1899,9 @@ function App() {
   const [backupDialog, setBackupDialog] = useState(defaultBackupDialogState);
   const [workspaceUsersDialog, setWorkspaceUsersDialog] = useState(
     defaultWorkspaceUsersDialogState,
+  );
+  const [accessRecoveryState, setAccessRecoveryState] = useState(
+    defaultAccessRecoveryState,
   );
   const [filePreviewDialog, setFilePreviewDialog] = useState(
     defaultFilePreviewDialogState,
@@ -1999,6 +2027,10 @@ function App() {
       });
     },
   );
+
+  useEffect(() => {
+    setAccessRecoveryState(defaultAccessRecoveryState);
+  }, [activeWorkspace?.workspace.rootPath, activeWorkspace?.canRecoverAccess]);
   const openConfirmationDialog = useEffectEvent(
     (input: Omit<ConfirmationDialogState, "open" | "isSubmitting">): void => {
       setConfirmationDialog({
@@ -4754,6 +4786,8 @@ function App() {
           displayName: users[0]?.displayName ?? "",
           role: users[0]?.role ?? "viewer",
           password: "",
+          formMessage: "",
+          formTone: "warning",
           validationErrors: {},
         })),
       )
@@ -4773,6 +4807,8 @@ function App() {
       displayName: selectedUser?.displayName ?? "",
       role: selectedUser?.role ?? "viewer",
       password: "",
+      formMessage: "",
+      formTone: "warning",
       validationErrors: {},
     }));
   };
@@ -4796,7 +4832,12 @@ function App() {
       validationErrors.password = "Password or PIN is required.";
     }
     if (Object.keys(validationErrors).length > 0) {
-      setWorkspaceUsersDialog((state) => ({ ...state, validationErrors }));
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "Fix the highlighted fields before saving.",
+        formTone: "warning",
+        validationErrors,
+      }));
       return;
     }
 
@@ -4804,6 +4845,7 @@ function App() {
       setWorkspaceUsersDialog((state) => ({
         ...state,
         isSubmitting: true,
+        formMessage: "",
         validationErrors: {},
       }));
 
@@ -4829,8 +4871,12 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       openWorkspaceUsersDialog();
     } catch (error) {
-      notifyError(error, "Unable to save the workspace user.");
-      setWorkspaceUsersDialog((state) => ({ ...state, isSubmitting: false }));
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(error, "Unable to save the workspace user."),
+        formTone: "error",
+      }));
     }
   };
 
@@ -4839,8 +4885,21 @@ function App() {
       return;
     }
 
+    if (activeWorkspaceSession?.user.id === user.id && user.signInEnabled) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "You cannot deactivate the account that is currently signed in.",
+        formTone: "warning",
+      }));
+      return;
+    }
+
     try {
-      setWorkspaceUsersDialog((state) => ({ ...state, isSubmitting: true }));
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        formMessage: "",
+      }));
       if (user.signInEnabled) {
         await window.docTrack.workspace.deactivateUser(activeWorkspacePath, user.id);
       } else {
@@ -4849,8 +4908,12 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       openWorkspaceUsersDialog();
     } catch (error) {
-      notifyError(error, "Unable to update the selected user.");
-      setWorkspaceUsersDialog((state) => ({ ...state, isSubmitting: false }));
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(error, "Unable to update the selected user."),
+        formTone: "error",
+      }));
     }
   };
 
@@ -4862,6 +4925,8 @@ function App() {
     if (!workspaceUsersDialog.password.trim()) {
       setWorkspaceUsersDialog((state) => ({
         ...state,
+        formMessage: "Enter a new password or PIN before resetting this account.",
+        formTone: "warning",
         validationErrors: {
           ...state.validationErrors,
           password: "Enter a password or PIN to reset.",
@@ -4874,6 +4939,7 @@ function App() {
       setWorkspaceUsersDialog((state) => ({
         ...state,
         isSubmitting: true,
+        formMessage: "",
         validationErrors: {},
       }));
       await window.docTrack.workspace.resetUserPassword(activeWorkspacePath, {
@@ -4883,8 +4949,61 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       openWorkspaceUsersDialog();
     } catch (error) {
-      notifyError(error, "Unable to reset the selected user's password.");
-      setWorkspaceUsersDialog((state) => ({ ...state, isSubmitting: false }));
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(
+          error,
+          "Unable to reset the selected user's password.",
+        ),
+        formTone: "error",
+      }));
+    }
+  };
+
+  const handleRecoverWorkspaceAccess = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const validationErrors: ValidationErrors = {};
+    if (!accessRecoveryState.username.trim()) {
+      validationErrors.username = "Username is required.";
+    }
+    if (!accessRecoveryState.displayName.trim()) {
+      validationErrors.displayName = "Display name is required.";
+    }
+    if (!accessRecoveryState.password.trim()) {
+      validationErrors.password = "Password or PIN is required.";
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        error: "Complete all required recovery fields before continuing.",
+        validationErrors,
+      }));
+      return;
+    }
+
+    try {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        isSubmitting: true,
+        error: "",
+        validationErrors: {},
+      }));
+      await recoverWorkspaceAccess(activeWorkspacePath, {
+        username: accessRecoveryState.username,
+        displayName: accessRecoveryState.displayName,
+        password: accessRecoveryState.password,
+      } satisfies WorkspaceAccessRecoveryInput);
+      setAccessRecoveryState(defaultAccessRecoveryState);
+    } catch (error) {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        isSubmitting: false,
+        error: getErrorMessage(error, "Unable to recover workspace access."),
+      }));
     }
   };
 
@@ -5276,6 +5395,7 @@ function App() {
     );
   } else if (activeWorkspace.authKind === "unauthenticated") {
     const enteredUsername = signInState.username.trim();
+    const canRecoverAccess = activeWorkspace.canRecoverAccess;
     activeWorkspaceContent = (
       <div className="mx-auto flex max-w-xl flex-col gap-6 rounded-3xl border border-border bg-card p-8 shadow-sm">
         <div>
@@ -5283,106 +5403,247 @@ function App() {
             Workspace Locked
           </div>
           <h2 className="mt-2 text-2xl font-semibold text-foreground">
-            Sign in to {activeWorkspace.workspace.name}
+            {canRecoverAccess
+              ? `Recover access to ${activeWorkspace.workspace.name}`
+              : `Sign in to ${activeWorkspace.workspace.name}`}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            This workspace uses local accounts stored in its SQLite database.
+            {canRecoverAccess
+              ? "No active workspace users remain. Create a new admin account to unlock this workspace."
+              : "This workspace uses local accounts stored in its SQLite database."}
           </p>
         </div>
 
-        <div className="grid gap-4">
-          <Field label="User">
-            <Input
-              value={signInState.username}
-              placeholder="Username"
-              onChange={(event) =>
-                setSignInState((current) => ({
-                  ...current,
-                  username: event.target.value,
-                  error: "",
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && enteredUsername && signInState.password) {
-                  event.preventDefault();
-                  void signInWorkspace(
-                    activeWorkspace.workspace.rootPath,
-                    enteredUsername,
-                    signInState.password,
-                  ).catch((error: Error) => {
+        {canRecoverAccess ? (
+          <>
+            {accessRecoveryState.error ? (
+              <InlineAlert tone="error" message={accessRecoveryState.error} />
+            ) : (
+              <InlineAlert
+                tone="warning"
+                message="Recovery access is available because there are currently zero active users in this workspace."
+              />
+            )}
+
+            <div className="grid gap-4">
+              <Field
+                label="Recovery Admin Display Name"
+                error={accessRecoveryState.validationErrors.displayName}
+              >
+                <Input
+                  value={accessRecoveryState.displayName}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      displayName: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "displayName",
+                      ),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Recovery Admin Username"
+                error={accessRecoveryState.validationErrors.username}
+              >
+                <Input
+                  value={accessRecoveryState.username}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      username: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "username",
+                      ),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Recovery Password or PIN"
+                error={accessRecoveryState.validationErrors.password}
+              >
+                <Input
+                  type="password"
+                  value={accessRecoveryState.password}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      password: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "password",
+                      ),
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      accessRecoveryState.username.trim() &&
+                      accessRecoveryState.displayName.trim() &&
+                      accessRecoveryState.password
+                    ) {
+                      event.preventDefault();
+                      void handleRecoverWorkspaceAccess();
+                    }
+                  }}
+                />
+              </Field>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                disabled={
+                  !accessRecoveryState.username.trim() ||
+                  !accessRecoveryState.displayName.trim() ||
+                  !accessRecoveryState.password ||
+                  accessRecoveryState.isSubmitting
+                }
+                onClick={() => void handleRecoverWorkspaceAccess()}
+              >
+                {accessRecoveryState.isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Recover Access
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+              >
+                Close Workspace
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-4">
+              <Field label="User">
+                <Input
+                  value={signInState.username}
+                  placeholder="Username"
+                  onChange={(event) =>
                     setSignInState((current) => ({
                       ...current,
-                      error: getErrorMessage(error, "Unable to sign in."),
-                    }));
-                  });
-                }
-              }}
-            />
-          </Field>
+                      username: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      enteredUsername &&
+                      signInState.password
+                    ) {
+                      event.preventDefault();
+                      void signInWorkspace(
+                        activeWorkspace.workspace.rootPath,
+                        enteredUsername,
+                        signInState.password,
+                      ).catch((error: Error) => {
+                        setSignInState((current) => ({
+                          ...current,
+                          error: getErrorMessage(error, "Unable to sign in."),
+                        }));
+                      });
+                    }
+                  }}
+                />
+              </Field>
 
-          <Field label="Password or PIN" error={signInState.error || undefined}>
-            <Input
-              type="password"
-              value={signInState.password}
-              onChange={(event) =>
-                setSignInState((current) => ({
-                  ...current,
-                  password: event.target.value,
-                  error: "",
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && enteredUsername && signInState.password) {
-                  event.preventDefault();
-                  void signInWorkspace(
-                    activeWorkspace.workspace.rootPath,
-                    enteredUsername,
-                    signInState.password,
-                  ).catch((error: Error) => {
+              <Field
+                label="Password or PIN"
+                error={signInState.error || undefined}
+              >
+                <Input
+                  type="password"
+                  value={signInState.password}
+                  onChange={(event) =>
                     setSignInState((current) => ({
                       ...current,
-                      error: getErrorMessage(error, "Unable to sign in."),
-                    }));
-                  });
-                }
-              }}
-            />
-          </Field>
-        </div>
+                      password: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      enteredUsername &&
+                      signInState.password
+                    ) {
+                      event.preventDefault();
+                      void signInWorkspace(
+                        activeWorkspace.workspace.rootPath,
+                        enteredUsername,
+                        signInState.password,
+                      ).catch((error: Error) => {
+                        setSignInState((current) => ({
+                          ...current,
+                          error: getErrorMessage(error, "Unable to sign in."),
+                        }));
+                      });
+                    }
+                  }}
+                />
+              </Field>
+            </div>
 
-        <div className="flex gap-3">
-          <Button
-            disabled={!enteredUsername || !signInState.password || signInState.isSubmitting}
-            onClick={() => {
-              setSignInState((current) => ({ ...current, isSubmitting: true, error: "" }));
-              void signInWorkspace(
-                activeWorkspace.workspace.rootPath,
-                enteredUsername,
-                signInState.password,
-              )
-                .then(() =>
-                  setSignInState({
-                    username: enteredUsername,
-                    password: "",
-                    isSubmitting: false,
-                    error: "",
-                  }),
-                )
-                .catch((error: Error) => {
+            <div className="flex gap-3">
+              <Button
+                disabled={
+                  !enteredUsername ||
+                  !signInState.password ||
+                  signInState.isSubmitting
+                }
+                onClick={() => {
                   setSignInState((current) => ({
                     ...current,
-                    isSubmitting: false,
-                    error: getErrorMessage(error, "Unable to sign in."),
+                    isSubmitting: true,
+                    error: "",
                   }));
-                });
-            }}
-          >
-            {signInState.isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : null}
-            Sign In
-          </Button>
-        </div>
+                  void signInWorkspace(
+                    activeWorkspace.workspace.rootPath,
+                    enteredUsername,
+                    signInState.password,
+                  )
+                    .then(() =>
+                      setSignInState({
+                        username: enteredUsername,
+                        password: "",
+                        isSubmitting: false,
+                        error: "",
+                      }),
+                    )
+                    .catch((error: Error) => {
+                      setSignInState((current) => ({
+                        ...current,
+                        isSubmitting: false,
+                        error: getErrorMessage(error, "Unable to sign in."),
+                      }));
+                    });
+                }}
+              >
+                {signInState.isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Sign In
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+              >
+                Close Workspace
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     );
   } else if (activeWorkspace.selectedView === "dashboard") {
@@ -6205,6 +6466,7 @@ function App() {
 
       <WorkspaceUsersDialog
         state={workspaceUsersDialog}
+        currentUserId={activeWorkspaceSession?.user.id}
         onOpenChange={(open) =>
           setWorkspaceUsersDialog(
             open
@@ -7300,6 +7562,31 @@ function NotificationBar({
       >
         <X className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+function InlineAlert({
+  tone,
+  message,
+}: {
+  tone: "warning" | "error";
+  message: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-3 py-2 text-[13px]",
+        tone === "warning"
+          ? "border-[#E6D6A8] bg-[#FBF7EA] text-[#8F6400] dark:border-[#5D4920] dark:bg-[#332717]/60 dark:text-[#EBCB8B]"
+          : "border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]",
+      )}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>{message}</div>
+      </div>
     </div>
   );
 }
@@ -14597,6 +14884,7 @@ function WorkspaceAdvancedSettingsDialog({
 
 function WorkspaceUsersDialog({
   state,
+  currentUserId,
   onOpenChange,
   onStateChange,
   onSelectUser,
@@ -14605,6 +14893,7 @@ function WorkspaceUsersDialog({
   onToggleAccess,
 }: {
   state: WorkspaceUsersDialogState;
+  currentUserId?: number;
   onOpenChange: (open: boolean) => void;
   onStateChange: React.Dispatch<
     React.SetStateAction<WorkspaceUsersDialogState>
@@ -14614,6 +14903,10 @@ function WorkspaceUsersDialog({
   onResetPassword: () => Promise<void>;
   onToggleAccess: (user: WorkspaceUser) => Promise<void>;
 }) {
+  const selectedUser =
+    state.users.find((user) => user.id === state.selectedUserId) ?? null;
+  const isCurrentSignedInUser = selectedUser?.id === currentUserId;
+
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(94vw,980px)] max-h-[84vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
@@ -14626,7 +14919,7 @@ function WorkspaceUsersDialog({
         </DialogHeader>
 
         <div className="grid min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto rounded-2xl border border-border bg-background p-3">
+          <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-background p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-semibold">Users</div>
               <Button
@@ -14640,6 +14933,8 @@ function WorkspaceUsersDialog({
                     displayName: "",
                     role: "viewer",
                     password: "",
+                    formMessage: "",
+                    formTone: "warning",
                     validationErrors: {},
                   }))
                 }
@@ -14649,7 +14944,7 @@ function WorkspaceUsersDialog({
               </Button>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {state.isLoading ? (
                 <div className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
                   Loading users...
@@ -14671,7 +14966,9 @@ function WorkspaceUsersDialog({
                       @{user.username} • {user.role}
                     </div>
                   </div>
-                  <Badge variant={user.signInEnabled ? "default" : "outline"}>
+                  <Badge
+                    variant={user.signInEnabled ? "success" : "destructive"}
+                  >
                     {user.signInEnabled ? "Active" : "Inactive"}
                   </Badge>
                 </button>
@@ -14681,6 +14978,10 @@ function WorkspaceUsersDialog({
 
           <div className="min-h-0 overflow-y-auto rounded-2xl border border-border bg-background p-4">
             <div className="grid gap-4">
+              {state.formMessage ? (
+                <InlineAlert tone={state.formTone} message={state.formMessage} />
+              ) : null}
+
               <Field label="Display Name" error={state.validationErrors.displayName}>
                 <Input
                   value={state.displayName}
@@ -14714,6 +15015,7 @@ function WorkspaceUsersDialog({
                     onChange={(event) =>
                       onStateChange((current) => ({
                         ...current,
+                        formMessage: "",
                         role: event.target.value as WorkspaceRole,
                       }))
                     }
@@ -14751,18 +15053,26 @@ function WorkspaceUsersDialog({
                   >
                     Reset Password
                   </Button>
-                  {state.users
-                    .filter((user) => user.id === state.selectedUserId)
-                    .map((user) => (
-                      <Button
-                        key={user.id}
-                        variant="outline"
-                        disabled={state.isSubmitting}
-                        onClick={() => void onToggleAccess(user)}
-                      >
-                        {user.signInEnabled ? "Deactivate" : "Activate"}
-                      </Button>
-                    ))}
+                  {selectedUser ? (
+                    <Button
+                      variant="outline"
+                      disabled={
+                        state.isSubmitting ||
+                        (Boolean(selectedUser.signInEnabled) &&
+                          isCurrentSignedInUser)
+                      }
+                      onClick={() => void onToggleAccess(selectedUser)}
+                    >
+                      {selectedUser.signInEnabled ? "Deactivate" : "Activate"}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {state.selectedUserId && isCurrentSignedInUser ? (
+                <div className="text-xs text-muted-foreground">
+                  The account currently signed in to this window cannot be set
+                  to inactive.
                 </div>
               ) : null}
             </div>

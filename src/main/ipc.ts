@@ -14,6 +14,7 @@ import type { WorkspaceCatalogService } from '@main/services/workspaceCatalogSer
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   OpenWorkspaceResult,
+  WorkspaceAccessRecoveryInput,
   WorkspaceSession,
   WorkspaceUser,
   WorkspaceUserCredentialsInput
@@ -61,8 +62,10 @@ interface ServiceContainer {
 type RuntimeWorkspaceUserService = Pick<
   WorkspaceUserService,
   | 'listSignInUsers'
+  | 'canRecoverAccess'
   | 'list'
   | 'signIn'
+  | 'recoverAccess'
   | 'create'
   | 'update'
   | 'activate'
@@ -72,7 +75,12 @@ type RuntimeWorkspaceUserService = Pick<
 
 type RuntimeWorkspaceSessionService = Pick<
   WorkspaceSessionService,
-  'getSession' | 'setSession' | 'clearSession' | 'clearWorkspace'
+  | 'getSession'
+  | 'setSession'
+  | 'clearSession'
+  | 'clearWorkspace'
+  | 'replaceSessionsForUser'
+  | 'clearSessionsForUser'
 >;
 
 type RuntimeActorContextService = Pick<ActorContextService, 'runWithActor'>;
@@ -140,6 +148,7 @@ const toOpenWorkspaceResult = (
       workspace: result.workspace,
       summary: result.summary,
       users: services.workspaceUserService.listSignInUsers(result.workspace.rootPath),
+      canRecoverAccess: services.workspaceUserService.canRecoverAccess(result.workspace.rootPath),
       session: null,
       warnings: result.warnings
     };
@@ -165,6 +174,7 @@ const toLockedWorkspaceResult = (
         workspace: result.workspace,
         summary: result.summary,
         users: services.workspaceUserService.listSignInUsers(rootPath),
+        canRecoverAccess: services.workspaceUserService.canRecoverAccess(rootPath),
         session: null,
         warnings: result.warnings
       }
@@ -183,8 +193,12 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       services.workspaceUserService ??
       ({
         listSignInUsers: () => [],
+        canRecoverAccess: () => false,
         list: () => [],
         signIn: () => {
+          throw new Error('Workspace user service is unavailable.');
+        },
+        recoverAccess: () => {
           throw new Error('Workspace user service is unavailable.');
         },
         create: () => {
@@ -211,7 +225,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
           throw new Error('Workspace session service is unavailable.');
         },
         clearSession: () => undefined,
-        clearWorkspace: () => undefined
+        clearWorkspace: () => undefined,
+        replaceSessionsForUser: () => undefined,
+        clearSessionsForUser: () => undefined
       } as RuntimeWorkspaceSessionService),
     actorContextService:
       services.actorContextService ??
@@ -288,6 +304,19 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     return runtimeServices.workspaceUserService.list(rootPath);
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.workspaceRecoverAccess,
+    (event, rootPath: string, input: WorkspaceAccessRecoveryInput) => {
+      if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
+        throw new Error('The user system is disabled for this workspace.');
+      }
+
+      const user = runtimeServices.workspaceUserService.recoverAccess(rootPath, input);
+      runtimeServices.workspaceSessionService.setSession(event.sender.id, rootPath, user);
+      return toOpenWorkspaceResult(runtimeServices, event, runtimeServices.workspaceService.getSummary(rootPath));
+    }
+  );
+
   ipcMain.handle(IPC_CHANNELS.workspaceCreateUser, (event, rootPath: string, input) => {
     if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
       throw new Error('The user system is disabled for this workspace.');
@@ -303,9 +332,11 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     }
 
     const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
-    return runAsActor(runtimeServices, session.user.id, () =>
+    const user = runAsActor(runtimeServices, session.user.id, () =>
       runtimeServices.workspaceUserService.update(rootPath, userId, input)
     );
+    runtimeServices.workspaceSessionService.replaceSessionsForUser(rootPath, user);
+    return user;
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceActivateUser, (event, rootPath: string, userId: number) => {
@@ -323,9 +354,15 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     }
 
     const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
-    return runAsActor(runtimeServices, session.user.id, () =>
+    if (session.user.id === userId) {
+      throw new Error('You cannot deactivate the account that is currently signed in.');
+    }
+
+    const user = runAsActor(runtimeServices, session.user.id, () =>
       runtimeServices.workspaceUserService.deactivate(rootPath, userId)
     );
+    runtimeServices.workspaceSessionService.clearSessionsForUser(rootPath, userId);
+    return user;
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceResetUserPassword, (event, rootPath: string, input) => {

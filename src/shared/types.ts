@@ -69,6 +69,8 @@ export interface WorkspaceInitialAdminInput extends WorkspaceUserCredentialsInpu
   displayName: string;
 }
 
+export interface WorkspaceAccessRecoveryInput extends WorkspaceInitialAdminInput {}
+
 export interface WorkspaceUserCreateInput extends WorkspaceInitialAdminInput {
   role: WorkspaceRole;
   signInEnabled?: boolean;
@@ -538,6 +540,7 @@ export interface UnauthenticatedWorkspaceResult {
   workspace: WorkspaceInfo;
   summary: WorkspaceSummary;
   users: WorkspaceUser[];
+  canRecoverAccess: boolean;
   session: null;
   warnings?: string[];
 }

@@ -103,6 +103,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       signOut: vi.fn().mockResolvedValue(undefined),
       getSession: vi.fn().mockResolvedValue(workspaceSession),
       listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      recoverAccess: vi.fn().mockResolvedValue(openWorkspaceResult),
       createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),

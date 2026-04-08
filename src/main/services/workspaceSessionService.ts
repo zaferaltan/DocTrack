@@ -35,6 +35,28 @@ export class WorkspaceSessionService {
     this.sessions.delete(this.getKey(senderId, rootPath));
   }
 
+  replaceSessionsForUser(rootPath: string, user: WorkspaceUser): void {
+    const normalizedRootPath = normalizeRootPath(rootPath);
+    for (const [key, session] of this.sessions.entries()) {
+      if (key.endsWith(`:${normalizedRootPath}`) && session.user.id === user.id) {
+        this.sessions.set(key, {
+          ...session,
+          user,
+          permissions: buildPermissions(user.role)
+        });
+      }
+    }
+  }
+
+  clearSessionsForUser(rootPath: string, userId: number): void {
+    const normalizedRootPath = normalizeRootPath(rootPath);
+    for (const [key, session] of this.sessions.entries()) {
+      if (key.endsWith(`:${normalizedRootPath}`) && session.user.id === userId) {
+        this.sessions.delete(key);
+      }
+    }
+  }
+
   clearWorkspace(rootPath: string): void {
     const normalizedRootPath = normalizeRootPath(rootPath);
     for (const key of [...this.sessions.keys()]) {

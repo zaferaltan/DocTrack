@@ -73,6 +73,7 @@ export const IPC_CHANNELS = {
   workspaceSignOut: 'workspace:signOut',
   workspaceGetSession: 'workspace:getSession',
   workspaceListUsers: 'workspace:listUsers',
+  workspaceRecoverAccess: 'workspace:recoverAccess',
   workspaceCreateUser: 'workspace:createUser',
   workspaceUpdateUser: 'workspace:updateUser',
   workspaceActivateUser: 'workspace:activateUser',
@@ -171,6 +172,10 @@ export interface DocTrackApi {
     signOut: (rootPath: string) => Promise<void>;
     getSession: (rootPath: string) => Promise<import('@shared/types').WorkspaceSession | null>;
     listUsers: (rootPath: string) => Promise<import('@shared/types').WorkspaceUser[]>;
+    recoverAccess: (
+      rootPath: string,
+      input: import('@shared/types').WorkspaceAccessRecoveryInput
+    ) => Promise<OpenWorkspaceResult>;
     createUser: (
       rootPath: string,
       input: import('@shared/types').WorkspaceUserCreateInput

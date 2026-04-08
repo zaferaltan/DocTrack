@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { WorkspaceManager } from '@main/database/workspaceManager';
 import { nowIso } from '@main/utils/date';
 import type {
+  WorkspaceAccessRecoveryInput,
   WorkspaceInitialAdminInput,
   WorkspaceRole,
   WorkspaceUser,
@@ -88,6 +89,11 @@ export class WorkspaceUserService {
 
   listSignInUsers(rootPath: string): WorkspaceUser[] {
     return this.list(rootPath).filter((user) => user.signInEnabled);
+  }
+
+  canRecoverAccess(rootPath: string): boolean {
+    const context = this.workspaceManager.getContext(rootPath);
+    return this.countActiveUsers(context.db) === 0;
   }
 
   createInitialAdmin(db: Database.Database, input: WorkspaceInitialAdminInput): WorkspaceUser {
@@ -207,12 +213,31 @@ export class WorkspaceUserService {
 
   deactivate(rootPath: string, userId: number): WorkspaceUser {
     const context = this.workspaceManager.getContext(rootPath);
-    this.getUserRowById(context.db, userId);
+    const user = this.getUserRowById(context.db, userId);
+
+    if (Boolean(user.SignInEnabled) && this.countActiveUsers(context.db) <= 1) {
+      throw new Error('At least one active workspace user must remain.');
+    }
 
     context.db
       .prepare('UPDATE WorkspaceUsers SET SignInEnabled = 0, ModifiedDate = ? WHERE Id = ?')
       .run(nowIso(), userId);
     return this.getUser(rootPath, userId);
+  }
+
+  recoverAccess(rootPath: string, input: WorkspaceAccessRecoveryInput): WorkspaceUser {
+    const context = this.workspaceManager.getContext(rootPath);
+    if (this.countActiveUsers(context.db) > 0) {
+      throw new Error('Recovery is only available when no active workspace users remain.');
+    }
+
+    return this.insertUser(context.db, {
+      username: input.username,
+      displayName: input.displayName,
+      role: 'admin',
+      password: input.password,
+      signInEnabled: true
+    });
   }
 
   resetPassword(rootPath: string, userId: number, password: string): WorkspaceUser {
@@ -448,5 +473,15 @@ export class WorkspaceUserService {
     }
 
     return displayName;
+  }
+
+  private countActiveUsers(db: Database.Database): number {
+    return (
+      (
+        db
+          .prepare('SELECT COUNT(*) AS total FROM WorkspaceUsers WHERE SignInEnabled = 1')
+          .get() as { total: number } | undefined
+      )?.total ?? 0
+    );
   }
 }

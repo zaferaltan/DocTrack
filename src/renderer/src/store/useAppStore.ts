@@ -35,6 +35,7 @@ import type {
 export interface WorkspaceTabState extends Omit<WorkspaceSummary, 'users'> {
   users: WorkspaceUser[];
   authKind: OpenWorkspaceResult['kind'];
+  canRecoverAccess: boolean;
   session: WorkspaceSession | null;
   selectedView: WorkspaceView;
   selectedDocumentsVisualization: DocumentsVisualizationMode;
@@ -61,6 +62,10 @@ interface AppStoreState {
   updateWorkspaceSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<void>;
   updateDashboardLayout: (rootPath: string, input: UpdateDashboardLayoutInput) => Promise<DashboardLayout>;
   signInWorkspace: (rootPath: string, username: string, password: string) => Promise<void>;
+  recoverWorkspaceAccess: (
+    rootPath: string,
+    input: import('@shared/types').WorkspaceAccessRecoveryInput
+  ) => Promise<void>;
   signOutWorkspace: (rootPath: string) => Promise<void>;
   createSavedView: (rootPath: string, input: CreateSavedViewInput) => Promise<SavedView>;
   updateSavedView: (
@@ -147,6 +152,7 @@ const buildWorkspaceState = (
     ...summary,
     users: summary.users ?? [],
     authKind: result.kind,
+    canRecoverAccess: result.kind === 'unauthenticated' ? result.canRecoverAccess : false,
     session: result.kind === 'authenticated' ? result.session : null,
     selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
     selectedDocumentsVisualization:
@@ -341,6 +347,19 @@ export const createAppStore = () =>
         openWorkspaces: {
           ...state.openWorkspaces,
           [rootPath]: buildWorkspaceState(result, state.applicationSettings, state.openWorkspaces[rootPath])
+        }
+      }));
+    },
+    recoverWorkspaceAccess: async (rootPath, input) => {
+      const result = await window.docTrack.workspace.recoverAccess(rootPath, input);
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [rootPath]: buildWorkspaceState(result, state.applicationSettings, state.openWorkspaces[rootPath])
+        },
+        notification: {
+          tone: 'success',
+          message: `Access recovered for "${result.workspace.name}".`
         }
       }));
     },

@@ -212,6 +212,68 @@ describe('workspace integration', () => {
     expect(userCount).toBe(0);
   });
 
+  it('does not allow the final active workspace user to be deactivated', () => {
+    const result = workspaceService.create({
+      name: 'Protected Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+
+    const [adminUser] = workspaceUserService.list(result.workspace.rootPath);
+
+    expect(() =>
+      workspaceUserService.deactivate(result.workspace.rootPath, adminUser.id)
+    ).toThrow('At least one active workspace user must remain.');
+  });
+
+  it('can recover access by creating a new admin when no active users remain', () => {
+    const result = workspaceService.create({
+      name: 'Recovery Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+
+    workspaceManager
+      .getContext(result.workspace.rootPath)
+      .db.prepare('UPDATE WorkspaceUsers SET SignInEnabled = 0')
+      .run();
+
+    expect(workspaceUserService.canRecoverAccess(result.workspace.rootPath)).toBe(true);
+
+    const recoveredUser = workspaceUserService.recoverAccess(result.workspace.rootPath, {
+      username: 'recovery-admin',
+      displayName: 'Recovery Admin',
+      password: 'rescue123'
+    });
+
+    expect(recoveredUser.role).toBe('admin');
+    expect(recoveredUser.signInEnabled).toBe(true);
+    expect(workspaceUserService.listSignInUsers(result.workspace.rootPath)).toContainEqual(
+      expect.objectContaining({
+        username: 'recovery.admin',
+        displayName: 'Recovery Admin',
+        role: 'admin',
+        signInEnabled: true
+      })
+    );
+  });
+
   it('persists shared saved views and includes them in workspace summaries', () => {
     const created = workspaceService.create({
       name: 'Quality',
