@@ -1543,7 +1543,10 @@ describe('App', () => {
       throw new Error('Unable to find the inline status select.');
     }
 
-    expect([...statusSelect.options].map((option) => option.value)).toEqual(['In Review']);
+    expect([...statusSelect.options].map((option) => option.value)).toEqual([
+      'Draft',
+      'In Review'
+    ]);
 
     await view.unmount();
   });
