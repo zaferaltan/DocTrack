@@ -15,6 +15,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_SAVED_VIEW_PRESENTATION } from '@shared/savedViews';
 import {
   DEFAULT_WORKSPACE_SETTINGS,
@@ -41,13 +42,68 @@ describe('workspace integration', () => {
   let documentService: DocumentService;
   let templateService: TemplateService;
   let savedViewService: SavedViewService;
+  let catalogService: AppCatalogService;
+
+  const mapTransitions = (lifecycle: WorkspaceLifecycle): string[] =>
+    lifecycle.allowedTransitions
+      .map((transition) => `${transition.fromStatusKey}->${transition.toStatusKey}`)
+      .sort();
+
+  const buildCustomLifecycle = (): WorkspaceLifecycle => ({
+    mode: 'custom',
+    statuses: [
+      {
+        key: 'drafting',
+        name: 'Drafting',
+        role: 'draft',
+        sortOrder: 0,
+        requiresReleasedDate: false,
+        requiresReviewedBy: false,
+        requiresApprovedBy: false
+      },
+      {
+        key: 'review',
+        name: 'Review',
+        role: 'review',
+        sortOrder: 1,
+        requiresReleasedDate: false,
+        requiresReviewedBy: true,
+        requiresApprovedBy: false
+      },
+      {
+        key: 'published',
+        name: 'Published',
+        role: 'released',
+        sortOrder: 2,
+        requiresReleasedDate: true,
+        requiresReviewedBy: true,
+        requiresApprovedBy: true
+      },
+      {
+        key: 'retired',
+        name: 'Retired',
+        role: 'obsolete',
+        sortOrder: 3,
+        requiresReleasedDate: false,
+        requiresReviewedBy: false,
+        requiresApprovedBy: false
+      }
+    ],
+    initialStatusKey: 'drafting',
+    autoPreviousVersionStatusKey: 'retired',
+    allowedTransitions: [
+      { fromStatusKey: 'drafting', toStatusKey: 'review' },
+      { fromStatusKey: 'review', toStatusKey: 'published' },
+      { fromStatusKey: 'published', toStatusKey: 'retired' }
+    ]
+  });
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-workspace-'));
     workspaceManager = new WorkspaceManager();
     const fileStorageService = new FileStorageService();
     templateService = new TemplateService(fileStorageService, workspaceManager);
-    const catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
+    catalogService = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
     const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
@@ -162,6 +218,146 @@ describe('workspace integration', () => {
     const summary = workspaceService.getSummary(created.workspace.rootPath);
     expect(summary.summary.savedViews).toContainEqual(savedView);
     expect(summary.summary.savedViews.map((item) => item.scope)).toContain('shared');
+  });
+
+  it('persists custom lifecycle settings across create and reopen flows', () => {
+    const lifecycle = buildCustomLifecycle();
+    const created = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      lifecycle,
+      includeExampleData: false
+    });
+
+    expect(created.summary.lifecycle.mode).toBe(lifecycle.mode);
+    expect(created.summary.lifecycle.statuses).toEqual(lifecycle.statuses);
+    expect(mapTransitions(created.summary.lifecycle)).toEqual(mapTransitions(lifecycle));
+    expect(created.summary.statuses).toEqual(['Drafting', 'Review', 'Published', 'Retired']);
+
+    workspaceService.close(created.workspace.rootPath);
+    const reopened = workspaceService.open(created.workspace.rootPath);
+
+    expect(reopened.summary.lifecycle.mode).toBe(lifecycle.mode);
+    expect(reopened.summary.lifecycle.statuses).toEqual(lifecycle.statuses);
+    expect(mapTransitions(reopened.summary.lifecycle)).toEqual(mapTransitions(lifecycle));
+    expect(reopened.summary.statuses).toEqual(['Drafting', 'Review', 'Published', 'Retired']);
+  });
+
+  it('remaps shared and personal saved views when lifecycle statuses are renamed or merged', () => {
+    const created = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    savedViewService.create(created.workspace.rootPath, {
+      name: 'Released docs',
+      scope: 'shared',
+      query: {
+        search: '',
+        statusFilter: 'Released',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: []
+      },
+      presentation: DEFAULT_SAVED_VIEW_PRESENTATION
+    });
+    catalogService.createPersonalSavedView(created.workspace.rootPath, {
+      id: 'personal-archived',
+      name: 'Archived docs',
+      scope: 'personal',
+      query: {
+        search: '',
+        statusFilter: 'Archived',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: []
+      },
+      presentation: DEFAULT_SAVED_VIEW_PRESENTATION,
+      createdDate: '2026-04-07T10:00:00.000Z',
+      modifiedDate: '2026-04-07T10:00:00.000Z'
+    });
+
+    const nextLifecycle = createDefaultWorkspaceLifecycle();
+    nextLifecycle.mode = 'custom';
+    nextLifecycle.statuses = nextLifecycle.statuses
+      .filter((status) => status.key !== 'archived')
+      .map((status) =>
+        status.key === 'released'
+          ? {
+              ...status,
+              name: 'Published'
+            }
+          : status
+      );
+    nextLifecycle.allowedTransitions = nextLifecycle.allowedTransitions.filter(
+      (transition) =>
+        transition.fromStatusKey !== 'archived' && transition.toStatusKey !== 'archived'
+    );
+
+    const updated = workspaceService.updateSettings(created.workspace.rootPath, {
+      settings: created.summary.settings,
+      lifecycle: nextLifecycle,
+      statusRemaps: [{ fromStatusKey: 'archived', toStatusKey: 'obsolete' }]
+    });
+
+    const renamedSharedView = updated.summary.savedViews.find((view) => view.name === 'Released docs');
+    const remappedPersonalView = catalogService.listPersonalSavedViews(created.workspace.rootPath)[0];
+
+    expect(updated.summary.statuses).toEqual(['Draft', 'In Review', 'Published', 'Obsolete']);
+    expect(renamedSharedView?.query.statusFilter).toBe('Published');
+    expect(remappedPersonalView?.query.statusFilter).toBe('Obsolete');
+  });
+
+  it('requires status remaps before deleting lifecycle statuses that are still referenced', () => {
+    const created = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+
+    savedViewService.create(created.workspace.rootPath, {
+      name: 'Archived docs',
+      scope: 'shared',
+      query: {
+        search: '',
+        statusFilter: 'Archived',
+        projectFilter: 'All',
+        healthFilter: 'All',
+        rules: []
+      },
+      presentation: DEFAULT_SAVED_VIEW_PRESENTATION
+    });
+
+    const nextLifecycle = createDefaultWorkspaceLifecycle();
+    nextLifecycle.mode = 'custom';
+    nextLifecycle.statuses = nextLifecycle.statuses.filter((status) => status.key !== 'archived');
+    nextLifecycle.allowedTransitions = nextLifecycle.allowedTransitions.filter(
+      (transition) =>
+        transition.fromStatusKey !== 'archived' && transition.toStatusKey !== 'archived'
+    );
+
+    expect(() =>
+      workspaceService.updateSettings(created.workspace.rootPath, {
+        settings: created.summary.settings,
+        lifecycle: nextLifecycle
+      })
+    ).toThrow('Map the removed status "Archived" to a replacement status before saving the lifecycle.');
   });
 
   it('updates the shared dashboard layout and keeps saved-view widgets portable', () => {

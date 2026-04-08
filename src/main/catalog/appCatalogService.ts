@@ -14,7 +14,12 @@ import {
   type ApplicationSettings
 } from '@shared/applicationSettings';
 import { isDocumentVersionScheme } from '@shared/documentModel';
-import { normalizeSavedViews, type SavedView } from '@shared/savedViews';
+import {
+  normalizeSavedViews,
+  remapSavedViewStatuses,
+  type SavedView,
+  type SavedViewStatusNameRemap
+} from '@shared/savedViews';
 import type { AppCatalogState, RecentWorkspace } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 
@@ -101,6 +106,28 @@ export class AppCatalogService {
       delete state.personalSavedViewsByWorkspace[rootPath];
     }
     this.writeState(state);
+  }
+
+  remapPersonalSavedViewStatuses(
+    rootPath: string,
+    remaps: SavedViewStatusNameRemap[]
+  ): SavedView[] {
+    if (remaps.length === 0) {
+      return this.listPersonalSavedViews(rootPath);
+    }
+
+    const state = this.readState();
+    const currentViews = state.personalSavedViewsByWorkspace[rootPath] ?? [];
+    if (currentViews.length === 0) {
+      return [];
+    }
+
+    state.personalSavedViewsByWorkspace[rootPath] = normalizeSavedViews(
+      currentViews.map((savedView) => remapSavedViewStatuses(savedView, remaps)),
+      'personal'
+    );
+    this.writeState(state);
+    return state.personalSavedViewsByWorkspace[rootPath] ?? [];
   }
 
   private readState(): AppCatalogState {

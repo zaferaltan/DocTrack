@@ -2,7 +2,11 @@ import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { BrowserWindow, dialog, type PrintToPDFOptions, type SaveDialogReturnValue } from 'electron';
 import { format } from 'date-fns';
-import { DOCUMENT_STATUSES } from '@shared/types';
+import {
+  createDefaultWorkspaceLifecycle,
+  getWorkspaceStatusByName,
+  type WorkspaceLifecycle
+} from '@shared/documentLifecycle';
 import type {
   DocumentExportFormat,
   DocumentExportGrouping,
@@ -142,22 +146,26 @@ const getMimeTypeForLogoPath = (filePath: string): string => {
 
 const getStatusBadgeClassName = (
   status: DocumentListItem['status'],
-  pdfColorMode: DocumentExportRequest['pdfColorMode']
+  pdfColorMode: DocumentExportRequest['pdfColorMode'],
+  lifecycle?: WorkspaceLifecycle
 ): string => {
   if (pdfColorMode === 'black-and-white') {
     return 'status-badge status-badge-bw';
   }
 
-  switch (status) {
-    case 'Draft':
+  const role =
+    status && getWorkspaceStatusByName(lifecycle ?? createDefaultWorkspaceLifecycle(), status)?.role;
+
+  switch (role) {
+    case 'draft':
       return 'status-badge status-draft';
-    case 'In Review':
+    case 'review':
       return 'status-badge status-review';
-    case 'Released':
+    case 'released':
       return 'status-badge status-released';
-    case 'Archived':
+    case 'archived':
       return 'status-badge status-archived';
-    case 'Obsolete':
+    case 'obsolete':
       return 'status-badge status-obsolete';
     default:
       return 'status-badge status-not-started';
@@ -282,10 +290,13 @@ const buildDocumentGroups = (
   }));
 };
 
-const buildStatusSummary = (rows: DocumentListItem[]): Array<{ label: string; count: number }> => {
+const buildStatusSummary = (
+  rows: DocumentListItem[],
+  lifecycle?: WorkspaceLifecycle
+): Array<{ label: string; count: number }> => {
   const counts = new Map<string, number>();
-  for (const status of DOCUMENT_STATUSES) {
-    counts.set(status, 0);
+  for (const status of (lifecycle ?? createDefaultWorkspaceLifecycle()).statuses) {
+    counts.set(status.name, 0);
   }
   counts.set('Not started', 0);
 
@@ -355,7 +366,7 @@ export const buildPdfReportHtml = (
       .filter((column): column is DocumentTableColumn => DOCUMENT_TABLE_COLUMNS.includes(column))
   );
   const filterSummaryItems = buildFilterSummaryItems(request);
-  const statusSummary = buildStatusSummary(request.rows);
+  const statusSummary = buildStatusSummary(request.rows, request.lifecycle);
   const groups = buildDocumentGroups(request.rows, request.groupBy);
   const logoMarkup = options.companyLogoDataUrl
     ? `<img class="logo${request.pdfColorMode === 'black-and-white' ? ' logo-bw' : ''}" src="${options.companyLogoDataUrl}" alt="Company logo" />`
@@ -815,7 +826,7 @@ export const buildPdfReportHtml = (
                             <div class="card-id">${escapeHtml(document.documentId)}</div>
                             <div class="card-title">${escapeHtml(document.title)}</div>
                           </div>
-                          <div class="card-badge ${getStatusBadgeClassName(document.status, request.pdfColorMode)}">${escapeHtml(document.status ?? 'Not started')}</div>
+                          <div class="card-badge ${getStatusBadgeClassName(document.status, request.pdfColorMode, request.lifecycle)}">${escapeHtml(document.status ?? 'Not started')}</div>
                         </div>
                         <div class="field-grid">${buildMetadataRows(document, allowedColumns)}</div>
                       </article>

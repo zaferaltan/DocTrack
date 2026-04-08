@@ -23,10 +23,10 @@ import type {
   RecentWorkspace,
   UpdateDashboardLayoutInput,
   UpdateSavedViewInput,
+  WorkspaceCreateInput,
   WorkspaceSettingsUpdateInput,
   WorkspaceSummary
 } from '@shared/types';
-import type { WorkspaceSettings } from '@shared/workspaceLayout';
 
 export interface WorkspaceTabState extends WorkspaceSummary {
   selectedView: WorkspaceView;
@@ -46,13 +46,7 @@ interface AppStoreState {
     message: string;
   };
   bootstrap: () => Promise<void>;
-  createWorkspace: (input: {
-    name: string;
-    folderName?: string;
-    parentPath: string;
-    settings: WorkspaceSettings;
-    includeExampleData?: boolean;
-  }) => Promise<void>;
+  createWorkspace: (input: WorkspaceCreateInput) => Promise<void>;
   openWorkspace: (rootPath: string) => Promise<void>;
   refreshWorkspace: (rootPath: string) => Promise<void>;
   closeWorkspace: (rootPath: string) => Promise<void>;
@@ -97,14 +91,29 @@ const buildWorkspaceState = (
   result: OpenWorkspaceResult,
   applicationSettings: ApplicationSettings,
   existing?: WorkspaceTabState
-): WorkspaceTabState => ({
-  ...result.summary,
-  selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
-  selectedDocumentsVisualization:
-    existing?.selectedDocumentsVisualization ?? applicationSettings.defaultDocumentsVisualization,
-  documentViewState: existing?.documentViewState ?? { ...DEFAULT_DOCUMENT_VIEW_STATE },
-  selectedDocumentRecordId: existing?.selectedDocumentRecordId
-});
+): WorkspaceTabState => {
+  const existingDocumentViewState = existing?.documentViewState ?? {
+    ...DEFAULT_DOCUMENT_VIEW_STATE
+  };
+  const normalizedStatusFilter =
+    existingDocumentViewState.statusFilter === 'All' ||
+    existingDocumentViewState.statusFilter === 'Not started' ||
+    result.summary.statuses.includes(existingDocumentViewState.statusFilter)
+      ? existingDocumentViewState.statusFilter
+      : 'All';
+
+  return {
+    ...result.summary,
+    selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
+    selectedDocumentsVisualization:
+      existing?.selectedDocumentsVisualization ?? applicationSettings.defaultDocumentsVisualization,
+    documentViewState: {
+      ...existingDocumentViewState,
+      statusFilter: normalizedStatusFilter
+    },
+    selectedDocumentRecordId: existing?.selectedDocumentRecordId
+  };
+};
 
 export const createAppStore = () =>
   create<AppStoreState>((set, get) => ({

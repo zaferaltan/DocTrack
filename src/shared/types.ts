@@ -1,4 +1,8 @@
 import type { DocumentVersionFileRole, DocumentVersionScheme, VersionBumpType } from '@shared/documentModel';
+import {
+  DEFAULT_DOCUMENT_STATUSES,
+  type WorkspaceLifecycle
+} from '@shared/documentLifecycle';
 import type {
   DashboardLayout,
   SavedView,
@@ -9,7 +13,7 @@ import type {
 import type { ApplicationSettings } from '@shared/applicationSettings';
 import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
-export const DOCUMENT_STATUSES = ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'] as const;
+export const DOCUMENT_STATUSES = [...DEFAULT_DOCUMENT_STATUSES];
 export const DOCUMENT_HEALTH_FLAGS = [
   'overdueReview',
   'missingFiles',
@@ -18,7 +22,7 @@ export const DOCUMENT_HEALTH_FLAGS = [
   'staleDocument'
 ] as const;
 
-export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
+export type DocumentStatus = string;
 export type DocumentHealthFlag = (typeof DOCUMENT_HEALTH_FLAGS)[number];
 
 export interface WorkspaceInfo {
@@ -175,6 +179,7 @@ export interface DocumentExportRequest {
   groupBy: DocumentExportGrouping;
   pdfColorMode: DocumentExportPdfColorMode;
   workspaceName: string;
+  lifecycle?: WorkspaceLifecycle;
   companyLogoPath: string | null;
   exportTimestamp: string;
   columns: DocumentExportColumn[];
@@ -439,6 +444,7 @@ export interface ApplyVersionFilesystemReconciliationInput {
 export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
+  lifecycle: WorkspaceLifecycle;
   documents: DocumentListItem[];
   dashboard: WorkspaceDashboardSummary;
   dashboardLayout: DashboardLayout;
@@ -462,11 +468,17 @@ export interface WorkspaceCreateInput {
   folderName?: string;
   parentPath: string;
   settings: WorkspaceSettings;
+  lifecycle?: WorkspaceLifecycle;
   includeExampleData?: boolean;
 }
 
 export interface WorkspaceSettingsUpdateInput {
   settings: WorkspaceSettings;
+  lifecycle?: WorkspaceLifecycle;
+  statusRemaps?: Array<{
+    fromStatusKey: string;
+    toStatusKey: string;
+  }>;
   companyLogoSourceFilePath?: string | null;
   clearCompanyLogo?: boolean;
 }

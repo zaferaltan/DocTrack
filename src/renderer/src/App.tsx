@@ -124,6 +124,18 @@ import {
   type VersionBumpType,
 } from "@shared/documentModel";
 import {
+  createDefaultWorkspaceLifecycle,
+  getAllowedLifecycleTransitionTargets,
+  getLifecycleBadgeVariant,
+  getMissingLifecycleMetadata,
+  getWorkspaceLifecycleStatuses,
+  getWorkspaceStatusByKey,
+  getWorkspaceStatusByName,
+  validateWorkspaceLifecycle,
+  type WorkspaceLifecycle,
+  type WorkspaceStatusDefinition,
+} from "@shared/documentLifecycle";
+import {
   buildDocumentFolderRelativePath,
   buildDocumentVersionRelativePath,
   buildVersionFileRelativePath,
@@ -217,15 +229,18 @@ const ROOT_DIRECTORY_FIELD_LABELS: Record<
   backupsDirectoryName: "Backups",
 };
 
-const STATUS_VARIANTS: Record<
-  DocumentStatus,
-  "success" | "warning" | "muted" | "default"
-> = {
-  Draft: "warning",
-  "In Review": "default",
-  Released: "success",
-  Archived: "muted",
-  Obsolete: "muted",
+const DEFAULT_WORKSPACE_LIFECYCLE_STATE = createDefaultWorkspaceLifecycle();
+
+const getStatusVariant = (
+  status: DocumentStatus,
+  lifecycle: WorkspaceLifecycle = DEFAULT_WORKSPACE_LIFECYCLE_STATE,
+): "success" | "warning" | "muted" | "default" => {
+  const lifecycleStatus =
+    getWorkspaceStatusByName(lifecycle, status) ??
+    getWorkspaceStatusByName(DEFAULT_WORKSPACE_LIFECYCLE_STATE, status);
+  return lifecycleStatus
+    ? getLifecycleBadgeVariant(lifecycleStatus.role)
+    : "default";
 };
 
 const THEME_MODE_ICONS: Record<ThemeMode, typeof Sun> = {
@@ -339,6 +354,168 @@ const applyTheme = (themeMode: ThemeMode): void => {
   root.classList.toggle("dark", effectiveTheme === "dark");
 };
 
+const cloneWorkspaceLifecycle = (
+  lifecycle: WorkspaceLifecycle,
+): WorkspaceLifecycle => ({
+  ...lifecycle,
+  statuses: lifecycle.statuses.map((status) => ({ ...status })),
+  allowedTransitions: lifecycle.allowedTransitions.map((transition) => ({
+    ...transition,
+  })),
+});
+
+const resequenceLifecycleStatuses = (
+  statuses: WorkspaceStatusDefinition[],
+): WorkspaceStatusDefinition[] =>
+  statuses.map((status, index) => ({
+    ...status,
+    sortOrder: index,
+  }));
+
+const buildLifecycleStatusKey = (): string =>
+  `status-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const setWorkspaceLifecycleMode = (
+  lifecycle: WorkspaceLifecycle,
+  mode: WorkspaceLifecycle["mode"],
+): WorkspaceLifecycle => {
+  if (mode === "default") {
+    return createDefaultWorkspaceLifecycle();
+  }
+
+  return {
+    ...cloneWorkspaceLifecycle(lifecycle),
+    mode: "custom",
+  };
+};
+
+const addWorkspaceLifecycleStatus = (
+  lifecycle: WorkspaceLifecycle,
+): WorkspaceLifecycle => {
+  const nextStatuses = resequenceLifecycleStatuses([
+    ...getWorkspaceLifecycleStatuses(lifecycle),
+    {
+      key: buildLifecycleStatusKey(),
+      name: `Status ${lifecycle.statuses.length + 1}`,
+      role: "draft",
+      sortOrder: lifecycle.statuses.length,
+      requiresReleasedDate: false,
+      requiresReviewedBy: false,
+      requiresApprovedBy: false,
+    },
+  ]);
+
+  return {
+    ...lifecycle,
+    statuses: nextStatuses,
+    initialStatusKey:
+      lifecycle.initialStatusKey || nextStatuses[0]?.key || "",
+    autoPreviousVersionStatusKey:
+      lifecycle.autoPreviousVersionStatusKey ?? nextStatuses[0]?.key ?? null,
+  };
+};
+
+const updateWorkspaceLifecycleStatus = (
+  lifecycle: WorkspaceLifecycle,
+  statusKey: string,
+  updater: (status: WorkspaceStatusDefinition) => WorkspaceStatusDefinition,
+): WorkspaceLifecycle => ({
+  ...lifecycle,
+  statuses: resequenceLifecycleStatuses(
+    getWorkspaceLifecycleStatuses(lifecycle).map((status) =>
+      status.key === statusKey ? updater(status) : status,
+    ),
+  ),
+});
+
+const removeWorkspaceLifecycleStatus = (
+  lifecycle: WorkspaceLifecycle,
+  statusKey: string,
+): WorkspaceLifecycle => {
+  const nextStatuses = resequenceLifecycleStatuses(
+    getWorkspaceLifecycleStatuses(lifecycle).filter(
+      (status) => status.key !== statusKey,
+    ),
+  );
+  const fallbackKey = nextStatuses[0]?.key ?? "";
+
+  return {
+    ...lifecycle,
+    statuses: nextStatuses,
+    initialStatusKey:
+      lifecycle.initialStatusKey === statusKey
+        ? fallbackKey
+        : lifecycle.initialStatusKey,
+    autoPreviousVersionStatusKey:
+      lifecycle.autoPreviousVersionStatusKey === statusKey
+        ? (fallbackKey || null)
+        : lifecycle.autoPreviousVersionStatusKey,
+    allowedTransitions: lifecycle.allowedTransitions.filter(
+      (transition) =>
+        transition.fromStatusKey !== statusKey &&
+        transition.toStatusKey !== statusKey,
+    ),
+  };
+};
+
+const moveWorkspaceLifecycleStatus = (
+  lifecycle: WorkspaceLifecycle,
+  statusKey: string,
+  direction: -1 | 1,
+): WorkspaceLifecycle => {
+  const statuses = [...getWorkspaceLifecycleStatuses(lifecycle)];
+  const index = statuses.findIndex((status) => status.key === statusKey);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= statuses.length) {
+    return lifecycle;
+  }
+
+  const [status] = statuses.splice(index, 1);
+  statuses.splice(nextIndex, 0, status);
+  return {
+    ...lifecycle,
+    statuses: resequenceLifecycleStatuses(statuses),
+  };
+};
+
+const toggleWorkspaceLifecycleTransition = (
+  lifecycle: WorkspaceLifecycle,
+  fromStatusKey: string,
+  toStatusKey: string,
+  enabled: boolean,
+): WorkspaceLifecycle => {
+  if (fromStatusKey === toStatusKey) {
+    return lifecycle;
+  }
+
+  const transitions = lifecycle.allowedTransitions.filter(
+    (transition) =>
+      !(
+        transition.fromStatusKey === fromStatusKey &&
+        transition.toStatusKey === toStatusKey
+      ),
+  );
+
+  return {
+    ...lifecycle,
+    allowedTransitions: enabled
+      ? [...transitions, { fromStatusKey, toStatusKey }]
+      : transitions,
+  };
+};
+
+const getRemovedLifecycleStatuses = (
+  previousLifecycle: WorkspaceLifecycle | null | undefined,
+  nextLifecycle: WorkspaceLifecycle,
+): WorkspaceStatusDefinition[] => {
+  if (!previousLifecycle) {
+    return [];
+  }
+
+  const nextKeys = new Set(nextLifecycle.statuses.map((status) => status.key));
+  return previousLifecycle.statuses.filter((status) => !nextKeys.has(status.key));
+};
+
 const buildWorkspaceDialogState = (
   applicationSettings: ApplicationSettings,
 ): WorkspaceDialogState => ({
@@ -408,6 +585,7 @@ interface WorkspaceDialogState {
   useCustomFolderName: boolean;
   parentPath: string;
   settings: WorkspaceSettings;
+  lifecycle: WorkspaceLifecycle;
   includeExampleData: boolean;
   isSubmitting: boolean;
   validationErrors: ValidationErrors;
@@ -419,6 +597,9 @@ interface WorkspaceSettingsDialogState {
   rootPath?: string;
   workspaceName: string;
   settings: WorkspaceSettings;
+  lifecycle: WorkspaceLifecycle;
+  originalLifecycle?: WorkspaceLifecycle;
+  statusRemaps: Record<string, string>;
   companyLogoSourceFilePath: string | null;
   clearCompanyLogo: boolean;
   isSubmitting: boolean;
@@ -660,6 +841,7 @@ const defaultWorkspaceDialogState: WorkspaceDialogState = {
   useCustomFolderName: false,
   parentPath: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
+  lifecycle: createDefaultWorkspaceLifecycle(),
   includeExampleData: true,
   isSubmitting: false,
   validationErrors: {},
@@ -671,6 +853,9 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   rootPath: undefined,
   workspaceName: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
+  lifecycle: createDefaultWorkspaceLifecycle(),
+  originalLifecycle: undefined,
+  statusRemaps: {},
   companyLogoSourceFilePath: null,
   clearCompanyLogo: false,
   isSubmitting: false,
@@ -1367,6 +1552,7 @@ const validateWorkspaceRootDirectorySettings = (
 
 const validateWorkspaceSettings = (
   settings: WorkspaceSettings,
+  lifecycle?: WorkspaceLifecycle,
 ): ValidationErrors => {
   const errors = validateWorkspaceRootDirectorySettings(settings);
 
@@ -1391,13 +1577,51 @@ const validateWorkspaceSettings = (
       "Activity log max rows must be a whole number greater than zero.";
   }
 
+  if (lifecycle) {
+    const lifecycleErrors = validateWorkspaceLifecycle(lifecycle, {
+      requireAutoPreviousVersionStatus:
+        settings.autoMarkPreviousVersionObsolete,
+    });
+    const initialStatus = getWorkspaceStatusByKey(
+      lifecycle,
+      lifecycle.initialStatusKey,
+    );
+    const autoPreviousStatus = lifecycle.autoPreviousVersionStatusKey
+      ? getWorkspaceStatusByKey(
+          lifecycle,
+          lifecycle.autoPreviousVersionStatusKey,
+        )
+      : null;
+
+    if (lifecycleErrors.length > 0) {
+      errors.lifecycle = lifecycleErrors[0];
+    } else if (
+      initialStatus &&
+      (initialStatus.requiresReleasedDate ||
+        initialStatus.requiresReviewedBy ||
+        initialStatus.requiresApprovedBy)
+    ) {
+      errors.lifecycle =
+        "The initial lifecycle status cannot require release metadata.";
+    } else if (
+      settings.autoMarkPreviousVersionObsolete &&
+      autoPreviousStatus &&
+      (autoPreviousStatus.requiresReleasedDate ||
+        autoPreviousStatus.requiresReviewedBy ||
+        autoPreviousStatus.requiresApprovedBy)
+    ) {
+      errors.lifecycle =
+        "The previous-version lifecycle status cannot require release metadata.";
+    }
+  }
+
   return errors;
 };
 
 const validateWorkspaceDialogState = (
   state: WorkspaceDialogState,
 ): ValidationErrors => {
-  const errors = validateWorkspaceSettings(state.settings);
+  const errors = validateWorkspaceSettings(state.settings, state.lifecycle);
 
   if (!state.name.trim()) {
     errors.name = "Workspace name is required.";
@@ -1416,7 +1640,7 @@ const validateWorkspaceDialogState = (
 
 const validateWorkspaceSettingsDialogState = (
   state: WorkspaceSettingsDialogState,
-): ValidationErrors => validateWorkspaceSettings(state.settings);
+): ValidationErrors => validateWorkspaceSettings(state.settings, state.lifecycle);
 
 const validateTableColumnsDialogState = (
   state: TableColumnsDialogState,
@@ -1707,13 +1931,17 @@ function App() {
     },
   );
   const openVersionMetadataDialog = useEffectEvent(
-    (version: DocumentVersion, mode: "latest" | "version" = "version"): void => {
+    (
+      version: DocumentVersion,
+      mode: "latest" | "version" = "version",
+      overrides?: Partial<Pick<LatestVersionDialogState, "status">>,
+    ): void => {
       setLatestVersionDialog({
         open: true,
         mode,
         versionId: version.id,
         versionLabel: version.versionLabel,
-        status: version.status,
+        status: overrides?.status ?? version.status,
         releasedDate: toDateInputValue(version.releasedDate),
         reviewedBy: version.reviewedBy,
         approvedBy: version.approvedBy,
@@ -2325,6 +2553,9 @@ function App() {
       rootPath: activeWorkspace.workspace.rootPath,
       workspaceName: activeWorkspace.workspace.name,
       settings: { ...activeWorkspace.settings },
+      lifecycle: structuredClone(activeWorkspace.lifecycle),
+      originalLifecycle: structuredClone(activeWorkspace.lifecycle),
+      statusRemaps: {},
       companyLogoSourceFilePath: null,
       clearCompanyLogo: false,
       isSubmitting: false,
@@ -2921,6 +3152,7 @@ function App() {
           : {}),
         parentPath: workspaceDialog.parentPath,
         settings: workspaceDialog.settings,
+        lifecycle: workspaceDialog.lifecycle,
         includeExampleData: workspaceDialog.includeExampleData,
       });
       setWorkspaceDialog(defaultWorkspaceDialogState);
@@ -2954,6 +3186,13 @@ function App() {
       }));
       await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, {
         settings: workspaceSettingsDialog.settings,
+        lifecycle: workspaceSettingsDialog.lifecycle,
+        statusRemaps: Object.entries(workspaceSettingsDialog.statusRemaps)
+          .filter(([, toStatusKey]) => toStatusKey.trim().length > 0)
+          .map(([fromStatusKey, toStatusKey]) => ({
+            fromStatusKey,
+            toStatusKey,
+          })),
         companyLogoSourceFilePath:
           workspaceSettingsDialog.companyLogoSourceFilePath,
         clearCompanyLogo: workspaceSettingsDialog.clearCompanyLogo,
@@ -3300,10 +3539,56 @@ function App() {
     nextStatus: DocumentStatus,
   ) => {
     if (
+      !activeWorkspace ||
+      !activeWorkspacePath ||
       !document.latestVersionLabel ||
       !document.status ||
       document.status === nextStatus
     ) {
+      return;
+    }
+
+    const nextLifecycleStatus = getWorkspaceStatusByName(
+      activeWorkspace.lifecycle,
+      nextStatus,
+    );
+    if (!nextLifecycleStatus) {
+      return;
+    }
+    const allowedTargets = getAllowedLifecycleTransitionTargets(
+      activeWorkspace.lifecycle,
+      document.status,
+    );
+    if (
+      activeWorkspace.lifecycle.mode === "custom" &&
+      !allowedTargets.some((status) => status.name === nextStatus)
+    ) {
+      return;
+    }
+
+    const missingMetadata = getMissingLifecycleMetadata(nextLifecycleStatus, {
+      releasedDate: document.releasedDate,
+      reviewedBy: document.reviewedBy,
+      approvedBy: document.approvedBy,
+    });
+
+    if (missingMetadata.length > 0) {
+      void (async () => {
+        const detail =
+          selectedDocumentDetail?.id === document.id
+            ? selectedDocumentDetail
+            : await loadDocumentDetail(activeWorkspacePath, document.id);
+        const latestVersion = detail?.versions[0];
+        if (!latestVersion) {
+          return;
+        }
+
+        openVersionMetadataDialog(latestVersion, "latest", {
+          status: nextStatus,
+        });
+      })().catch((error: Error) => {
+        notifyError(error, "Unable to load the latest version details.");
+      });
       return;
     }
 
@@ -5545,6 +5830,7 @@ function App() {
         onStateChange={setLatestVersionDialog}
         onSubmit={handleSaveLatestVersion}
         documentDetail={selectedDocumentDetail}
+        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
         availableColumns={activeWorkspaceAvailableColumns}
       />
 
@@ -5558,6 +5844,7 @@ function App() {
           )
         }
         onSubmit={handleConfirmStatusChange}
+        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
       />
 
       <DocumentTypeDialog
@@ -5651,6 +5938,7 @@ function App() {
         }}
         state={filesDialog}
         onStateChange={setFilesDialog}
+        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
         version={activeFilesVersion}
         affectedVersions={activeFilesAffectedVersions}
         canEdit={Boolean(selectedDocumentDetail && activeFilesVersion)}
@@ -8151,7 +8439,7 @@ function DocumentsView({
         cell: ({ row }) => (
           <DocumentStatusSelect
             document={row.original}
-            statuses={workspace.statuses}
+            lifecycle={workspace.lifecycle}
             onRequestStatusChange={onRequestStatusChange}
           />
         ),
@@ -8479,6 +8767,7 @@ function DocumentsView({
         pdfColorMode:
           exportDialog.format === "pdf" ? exportDialog.pdfColorMode : "color",
         workspaceName: workspace.workspace.name,
+        lifecycle: workspace.lifecycle,
         companyLogoPath: workspace.settings.companyLogoPath || null,
         exportTimestamp: new Date().toISOString(),
         columns: columns.map((column) => ({
@@ -8624,6 +8913,19 @@ function DocumentsView({
       return;
     }
 
+    const document =
+      currentTableRows.find((item) => item.id === draggedDocumentId) ??
+      workspace.documents.find((item) => item.id === draggedDocumentId);
+    if (
+      !document?.status ||
+      !getAllowedLifecycleTransitionTargets(
+        workspace.lifecycle,
+        document.status,
+      ).some((item) => item.name === status)
+    ) {
+      return;
+    }
+
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     setKanbanDropStatus(status);
@@ -8647,6 +8949,15 @@ function DocumentsView({
       return;
     }
 
+    if (
+      !getAllowedLifecycleTransitionTargets(
+        workspace.lifecycle,
+        document.status,
+      ).some((item) => item.name === status)
+    ) {
+      return;
+    }
+
     onRequestStatusChange(document, status);
   };
 
@@ -8654,6 +8965,7 @@ function DocumentsView({
     <DocumentDetailSurface
       layout={layout}
       documentDetail={selectedDocumentDetail}
+      lifecycle={workspace.lifecycle}
       availableColumns={availableColumns}
       isLoading={isDetailLoading}
       onClose={onCloseDocumentDetail}
@@ -8798,6 +9110,7 @@ function DocumentsView({
     ) : documentsVisualizationMode === "kanban" ? (
       <DocumentsKanbanBoard
         columns={kanbanColumns}
+        lifecycle={workspace.lifecycle}
         selectedDocumentId={workspace.selectedDocumentRecordId}
         draggedDocumentId={draggedDocumentId}
         dropStatus={kanbanDropStatus}
@@ -8812,6 +9125,7 @@ function DocumentsView({
         containerRef={timelineContainerRef}
         sectionRefs={timelineSectionRefs}
         groups={timelineGroups}
+        lifecycle={workspace.lifecycle}
         selectedDocumentId={workspace.selectedDocumentRecordId}
         onSelectDocument={onSelectDocument}
       />
@@ -8819,6 +9133,7 @@ function DocumentsView({
       <DocumentsCalendar
         month={calendarMonth}
         undatedDocuments={undatedCalendarDocuments}
+        lifecycle={workspace.lifecycle}
         selectedDocumentId={workspace.selectedDocumentRecordId}
         onSelectDocument={onSelectDocument}
         onPreviousMonth={() =>
@@ -9138,7 +9453,10 @@ function DocumentsView({
                 </div>
               </div>
               {selectedDocumentDetail ? (
-                <DocumentProgressBadge status={latestVersion?.status ?? null} />
+                <DocumentProgressBadge
+                  status={latestVersion?.status ?? null}
+                  lifecycle={workspace.lifecycle}
+                />
               ) : null}
             </div>
 
@@ -9324,7 +9642,10 @@ function DocumentsView({
                                 <div className="text-sm font-semibold">
                                   Version {version.versionLabel}
                                 </div>
-                                <StatusBadge status={version.status} />
+                                <StatusBadge
+                                  status={version.status}
+                                  lifecycle={workspace.lifecycle}
+                                />
                                 <Badge variant="outline">
                                   {version.files.length} files
                                 </Badge>
@@ -10495,6 +10816,7 @@ function DocumentsVisualizationEmptyState({
 
 function DocumentVisualizationCard({
   document,
+  lifecycle = DEFAULT_WORKSPACE_LIFECYCLE_STATE,
   selected,
   detailLines,
   draggable = false,
@@ -10504,6 +10826,7 @@ function DocumentVisualizationCard({
   onDragEnd,
 }: {
   document: DocumentListItem;
+  lifecycle?: WorkspaceLifecycle;
   selected: boolean;
   detailLines: string[];
   draggable?: boolean;
@@ -10555,7 +10878,7 @@ function DocumentVisualizationCard({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <DocumentProgressBadge status={document.status} />
+          <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />
           {document.isOverdue ? (
             <Badge variant="destructive">Overdue review</Badge>
           ) : null}
@@ -10575,6 +10898,7 @@ function DocumentVisualizationCard({
 
 function DocumentsKanbanBoard({
   columns,
+  lifecycle,
   selectedDocumentId,
   draggedDocumentId,
   dropStatus,
@@ -10585,6 +10909,7 @@ function DocumentsKanbanBoard({
   onColumnDrop,
 }: {
   columns: DocumentsKanbanColumn[];
+  lifecycle: WorkspaceLifecycle;
   selectedDocumentId?: number;
   draggedDocumentId: number | null;
   dropStatus: DocumentStatus | null;
@@ -10661,6 +10986,7 @@ function DocumentsKanbanBoard({
                     <DocumentVisualizationCard
                       key={document.id}
                       document={document}
+                      lifecycle={lifecycle}
                       selected={selectedDocumentId === document.id}
                       detailLines={[
                         document.projectName
@@ -10700,12 +11026,14 @@ function DocumentsTimeline({
   containerRef,
   sectionRefs,
   groups,
+  lifecycle,
   selectedDocumentId,
   onSelectDocument,
 }: {
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
   sectionRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
   groups: TimelineGroupsData;
+  lifecycle: WorkspaceLifecycle;
   selectedDocumentId?: number;
   onSelectDocument: (documentRecordId: number) => void;
 }) {
@@ -10750,6 +11078,7 @@ function DocumentsTimeline({
                   </div>
                   <DocumentVisualizationCard
                     document={entry.document}
+                    lifecycle={lifecycle}
                     selected={selectedDocumentId === entry.document.id}
                     detailLines={[
                       entry.document.projectName
@@ -10779,6 +11108,7 @@ function DocumentsTimeline({
                 <DocumentVisualizationCard
                   key={document.id}
                   document={document}
+                  lifecycle={lifecycle}
                   selected={selectedDocumentId === document.id}
                   detailLines={[
                     document.projectName
@@ -10804,6 +11134,7 @@ function DocumentsTimeline({
 function DocumentsCalendar({
   month,
   undatedDocuments,
+  lifecycle: _lifecycle,
   selectedDocumentId,
   onSelectDocument,
   onPreviousMonth,
@@ -10812,6 +11143,7 @@ function DocumentsCalendar({
 }: {
   month: CalendarMonthData;
   undatedDocuments: DocumentListItem[];
+  lifecycle: WorkspaceLifecycle;
   selectedDocumentId?: number;
   onSelectDocument: (documentRecordId: number) => void;
   onPreviousMonth: () => void;
@@ -10958,6 +11290,7 @@ function DocumentsCalendar({
 function DocumentDetailSurface({
   layout,
   documentDetail,
+  lifecycle,
   availableColumns,
   isLoading,
   onClose,
@@ -10974,6 +11307,7 @@ function DocumentDetailSurface({
 }: {
   layout: "sidebar" | "modal" | "page";
   documentDetail: DocumentDetail | null;
+  lifecycle: WorkspaceLifecycle;
   availableColumns: DocumentTableColumn[];
   isLoading: boolean;
   onClose: () => void;
@@ -11060,7 +11394,7 @@ function DocumentDetailSurface({
                 {documentDetail?.documentId ?? "Document detail"}
               </Badge>
               {latestVersion ? (
-                <StatusBadge status={latestVersion.status} />
+                <StatusBadge status={latestVersion.status} lifecycle={lifecycle} />
               ) : null}
               {documentDetail ? (
                 <Badge variant="outline">
@@ -11166,7 +11500,7 @@ function DocumentDetailSurface({
                     </div>
                   </div>
                   {latestVersion ? (
-                    <DocumentProgressBadge status={latestVersion.status} />
+                    <DocumentProgressBadge status={latestVersion.status} lifecycle={lifecycle} />
                   ) : null}
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -11212,7 +11546,7 @@ function DocumentDetailSurface({
                               <div className="text-sm font-semibold">
                                 Version {version.versionLabel}
                               </div>
-                              <StatusBadge status={version.status} />
+                              <StatusBadge status={version.status} lifecycle={lifecycle} />
                               <Badge variant="outline">
                                 {version.files.length} files
                               </Badge>
@@ -11323,7 +11657,7 @@ function DocumentDetailSurface({
                   <div className="mt-4 space-y-3">
                     <div className="rounded-xl bg-card p-4">
                       <div className="flex items-center gap-2">
-                        <StatusBadge status={latestVersion.status} />
+                        <StatusBadge status={latestVersion.status} lifecycle={lifecycle} />
                         <div className="font-semibold">
                           Version {latestVersion.versionLabel}
                         </div>
@@ -12237,10 +12571,13 @@ function WorkspaceDialog({
                   : state.name
               }
               settings={state.settings}
+              lifecycle={state.lifecycle}
               showBrandingControls={false}
               validationErrors={state.validationErrors}
               showAdvancedSettings
               isAdvancedSettingsOpen={state.isAdvancedSettingsOpen}
+              originalLifecycle={undefined}
+              statusRemaps={undefined}
               companyLogoSourceFilePath={null}
               clearCompanyLogo={false}
               onSettingsChange={(settings) =>
@@ -12250,6 +12587,14 @@ function WorkspaceDialog({
                   validationErrors: {},
                 }))
               }
+              onLifecycleChange={(lifecycle) =>
+                onStateChange((current) => ({
+                  ...current,
+                  lifecycle,
+                  validationErrors: {},
+                }))
+              }
+              onStatusRemapsChange={() => undefined}
               onAdvancedSettingsOpenChange={(open) =>
                 onStateChange((current) => ({
                   ...current,
@@ -12570,15 +12915,32 @@ function WorkspaceSettingsDialog({
             <WorkspaceStorageSettingsFields
               workspaceName={state.workspaceName}
               settings={state.settings}
+              lifecycle={state.lifecycle}
               validationErrors={state.validationErrors}
               showAdvancedSettings
               isAdvancedSettingsOpen={state.isAdvancedSettingsOpen}
+              originalLifecycle={state.originalLifecycle}
+              statusRemaps={state.statusRemaps}
               companyLogoSourceFilePath={state.companyLogoSourceFilePath}
               clearCompanyLogo={state.clearCompanyLogo}
               onSettingsChange={(settings) =>
                 onStateChange((current) => ({
                   ...current,
                   settings,
+                  validationErrors: {},
+                }))
+              }
+              onLifecycleChange={(lifecycle) =>
+                onStateChange((current) => ({
+                  ...current,
+                  lifecycle,
+                  validationErrors: {},
+                }))
+              }
+              onStatusRemapsChange={(statusRemaps) =>
+                onStateChange((current) => ({
+                  ...current,
+                  statusRemaps,
                   validationErrors: {},
                 }))
               }
@@ -12633,29 +12995,451 @@ function WorkspaceSettingsDialog({
   );
 }
 
+function WorkspaceLifecycleSettingsFields({
+  lifecycle,
+  validationErrors,
+  onLifecycleChange,
+  originalLifecycle,
+  statusRemaps,
+  onStatusRemapsChange,
+}: {
+  lifecycle: WorkspaceLifecycle;
+  validationErrors: ValidationErrors;
+  onLifecycleChange: (lifecycle: WorkspaceLifecycle) => void;
+  originalLifecycle?: WorkspaceLifecycle;
+  statusRemaps?: Record<string, string>;
+  onStatusRemapsChange?: (statusRemaps: Record<string, string>) => void;
+}) {
+  const orderedStatuses = getWorkspaceLifecycleStatuses(lifecycle);
+  const removedStatuses = getRemovedLifecycleStatuses(originalLifecycle, lifecycle);
+
+  return (
+    <Field label="Document Lifecycle" error={validationErrors.lifecycle}>
+      <div className="grid gap-4 rounded-xl border border-border bg-background p-3">
+        <Field label="Lifecycle Mode">
+          <Select
+            value={lifecycle.mode}
+            onChange={(event) =>
+              onLifecycleChange(
+                setWorkspaceLifecycleMode(
+                  lifecycle,
+                  event.target.value as WorkspaceLifecycle["mode"],
+                ),
+              )
+            }
+          >
+            <option value="default">Default lifecycle</option>
+            <option value="custom">Custom lifecycle</option>
+          </Select>
+        </Field>
+
+        {lifecycle.mode === "default" ? (
+          <div className="rounded-xl border border-border bg-card p-3 text-[13px]">
+            <div className="font-medium">Built-in simplified workflow</div>
+            <div className="mt-1 text-muted-foreground">
+              Uses the fixed statuses with permissive transitions and no
+              required metadata rules.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {orderedStatuses.map((status) => (
+                <Badge key={status.key} variant={getLifecycleBadgeVariant(status.role)}>
+                  {status.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium">Statuses</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Define the status names, semantic roles, order, and
+                    metadata requirements for this workspace.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    onLifecycleChange(addWorkspaceLifecycleStatus(lifecycle))
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Status
+                </Button>
+              </div>
+
+              <div className="mt-3 grid gap-3">
+                {orderedStatuses.map((status, index) => (
+                  <div
+                    key={status.key}
+                    className="rounded-xl border border-border bg-background p-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-[220px] flex-1">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Status Name
+                        </div>
+                        <Input
+                          value={status.name}
+                          onChange={(event) =>
+                            onLifecycleChange(
+                              updateWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                (current) => ({
+                                  ...current,
+                                  name: event.target.value,
+                                }),
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div className="w-[180px]">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Semantic Role
+                        </div>
+                        <Select
+                          value={status.role}
+                          onChange={(event) =>
+                            onLifecycleChange(
+                              updateWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                (current) => ({
+                                  ...current,
+                                  role: event.target
+                                    .value as WorkspaceStatusDefinition["role"],
+                                }),
+                              ),
+                            )
+                          }
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="review">Review</option>
+                          <option value="released">Released</option>
+                          <option value="archived">Archived</option>
+                          <option value="obsolete">Obsolete</option>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={index === 0}
+                          onClick={() =>
+                            onLifecycleChange(
+                              moveWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                -1,
+                              ),
+                            )
+                          }
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={index === orderedStatuses.length - 1}
+                          onClick={() =>
+                            onLifecycleChange(
+                              moveWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                1,
+                              ),
+                            )
+                          }
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={orderedStatuses.length <= 1}
+                          onClick={() =>
+                            onLifecycleChange(
+                              removeWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                              ),
+                            )
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                      <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[13px]">
+                        <input
+                          checked={status.requiresReleasedDate}
+                          className="mt-1"
+                          type="checkbox"
+                          onChange={(event) =>
+                            onLifecycleChange(
+                              updateWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                (current) => ({
+                                  ...current,
+                                  requiresReleasedDate: event.target.checked,
+                                }),
+                              ),
+                            )
+                          }
+                        />
+                        <span>Require Released Date</span>
+                      </label>
+                      <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[13px]">
+                        <input
+                          checked={status.requiresReviewedBy}
+                          className="mt-1"
+                          type="checkbox"
+                          onChange={(event) =>
+                            onLifecycleChange(
+                              updateWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                (current) => ({
+                                  ...current,
+                                  requiresReviewedBy: event.target.checked,
+                                }),
+                              ),
+                            )
+                          }
+                        />
+                        <span>Require Reviewed By</span>
+                      </label>
+                      <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[13px]">
+                        <input
+                          checked={status.requiresApprovedBy}
+                          className="mt-1"
+                          type="checkbox"
+                          onChange={(event) =>
+                            onLifecycleChange(
+                              updateWorkspaceLifecycleStatus(
+                                lifecycle,
+                                status.key,
+                                (current) => ({
+                                  ...current,
+                                  requiresApprovedBy: event.target.checked,
+                                }),
+                              ),
+                            )
+                          }
+                        />
+                        <span>Require Approved By</span>
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {orderedStatuses.length > 0 ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Initial Version Status">
+                  <Select
+                    value={lifecycle.initialStatusKey}
+                    onChange={(event) =>
+                      onLifecycleChange({
+                        ...lifecycle,
+                        initialStatusKey: event.target.value,
+                      })
+                    }
+                  >
+                    {orderedStatuses.map((status) => (
+                      <option key={status.key} value={status.key}>
+                        {status.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field label="Previous Version Auto-Status">
+                  <Select
+                    value={lifecycle.autoPreviousVersionStatusKey ?? ""}
+                    onChange={(event) =>
+                      onLifecycleChange({
+                        ...lifecycle,
+                        autoPreviousVersionStatusKey:
+                          event.target.value || null,
+                      })
+                    }
+                  >
+                    <option value="">No automatic status</option>
+                    {orderedStatuses.map((status) => (
+                      <option key={status.key} value={status.key}>
+                        {status.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            ) : null}
+
+            {orderedStatuses.length > 1 ? (
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-medium">Allowed Transitions</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Choose which status changes are allowed when users update the
+                  latest version.
+                </div>
+
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full border-separate border-spacing-2 text-[13px]">
+                    <thead>
+                      <tr>
+                        <th className="px-2 py-1 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          From / To
+                        </th>
+                        {orderedStatuses.map((status) => (
+                          <th
+                            key={status.key}
+                            className="min-w-[112px] px-2 py-1 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                          >
+                            {status.name}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderedStatuses.map((fromStatus) => (
+                        <tr key={fromStatus.key}>
+                          <td className="rounded-lg border border-border bg-background px-3 py-2 font-medium">
+                            {fromStatus.name}
+                          </td>
+                          {orderedStatuses.map((toStatus) => {
+                            const checked = lifecycle.allowedTransitions.some(
+                              (transition) =>
+                                transition.fromStatusKey === fromStatus.key &&
+                                transition.toStatusKey === toStatus.key,
+                            );
+
+                            return (
+                              <td
+                                key={`${fromStatus.key}:${toStatus.key}`}
+                                className="rounded-lg border border-border bg-background px-3 py-2"
+                              >
+                                {fromStatus.key === toStatus.key ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : (
+                                  <label className="flex items-center gap-2">
+                                    <input
+                                      checked={checked}
+                                      type="checkbox"
+                                      onChange={(event) =>
+                                        onLifecycleChange(
+                                          toggleWorkspaceLifecycleTransition(
+                                            lifecycle,
+                                            fromStatus.key,
+                                            toStatus.key,
+                                            event.target.checked,
+                                          ),
+                                        )
+                                      }
+                                    />
+                                    <span>
+                                      {checked ? "Allowed" : "Blocked"}
+                                    </span>
+                                  </label>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            {removedStatuses.length > 0 &&
+            statusRemaps &&
+            onStatusRemapsChange &&
+            orderedStatuses.length > 0 ? (
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-medium">Removed Status Mapping</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Choose replacements for removed statuses. DocTrack will use
+                  these mappings if existing versions or saved views still
+                  reference them.
+                </div>
+
+                <div className="mt-3 grid gap-3">
+                  {removedStatuses.map((status) => (
+                    <Field key={status.key} label={status.name}>
+                      <Select
+                        value={statusRemaps[status.key] ?? ""}
+                        onChange={(event) =>
+                          onStatusRemapsChange({
+                            ...statusRemaps,
+                            [status.key]: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="">No replacement selected</option>
+                        {orderedStatuses.map((nextStatus) => (
+                          <option key={nextStatus.key} value={nextStatus.key}>
+                            {nextStatus.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </Field>
+  );
+}
+
 function WorkspaceStorageSettingsFields({
   workspaceName,
   settings,
+  lifecycle,
   validationErrors,
   showAdvancedSettings = false,
   isAdvancedSettingsOpen = false,
   showBrandingControls = true,
+  originalLifecycle,
+  statusRemaps,
   companyLogoSourceFilePath,
   clearCompanyLogo,
   onSettingsChange,
+  onLifecycleChange,
+  onStatusRemapsChange,
   onAdvancedSettingsOpenChange,
   onLogoSelect,
   onLogoRemove,
 }: {
   workspaceName: string;
   settings: WorkspaceSettings;
+  lifecycle: WorkspaceLifecycle;
   validationErrors: ValidationErrors;
   showAdvancedSettings?: boolean;
   isAdvancedSettingsOpen?: boolean;
   showBrandingControls?: boolean;
+  originalLifecycle?: WorkspaceLifecycle;
+  statusRemaps?: Record<string, string>;
   companyLogoSourceFilePath: string | null;
   clearCompanyLogo: boolean;
   onSettingsChange: (settings: WorkspaceSettings) => void;
+  onLifecycleChange: (lifecycle: WorkspaceLifecycle) => void;
+  onStatusRemapsChange?: (statusRemaps: Record<string, string>) => void;
   onAdvancedSettingsOpenChange?: (open: boolean) => void;
   onLogoSelect: (filePath: string) => void;
   onLogoRemove: () => void;
@@ -12992,6 +13776,15 @@ function WorkspaceStorageSettingsFields({
           ) : null}
         </div>
       ) : null}
+
+      <WorkspaceLifecycleSettingsFields
+        lifecycle={lifecycle}
+        validationErrors={validationErrors}
+        originalLifecycle={originalLifecycle}
+        statusRemaps={statusRemaps}
+        onLifecycleChange={onLifecycleChange}
+        onStatusRemapsChange={onStatusRemapsChange}
+      />
 
       {showBrandingControls ? (
         <Field label="Company Logo">
@@ -13637,6 +14430,7 @@ function LatestVersionDialog({
   onStateChange,
   onSubmit,
   documentDetail,
+  lifecycle,
   availableColumns,
 }: {
   open: boolean;
@@ -13645,6 +14439,7 @@ function LatestVersionDialog({
   onStateChange: React.Dispatch<React.SetStateAction<LatestVersionDialogState>>;
   onSubmit: () => Promise<void>;
   documentDetail: DocumentDetail | null;
+  lifecycle: WorkspaceLifecycle;
   availableColumns: DocumentTableColumn[];
 }) {
   const showReleasedDate = availableColumns.includes("releasedDate");
@@ -13665,6 +14460,14 @@ function LatestVersionDialog({
     state.mode === "latest"
       ? "Update the current latest version without creating a new version entry."
       : "Adjust the metadata stored for this specific version.";
+  const selectedStatus = getWorkspaceStatusByName(lifecycle, state.status);
+  const missingMetadata = selectedStatus
+    ? getMissingLifecycleMetadata(selectedStatus, {
+        releasedDate: state.releasedDate || null,
+        reviewedBy: state.reviewedBy,
+        approvedBy: state.approvedBy,
+      })
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -13698,14 +14501,32 @@ function LatestVersionDialog({
               }))
             }
           >
-            {["Draft", "In Review", "Released", "Archived", "Obsolete"].map(
-              (status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ),
-            )}
+            {getWorkspaceLifecycleStatuses(lifecycle).map((status) => (
+              <option key={status.key} value={status.name}>
+                {status.name}
+              </option>
+            ))}
           </Select>
+          {missingMetadata.length > 0 ? (
+            <div className="text-xs text-muted-foreground">
+              This status requires{" "}
+              {missingMetadata
+                .map((field) => {
+                  switch (field) {
+                    case "releasedDate":
+                      return "Released Date";
+                    case "reviewedBy":
+                      return "Reviewed By";
+                    case "approvedBy":
+                      return "Approved By";
+                    default:
+                      return field;
+                  }
+                })
+                .join(", ")}
+              .
+            </div>
+          ) : null}
         </Field>
 
         {detailFieldCount > 0 ? (
@@ -14300,6 +15121,7 @@ function VersionFilesDialog({
   onOpenChange,
   state,
   onStateChange,
+  lifecycle,
   version,
   affectedVersions,
   canEdit,
@@ -14324,6 +15146,7 @@ function VersionFilesDialog({
   onOpenChange: (open: boolean) => void;
   state: FilesDialogState;
   onStateChange: React.Dispatch<React.SetStateAction<FilesDialogState>>;
+  lifecycle: WorkspaceLifecycle;
   version: DocumentVersion | null;
   affectedVersions: DocumentVersion[];
   canEdit: boolean;
@@ -14431,7 +15254,7 @@ function VersionFilesDialog({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DocumentProgressBadge status={version.status} />
+                  <DocumentProgressBadge status={version.status} lifecycle={lifecycle} />
                   <Button
                     variant="outline"
                     size="sm"
@@ -15923,18 +16746,30 @@ function Field({
 
 function DocumentStatusSelect({
   document,
-  statuses,
+  lifecycle,
   onRequestStatusChange,
 }: {
   document: DocumentListItem;
-  statuses: DocumentStatus[];
+  lifecycle: WorkspaceLifecycle;
   onRequestStatusChange: (
     document: DocumentListItem,
     nextStatus: DocumentStatus,
   ) => void;
 }) {
   if (!document.status || !document.latestVersionLabel) {
-    return <DocumentProgressBadge status={document.status} />;
+    return <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />;
+  }
+
+  const statuses = [
+    document.status,
+    ...getAllowedLifecycleTransitionTargets(lifecycle, document.status).map(
+      (status) => status.name,
+    ),
+  ].filter((status, index, values) => values.indexOf(status) === index);
+  const currentVariant = getStatusVariant(document.status, lifecycle);
+
+  if (statuses.length === 0) {
+    return <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />;
   }
 
   return (
@@ -15948,13 +16783,13 @@ function DocumentStatusSelect({
         data-status-select={String(document.id)}
         className={cn(
           "h-8 rounded-full border-transparent pr-8 text-[12px] font-medium shadow-none",
-          STATUS_VARIANTS[document.status] === "success" &&
+          currentVariant === "success" &&
             "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-200",
-          STATUS_VARIANTS[document.status] === "warning" &&
+          currentVariant === "warning" &&
             "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200",
-          STATUS_VARIANTS[document.status] === "default" &&
+          currentVariant === "default" &&
             "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200",
-          STATUS_VARIANTS[document.status] === "muted" &&
+          currentVariant === "muted" &&
             "bg-muted text-foreground hover:bg-accent",
         )}
         value={document.status}
@@ -15977,10 +16812,12 @@ function StatusChangeDialog({
   state,
   onOpenChange,
   onSubmit,
+  lifecycle,
 }: {
   state: StatusChangeDialogState;
   onOpenChange: (open: boolean) => void;
   onSubmit: () => Promise<void>;
+  lifecycle: WorkspaceLifecycle;
 }) {
   const document = state.document;
 
@@ -16005,9 +16842,9 @@ function StatusChangeDialog({
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
               <span>Current</span>
-              <StatusBadge status={document.status!} />
+              <StatusBadge status={document.status!} lifecycle={lifecycle} />
               <span>Next</span>
-              <StatusBadge status={state.nextStatus} />
+              <StatusBadge status={state.nextStatus} lifecycle={lifecycle} />
             </div>
           </div>
         ) : null}
@@ -16106,16 +16943,28 @@ function ExpandableInfoCard({
   );
 }
 
-function DocumentProgressBadge({ status }: { status: DocumentStatus | null }) {
+function DocumentProgressBadge({
+  status,
+  lifecycle = DEFAULT_WORKSPACE_LIFECYCLE_STATE,
+}: {
+  status: DocumentStatus | null;
+  lifecycle?: WorkspaceLifecycle;
+}) {
   if (!status) {
     return <Badge variant="outline">Not started</Badge>;
   }
 
-  return <StatusBadge status={status} />;
+  return <StatusBadge status={status} lifecycle={lifecycle} />;
 }
 
-function StatusBadge({ status }: { status: DocumentStatus }) {
-  return <Badge variant={STATUS_VARIANTS[status]}>{status}</Badge>;
+function StatusBadge({
+  status,
+  lifecycle = DEFAULT_WORKSPACE_LIFECYCLE_STATE,
+}: {
+  status: DocumentStatus;
+  lifecycle?: WorkspaceLifecycle;
+}) {
+  return <Badge variant={getStatusVariant(status, lifecycle)}>{status}</Badge>;
 }
 
 function getNextVersionLabelPreview(

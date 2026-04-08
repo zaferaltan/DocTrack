@@ -43,13 +43,6 @@ export const DASHBOARD_WIDGET_TYPES = [
   'recentActivity',
   'savedView'
 ] as const;
-export const SAVED_VIEW_STATUS_VALUES = [
-  'Draft',
-  'In Review',
-  'Released',
-  'Archived',
-  'Obsolete'
-] as const;
 export const SAVED_VIEW_HEALTH_FLAG_VALUES = [
   'overdueReview',
   'missingFiles',
@@ -62,9 +55,9 @@ export type SavedViewScope = (typeof SAVED_VIEW_SCOPES)[number];
 export type SavedViewRuleField = (typeof SAVED_VIEW_RULE_FIELDS)[number];
 export type SavedViewRuleOperator = (typeof SAVED_VIEW_RULE_OPERATORS)[number];
 export type DashboardWidgetType = (typeof DASHBOARD_WIDGET_TYPES)[number];
-export type SavedViewStatusValue = (typeof SAVED_VIEW_STATUS_VALUES)[number];
+export type SavedViewStatusValue = string;
 export type SavedViewHealthFlagValue = (typeof SAVED_VIEW_HEALTH_FLAG_VALUES)[number];
-export type SavedViewStatusFilter = SavedViewStatusValue | 'All' | 'Not started';
+export type SavedViewStatusFilter = string;
 export type SavedViewHealthFilter = SavedViewHealthFlagValue | 'All';
 
 export interface SavedViewSort {
@@ -153,6 +146,11 @@ export interface SavedViewDocumentCandidate {
   nextReviewDate: string | null;
   healthFlags: SavedViewHealthFlagValue[];
   reviewedBy: string;
+}
+
+export interface SavedViewStatusNameRemap {
+  from: string;
+  to: string;
 }
 
 const DEFAULT_SAVED_VIEW_QUERY: SavedViewQuery = {
@@ -473,14 +471,57 @@ export const buildDocumentViewStateFromSavedView = (
   sorting: savedView.presentation.sorting
 });
 
-const normalizeSavedViewStatusFilter = (value: unknown): SavedViewStatusFilter => {
-  if (value === 'All' || value === 'Not started') {
-    return value;
+export const remapSavedViewQueryStatuses = (
+  query: SavedViewQuery,
+  remaps: SavedViewStatusNameRemap[]
+): SavedViewQuery => {
+  if (remaps.length === 0) {
+    return query;
   }
 
-  return typeof value === 'string' && SAVED_VIEW_STATUS_VALUES.includes(value as SavedViewStatusValue)
-    ? (value as SavedViewStatusFilter)
-    : DEFAULT_SAVED_VIEW_QUERY.statusFilter;
+  const remapByFrom = new Map(remaps.map((remap) => [remap.from, remap.to]));
+  const remapStatusValue = (value: string | undefined): string | undefined => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    if (value === 'All' || value === 'Not started') {
+      return value;
+    }
+
+    return remapByFrom.get(value) ?? value;
+  };
+
+  return {
+    ...query,
+    statusFilter: remapStatusValue(query.statusFilter) ?? query.statusFilter,
+    rules: query.rules.map((rule) =>
+      rule.field === 'status'
+        ? {
+            ...rule,
+            value: remapStatusValue(rule.value),
+            secondaryValue: remapStatusValue(rule.secondaryValue)
+          }
+        : rule
+    )
+  };
+};
+
+export const remapSavedViewStatuses = (
+  savedView: SavedView,
+  remaps: SavedViewStatusNameRemap[]
+): SavedView => ({
+  ...savedView,
+  query: remapSavedViewQueryStatuses(savedView.query, remaps)
+});
+
+const normalizeSavedViewStatusFilter = (value: unknown): SavedViewStatusFilter => {
+  if (typeof value !== 'string') {
+    return DEFAULT_SAVED_VIEW_QUERY.statusFilter;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : DEFAULT_SAVED_VIEW_QUERY.statusFilter;
 };
 
 const normalizeSavedViewHealthFilter = (value: unknown): SavedViewHealthFilter => {

@@ -14,6 +14,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import type { WorkspaceLifecycle } from '@shared/documentLifecycle';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 
 vi.mock('electron', () => ({
@@ -37,6 +38,55 @@ describe('document workflow integration', () => {
   let workspaceCatalogService: WorkspaceCatalogService;
   let fileStorageService: FileStorageService;
   let workspaceRootPath: string;
+
+  const buildControlledLifecycle = (): WorkspaceLifecycle => ({
+    mode: 'custom',
+    statuses: [
+      {
+        key: 'drafting',
+        name: 'Drafting',
+        role: 'draft',
+        sortOrder: 0,
+        requiresReleasedDate: false,
+        requiresReviewedBy: false,
+        requiresApprovedBy: false
+      },
+      {
+        key: 'review',
+        name: 'Review',
+        role: 'review',
+        sortOrder: 1,
+        requiresReleasedDate: false,
+        requiresReviewedBy: true,
+        requiresApprovedBy: false
+      },
+      {
+        key: 'live',
+        name: 'Live',
+        role: 'released',
+        sortOrder: 2,
+        requiresReleasedDate: true,
+        requiresReviewedBy: true,
+        requiresApprovedBy: true
+      },
+      {
+        key: 'retired',
+        name: 'Retired',
+        role: 'obsolete',
+        sortOrder: 3,
+        requiresReleasedDate: false,
+        requiresReviewedBy: false,
+        requiresApprovedBy: false
+      }
+    ],
+    initialStatusKey: 'drafting',
+    autoPreviousVersionStatusKey: 'retired',
+    allowedTransitions: [
+      { fromStatusKey: 'drafting', toStatusKey: 'review' },
+      { fromStatusKey: 'review', toStatusKey: 'live' },
+      { fromStatusKey: 'live', toStatusKey: 'retired' }
+    ]
+  });
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'doctrack-docs-'));
@@ -910,6 +960,120 @@ describe('document workflow integration', () => {
     expect(listedDocument?.effectiveDate).toBe('2026-03-28');
   });
 
+  it('uses custom lifecycle initial and previous-version statuses', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      lifecycle: buildControlledLifecycle()
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Controlled Lifecycle Procedure',
+      documentTypeId: 2,
+      author: 'Morgan Ellis',
+      versionScheme: 'numeric-3'
+    });
+
+    const firstVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial controlled draft'
+    });
+    expect(firstVersion.versions[0]?.status).toBe('Drafting');
+
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Review',
+      releasedDate: '',
+      reviewedBy: 'Parker Lin',
+      approvedBy: '',
+      revisionDescription: 'Sent for review'
+    });
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Live',
+      releasedDate: '2026-03-28',
+      reviewedBy: 'Parker Lin',
+      approvedBy: 'Avery Chen',
+      revisionDescription: 'Published release'
+    });
+
+    const secondVersion = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Next controlled draft'
+    });
+
+    expect(secondVersion.versions[0]?.status).toBe('Drafting');
+    expect(secondVersion.versions[1]?.status).toBe('Retired');
+  });
+
+  it('enforces custom lifecycle transitions and required metadata', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      lifecycle: buildControlledLifecycle()
+    });
+
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Controlled Release Procedure',
+      documentTypeId: 2,
+      author: 'Morgan Ellis',
+      versionScheme: 'numeric-3'
+    });
+
+    documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial controlled draft'
+    });
+
+    expect(() =>
+      documentService.updateLatestVersion(workspaceRootPath, {
+        documentRecordId: created.id,
+        status: 'Live',
+        releasedDate: '2026-03-28',
+        reviewedBy: 'Parker Lin',
+        approvedBy: 'Avery Chen',
+        revisionDescription: 'Skipped review'
+      })
+    ).toThrow('does not allow moving a version from "Drafting" to "Live"');
+
+    expect(() =>
+      documentService.updateLatestVersion(workspaceRootPath, {
+        documentRecordId: created.id,
+        status: 'Review',
+        releasedDate: '',
+        reviewedBy: '',
+        approvedBy: '',
+        revisionDescription: 'Missing reviewer'
+      })
+    ).toThrow('The status "Review" requires Reviewed By.');
+
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Review',
+      releasedDate: '',
+      reviewedBy: 'Parker Lin',
+      approvedBy: '',
+      revisionDescription: 'Ready for approval'
+    });
+
+    expect(() =>
+      documentService.updateLatestVersion(workspaceRootPath, {
+        documentRecordId: created.id,
+        status: 'Live',
+        releasedDate: '',
+        reviewedBy: 'Parker Lin',
+        approvedBy: '',
+        revisionDescription: 'Missing release metadata'
+      })
+    ).toThrow('The status "Live" requires Released Date, Approved By.');
+  });
+
   it('keeps the previous version status when auto-obsolete is disabled', () => {
     workspaceService.updateSettings(workspaceRootPath, {
       ...DEFAULT_WORKSPACE_SETTINGS,
@@ -945,6 +1109,44 @@ describe('document workflow integration', () => {
 
     expect(afterSecondVersion.versions[0]?.status).toBe('Draft');
     expect(afterSecondVersion.versions[1]?.status).toBe('Released');
+  });
+
+  it('suppresses overdue review flags for terminal lifecycle statuses', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Retired Procedure',
+      documentTypeId: 2,
+      author: 'Morgan Ellis',
+      versionScheme: 'numeric-3',
+      revisionIntervalMonths: 12
+    });
+
+    documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Original release'
+    });
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Released',
+      releasedDate: '2020-03-29',
+      reviewedBy: 'Morgan Ellis',
+      approvedBy: 'Jordan Singh',
+      revisionDescription: 'Released for use'
+    });
+
+    const releasedDocument = documentService.list(workspaceRootPath).find((item) => item.id === created.id);
+    expect(releasedDocument?.isOverdue).toBe(true);
+
+    documentService.updateLatestVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      status: 'Archived',
+      releasedDate: '2020-03-29',
+      reviewedBy: 'Morgan Ellis',
+      approvedBy: 'Jordan Singh',
+      revisionDescription: 'Retired from use'
+    });
+
+    const archivedDocument = documentService.list(workspaceRootPath).find((item) => item.id === created.id);
+    expect(archivedDocument?.isOverdue).toBe(false);
   });
 
   it('derives health metadata, previews text files, and compares adjacent versions', () => {

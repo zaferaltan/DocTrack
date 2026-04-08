@@ -7,6 +7,7 @@ import {
   type ApplicationSettings
 } from '@shared/applicationSettings';
 import type { AppUpdateState } from '@shared/appUpdates';
+import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import type { DocTrackApi } from '@shared/ipc';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_DOCUMENT_VIEW_STATE } from '@shared/savedViews';
 import type { DocumentDetail, OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
@@ -40,6 +41,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
   summary: {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
+    lifecycle: createDefaultWorkspaceLifecycle(),
     documents: [
       {
         id: 101,
@@ -105,6 +107,55 @@ const openWorkspaceResult: OpenWorkspaceResult = {
 
 const cloneWorkspaceResult = (): OpenWorkspaceResult =>
   JSON.parse(JSON.stringify(openWorkspaceResult)) as OpenWorkspaceResult;
+
+const buildCustomWorkspaceLifecycle = (): WorkspaceLifecycle => ({
+  mode: 'custom',
+  statuses: [
+    {
+      key: 'draft',
+      name: 'Draft',
+      role: 'draft',
+      sortOrder: 0,
+      requiresReleasedDate: false,
+      requiresReviewedBy: false,
+      requiresApprovedBy: false
+    },
+    {
+      key: 'in-review',
+      name: 'In Review',
+      role: 'review',
+      sortOrder: 1,
+      requiresReleasedDate: false,
+      requiresReviewedBy: true,
+      requiresApprovedBy: false
+    },
+    {
+      key: 'released',
+      name: 'Released',
+      role: 'released',
+      sortOrder: 2,
+      requiresReleasedDate: true,
+      requiresReviewedBy: true,
+      requiresApprovedBy: true
+    },
+    {
+      key: 'archived',
+      name: 'Archived',
+      role: 'archived',
+      sortOrder: 3,
+      requiresReleasedDate: false,
+      requiresReviewedBy: false,
+      requiresApprovedBy: false
+    }
+  ],
+  initialStatusKey: 'draft',
+  autoPreviousVersionStatusKey: 'archived',
+  allowedTransitions: [
+    { fromStatusKey: 'draft', toStatusKey: 'in-review' },
+    { fromStatusKey: 'in-review', toStatusKey: 'released' },
+    { fromStatusKey: 'released', toStatusKey: 'archived' }
+  ]
+});
 
 const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentDetail => ({
   id: 101,
@@ -1314,6 +1365,65 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('shows the lifecycle preset toggle in both workspace dialogs and reveals the custom designer', async () => {
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('New Workspace'));
+    const createDialog = getDialog();
+    expect(normalizeText(createDialog.textContent)).toContain('Document Lifecycle');
+    expect(normalizeText(createDialog.textContent)).toContain('Built-in simplified workflow');
+    expect(normalizeText(createDialog.textContent)).not.toContain('Add Status');
+
+    await changeSelect(
+      getLabeledControl(createDialog, 'Lifecycle Mode', 'select') as HTMLSelectElement,
+      'custom'
+    );
+
+    expect(normalizeText(createDialog.textContent)).toContain('Add Status');
+    expect(normalizeText(createDialog.textContent)).toContain('Allowed Transitions');
+
+    await click(getButton('Cancel', createDialog));
+    await click(getButton('Workspace Settings'));
+
+    const settingsDialog = getDialog();
+    expect(normalizeText(settingsDialog.textContent)).toContain('Document Lifecycle');
+    expect(
+      getLabeledControl(settingsDialog, 'Lifecycle Mode', 'select') instanceof HTMLSelectElement
+    ).toBe(true);
+
+    await view.unmount();
+  });
+
+  it('sends custom lifecycle settings through the workspace settings save flow', async () => {
+    const docTrack = buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    const dialog = getDialog();
+
+    await changeSelect(
+      getLabeledControl(dialog, 'Lifecycle Mode', 'select') as HTMLSelectElement,
+      'custom'
+    );
+    await click(getButton('Add Status', dialog));
+    await click(getButton('Save Settings', dialog));
+
+    expect(docTrack.workspace.updateSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        lifecycle: expect.objectContaining({
+          mode: 'custom',
+          statuses: expect.arrayContaining([
+            expect.objectContaining({ name: 'Status 6' })
+          ])
+        })
+      })
+    );
+
+    await view.unmount();
+  });
+
   it('confirms inline status changes from the documents table before applying them', async () => {
     const docTrack = buildDocTrackMock();
     docTrack.documents.updateLatestVersion = vi.fn().mockResolvedValue(
@@ -1335,6 +1445,10 @@ describe('App', () => {
       throw new Error('Unable to find the inline status select.');
     }
 
+    expect([...statusSelect.options].map((option) => option.value)).toEqual(
+      expect.arrayContaining(['Draft', 'Released'])
+    );
+
     await changeSelect(statusSelect, 'Released');
     expect(docTrack.documents.updateLatestVersion).not.toHaveBeenCalled();
     expect(getDialog().textContent).toContain('Confirm Status Change');
@@ -1348,6 +1462,88 @@ describe('App', () => {
         status: 'Released'
       })
     );
+
+    await view.unmount();
+  });
+
+  it('opens the latest-version dialog when a target status requires missing metadata', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.lifecycle = {
+      mode: 'custom',
+      statuses: [
+        {
+          key: 'draft',
+          name: 'Draft',
+          role: 'draft',
+          sortOrder: 0,
+          requiresReleasedDate: false,
+          requiresReviewedBy: false,
+          requiresApprovedBy: false
+        },
+        {
+          key: 'released',
+          name: 'Released',
+          role: 'released',
+          sortOrder: 1,
+          requiresReleasedDate: true,
+          requiresReviewedBy: false,
+          requiresApprovedBy: false
+        }
+      ],
+      initialStatusKey: 'draft',
+      autoPreviousVersionStatusKey: 'released',
+      allowedTransitions: [{ fromStatusKey: 'draft', toStatusKey: 'released' }]
+    };
+    workspaceResult.summary.statuses = ['Draft', 'Released'];
+
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.documents.detail = vi.fn().mockResolvedValue(buildDocumentDetail());
+
+    const view = await renderApp();
+    const statusSelect = document.querySelector('[data-status-select="101"]');
+    if (!(statusSelect instanceof HTMLSelectElement)) {
+      throw new Error('Unable to find the inline status select.');
+    }
+
+    await changeSelect(statusSelect, 'Released');
+
+    const dialog = getDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Edit Latest Version');
+    expect(normalizeText(dialog.textContent)).toContain('This status requires Released Date.');
+    expect(docTrack.documents.updateLatestVersion).not.toHaveBeenCalled();
+    expect(
+      (getLabeledControl(dialog, 'Status', 'select') as HTMLSelectElement).value
+    ).toBe('Released');
+
+    await view.unmount();
+  });
+
+  it('limits inline status options to the allowed lifecycle transitions', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.lifecycle = buildCustomWorkspaceLifecycle();
+    workspaceResult.summary.statuses = ['Draft', 'In Review', 'Released', 'Archived'];
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    const statusSelect = document.querySelector('[data-status-select="101"]');
+    if (!(statusSelect instanceof HTMLSelectElement)) {
+      throw new Error('Unable to find the inline status select.');
+    }
+
+    expect([...statusSelect.options].map((option) => option.value)).toEqual(['In Review']);
 
     await view.unmount();
   });
