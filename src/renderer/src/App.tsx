@@ -16760,10 +16760,12 @@ function DocumentStatusSelect({
     return <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />;
   }
 
-  const statuses = getAllowedLifecycleTransitionTargets(
-    lifecycle,
+  const statuses = [
     document.status,
-  ).map((status) => status.name);
+    ...getAllowedLifecycleTransitionTargets(lifecycle, document.status).map(
+      (status) => status.name,
+    ),
+  ].filter((status, index, values) => values.indexOf(status) === index);
   const currentVariant = getStatusVariant(document.status, lifecycle);
 
   if (statuses.length === 0) {

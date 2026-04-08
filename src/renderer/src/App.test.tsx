@@ -1445,6 +1445,10 @@ describe('App', () => {
       throw new Error('Unable to find the inline status select.');
     }
 
+    expect([...statusSelect.options].map((option) => option.value)).toEqual(
+      expect.arrayContaining(['Draft', 'Released'])
+    );
+
     await changeSelect(statusSelect, 'Released');
     expect(docTrack.documents.updateLatestVersion).not.toHaveBeenCalled();
     expect(getDialog().textContent).toContain('Confirm Status Change');
