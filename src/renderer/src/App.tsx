@@ -5275,9 +5275,7 @@ function App() {
       />
     );
   } else if (activeWorkspace.authKind === "unauthenticated") {
-    const availableUsers = activeWorkspace.users ?? [];
-    const suggestedUsername =
-      signInState.username || availableUsers[0]?.username || "";
+    const enteredUsername = signInState.username.trim();
     activeWorkspaceContent = (
       <div className="mx-auto flex max-w-xl flex-col gap-6 rounded-3xl border border-border bg-card p-8 shadow-sm">
         <div>
@@ -5294,8 +5292,9 @@ function App() {
 
         <div className="grid gap-4">
           <Field label="User">
-            <Select
-              value={suggestedUsername}
+            <Input
+              value={signInState.username}
+              placeholder="Username"
               onChange={(event) =>
                 setSignInState((current) => ({
                   ...current,
@@ -5303,14 +5302,22 @@ function App() {
                   error: "",
                 }))
               }
-            >
-              <option value="">Select a user</option>
-              {availableUsers.map((user) => (
-                <option key={user.id} value={user.username}>
-                  {user.displayName} ({user.role})
-                </option>
-              ))}
-            </Select>
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && enteredUsername && signInState.password) {
+                  event.preventDefault();
+                  void signInWorkspace(
+                    activeWorkspace.workspace.rootPath,
+                    enteredUsername,
+                    signInState.password,
+                  ).catch((error: Error) => {
+                    setSignInState((current) => ({
+                      ...current,
+                      error: getErrorMessage(error, "Unable to sign in."),
+                    }));
+                  });
+                }
+              }}
+            />
           </Field>
 
           <Field label="Password or PIN" error={signInState.error || undefined}>
@@ -5325,11 +5332,11 @@ function App() {
                 }))
               }
               onKeyDown={(event) => {
-                if (event.key === "Enter" && suggestedUsername && signInState.password) {
+                if (event.key === "Enter" && enteredUsername && signInState.password) {
                   event.preventDefault();
                   void signInWorkspace(
                     activeWorkspace.workspace.rootPath,
-                    suggestedUsername,
+                    enteredUsername,
                     signInState.password,
                   ).catch((error: Error) => {
                     setSignInState((current) => ({
@@ -5345,17 +5352,17 @@ function App() {
 
         <div className="flex gap-3">
           <Button
-            disabled={!suggestedUsername || !signInState.password || signInState.isSubmitting}
+            disabled={!enteredUsername || !signInState.password || signInState.isSubmitting}
             onClick={() => {
               setSignInState((current) => ({ ...current, isSubmitting: true, error: "" }));
               void signInWorkspace(
                 activeWorkspace.workspace.rootPath,
-                suggestedUsername,
+                enteredUsername,
                 signInState.password,
               )
                 .then(() =>
                   setSignInState({
-                    username: suggestedUsername,
+                    username: enteredUsername,
                     password: "",
                     isSubmitting: false,
                     error: "",
