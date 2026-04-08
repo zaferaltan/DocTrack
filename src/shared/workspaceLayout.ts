@@ -57,6 +57,7 @@ export const DOCUMENT_ID_FORMAT_PRESET_TEMPLATES: Record<
 };
 
 export interface WorkspaceSettings {
+  userSystemEnabled: boolean;
   storageLayoutPreset: WorkspaceStorageLayoutPreset;
   fileOrganizationMode: WorkspaceFileOrganizationMode;
   versionManagementMode: WorkspaceVersionManagementMode;
@@ -76,6 +77,7 @@ export interface WorkspaceSettings {
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
+  userSystemEnabled: true,
   storageLayoutPreset: 'stable-id',
   fileOrganizationMode: 'flat',
   versionManagementMode: 'shared-document-id',

@@ -13,6 +13,20 @@ const api: DocTrackApi = {
     getDashboard: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetDashboard, rootPath),
     getDashboardLayout: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetDashboardLayout, rootPath),
     listActivity: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListActivity, rootPath),
+    signIn: (rootPath, credentials) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceSignIn, rootPath, credentials),
+    signOut: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceSignOut, rootPath),
+    getSession: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceGetSession, rootPath),
+    listUsers: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListUsers, rootPath),
+    createUser: (rootPath, input) => ipcRenderer.invoke(IPC_CHANNELS.workspaceCreateUser, rootPath, input),
+    updateUser: (rootPath, userId, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateUser, rootPath, userId, input),
+    activateUser: (rootPath, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceActivateUser, rootPath, userId),
+    deactivateUser: (rootPath, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceDeactivateUser, rootPath, userId),
+    resetUserPassword: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceResetUserPassword, rootPath, input),
     updateSettings: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input),
     updateDashboardLayout: (rootPath, input) =>

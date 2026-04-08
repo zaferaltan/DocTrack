@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { ActorContextService } from '@main/services/actorContextService';
 import type { RecentActivityItem } from '@shared/types';
 import { nowIso } from '@main/utils/date';
 import {
@@ -11,9 +12,12 @@ export interface ActivityLogInput {
   message: string;
   documentRecordId?: number | null;
   documentVersionId?: number | null;
+  actorUserId?: number | null;
 }
 
 export class ActivityLogService {
+  constructor(private readonly actorContextService?: Pick<ActorContextService, 'getActorUserId'>) {}
+
   log(db: Database.Database, input: ActivityLogInput): void {
     const settings = this.readSettings(db);
     if (!settings.enabled) {
@@ -27,14 +31,16 @@ export class ActivityLogService {
           Message,
           DocumentRecordId,
           DocumentVersionId,
+          ActorUserId,
           CreatedDate
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `
     ).run(
       input.eventType.trim(),
       input.message.trim(),
       input.documentRecordId ?? null,
       input.documentVersionId ?? null,
+      input.actorUserId ?? this.actorContextService?.getActorUserId() ?? null,
       nowIso()
     );
 
@@ -70,14 +76,17 @@ export class ActivityLogService {
     const statement = db.prepare(
       `
         SELECT
-          Id,
-          EventType,
-          Message,
-          CreatedDate,
-          DocumentRecordId,
-          DocumentVersionId
+          ActivityLog.Id,
+          ActivityLog.EventType,
+          ActivityLog.Message,
+          ActivityLog.CreatedDate,
+          ActivityLog.DocumentRecordId,
+          ActivityLog.DocumentVersionId,
+          ActivityLog.ActorUserId,
+          u.DisplayName AS ActorDisplayName
         FROM ActivityLog
-        ORDER BY CreatedDate DESC, Id DESC
+        LEFT JOIN WorkspaceUsers u ON u.Id = ActivityLog.ActorUserId
+        ORDER BY ActivityLog.CreatedDate DESC, ActivityLog.Id DESC
         ${hasLimit ? 'LIMIT @limit' : ''}
       `
     );
@@ -88,6 +97,8 @@ export class ActivityLogService {
       CreatedDate: string;
       DocumentRecordId: number | null;
       DocumentVersionId: number | null;
+      ActorUserId: number | null;
+      ActorDisplayName: string | null;
     }>;
 
     return rows.map((row) => ({
@@ -96,7 +107,9 @@ export class ActivityLogService {
       message: row.Message,
       createdDate: row.CreatedDate,
       documentRecordId: row.DocumentRecordId,
-      documentVersionId: row.DocumentVersionId
+      documentVersionId: row.DocumentVersionId,
+      actorUserId: row.ActorUserId,
+      actorDisplayName: row.ActorDisplayName
     }));
   }
 

@@ -69,6 +69,15 @@ export const IPC_CHANNELS = {
   workspaceGetDashboard: 'workspace:getDashboard',
   workspaceGetDashboardLayout: 'workspace:getDashboardLayout',
   workspaceListActivity: 'workspace:listActivity',
+  workspaceSignIn: 'workspace:signIn',
+  workspaceSignOut: 'workspace:signOut',
+  workspaceGetSession: 'workspace:getSession',
+  workspaceListUsers: 'workspace:listUsers',
+  workspaceCreateUser: 'workspace:createUser',
+  workspaceUpdateUser: 'workspace:updateUser',
+  workspaceActivateUser: 'workspace:activateUser',
+  workspaceDeactivateUser: 'workspace:deactivateUser',
+  workspaceResetUserPassword: 'workspace:resetUserPassword',
   workspaceUpdateSettings: 'workspace:updateSettings',
   workspaceUpdateDashboardLayout: 'workspace:updateDashboardLayout',
   workspaceListBackups: 'workspace:listBackups',
@@ -155,6 +164,28 @@ export interface DocTrackApi {
     getDashboard: (rootPath: string) => Promise<WorkspaceDashboardSummary>;
     getDashboardLayout: (rootPath: string) => Promise<DashboardLayout>;
     listActivity: (rootPath: string) => Promise<RecentActivityItem[]>;
+    signIn: (
+      rootPath: string,
+      credentials: import('@shared/types').WorkspaceUserCredentialsInput
+    ) => Promise<OpenWorkspaceResult>;
+    signOut: (rootPath: string) => Promise<void>;
+    getSession: (rootPath: string) => Promise<import('@shared/types').WorkspaceSession | null>;
+    listUsers: (rootPath: string) => Promise<import('@shared/types').WorkspaceUser[]>;
+    createUser: (
+      rootPath: string,
+      input: import('@shared/types').WorkspaceUserCreateInput
+    ) => Promise<import('@shared/types').WorkspaceUser>;
+    updateUser: (
+      rootPath: string,
+      userId: number,
+      input: import('@shared/types').WorkspaceUserUpdateInput
+    ) => Promise<import('@shared/types').WorkspaceUser>;
+    activateUser: (rootPath: string, userId: number) => Promise<import('@shared/types').WorkspaceUser>;
+    deactivateUser: (rootPath: string, userId: number) => Promise<import('@shared/types').WorkspaceUser>;
+    resetUserPassword: (
+      rootPath: string,
+      input: import('@shared/types').WorkspaceUserPasswordResetInput
+    ) => Promise<import('@shared/types').WorkspaceUser>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
     updateDashboardLayout: (
       rootPath: string,

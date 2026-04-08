@@ -13,6 +13,7 @@ import {
 } from '@main/services/fileStorageService';
 import { TemplateService } from '@main/services/templateService';
 import type { WorkspaceBackupService } from '@main/services/workspaceBackupService';
+import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { nowIso } from '@main/utils/date';
 import {
   getMissingLifecycleMetadata,
@@ -69,10 +70,12 @@ interface DocumentListRow {
   LatestVersionLabel: string | null;
   ReleasedDate: string | null;
   ApprovedBy: string;
+  ApprovedByUserId: number | null;
   RevisionDescription: string;
   ModifiedDate: string;
   CreatedDate: string;
   Author: string;
+  AuthorUserId: number | null;
   LanguageId: number | null;
   LanguageCode: string | null;
   ConfidentialityClassId: number | null;
@@ -86,6 +89,7 @@ interface DocumentListRow {
   LatestVersionId: number | null;
   ReviewBaselineReleasedDate: string | null;
   ReviewedBy: string;
+  ReviewedByUserId: number | null;
 }
 
 interface DocumentRow {
@@ -100,6 +104,7 @@ interface DocumentRow {
   CreatedDate: string;
   ModifiedDate: string;
   Author: string;
+  AuthorUserId: number | null;
   LanguageId: number | null;
   LanguageCode: string | null;
   ConfidentialityClassId: number | null;
@@ -121,7 +126,9 @@ interface VersionRow {
   Status: DocumentStatus;
   ReleasedDate: string | null;
   ReviewedBy: string;
+  ReviewedByUserId: number | null;
   ApprovedBy: string;
+  ApprovedByUserId: number | null;
   CreatedDate: string;
   Notes: string;
 }
@@ -169,14 +176,20 @@ const latestVersionJoin = `
 `;
 
 export class DocumentService {
+  private readonly workspaceUserService: WorkspaceUserService;
+
   constructor(
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly fileStorageService: FileStorageService,
     private readonly templateService: TemplateService,
     private readonly activityLogService: ActivityLogService,
+    workspaceUserService?: WorkspaceUserService,
     private readonly workspaceBackupService?: Pick<WorkspaceBackupService, 'createBackup'>
-  ) {}
+  ) {
+    this.workspaceUserService =
+      workspaceUserService ?? new WorkspaceUserService(workspaceManager);
+  }
 
   list(rootPath: string): DocumentListItem[] {
     const context = this.workspaceManager.getContext(rootPath);
@@ -194,10 +207,12 @@ export class DocumentService {
             dv.VersionLabel AS LatestVersionLabel,
             dv.ReleasedDate,
             dv.ApprovedBy,
+            dv.ApprovedByUserId,
             dv.Notes AS RevisionDescription,
             d.ModifiedDate,
             d.CreatedDate,
             d.Author,
+            d.AuthorUserId,
             d.LanguageId,
             l.Code AS LanguageCode,
             d.ConfidentialityClassId,
@@ -210,6 +225,7 @@ export class DocumentService {
             d.RevisionIntervalMonths,
             dv.Id AS LatestVersionId,
             dv.ReviewedBy,
+            dv.ReviewedByUserId,
             (
               SELECT released.ReleasedDate
               FROM DocumentVersions released
@@ -267,10 +283,12 @@ export class DocumentService {
         effectiveDate,
         releasedDate: row.ReleasedDate,
         approvedBy: row.ApprovedBy ?? '',
+        approvedByUserId: row.ApprovedByUserId,
         revisionDescription: row.RevisionDescription ?? '',
         modifiedDate: row.ModifiedDate,
         createdDate: row.CreatedDate,
         author: row.Author,
+        authorUserId: row.AuthorUserId,
         languageId: row.LanguageId,
         languageCode: row.LanguageCode,
         confidentialityClassId: row.ConfidentialityClassId,
@@ -292,7 +310,8 @@ export class DocumentService {
         }),
         latestVersionFileCount,
         lastActivityDate: row.ModifiedDate,
-        reviewedBy: row.ReviewedBy ?? ''
+        reviewedBy: row.ReviewedBy ?? '',
+        reviewedByUserId: row.ReviewedByUserId
       };
     });
   }
@@ -325,7 +344,13 @@ export class DocumentService {
 
         const createdDate = nowIso();
         const title = input.title.trim();
-        const author = input.author.trim();
+        const authorUser = this.resolveRequiredWorkspaceUser(
+          context.db,
+          input.authorUserId,
+          input.author,
+          'The selected author could not be found.'
+        );
+        const author = authorUser.displayName;
         const languageId = this.normalizeOptionalReference(
           context.db,
           'Languages',
@@ -382,6 +407,7 @@ export class DocumentService {
                 CreatedDate,
                 ModifiedDate,
                 Author,
+                AuthorUserId,
                 StartDate,
                 LanguageId,
                 ConfidentialityClassId,
@@ -389,7 +415,7 @@ export class DocumentService {
                 Company,
                 Department,
                 RevisionIntervalMonths
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
@@ -401,6 +427,7 @@ export class DocumentService {
             createdDate,
             createdDate,
             author,
+            authorUser.id,
             startDate,
             languageId,
             confidentialityClassId,
@@ -441,10 +468,12 @@ export class DocumentService {
                   Status,
                   ReleasedDate,
                   ReviewedBy,
+                  ReviewedByUserId,
                   ApprovedBy,
+                  ApprovedByUserId,
                   CreatedDate,
                   Notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `
             )
             .run(
@@ -455,7 +484,9 @@ export class DocumentService {
               initialLifecycleStatus.name,
               null,
               '',
+              null,
               '',
+              null,
               createdDate,
               `Created from template "${template.name}".`
             );
@@ -588,10 +619,12 @@ export class DocumentService {
               Status,
               ReleasedDate,
               ReviewedBy,
+              ReviewedByUserId,
               ApprovedBy,
+              ApprovedByUserId,
               CreatedDate,
               Notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -602,7 +635,9 @@ export class DocumentService {
           initialLifecycleStatus.name,
           null,
           '',
+          null,
           '',
+          null,
           createdDate,
           input.revisionDescription.trim()
         );
@@ -1443,6 +1478,12 @@ export class DocumentService {
 
     try {
       const changedDate = nowIso();
+      const authorUser = this.resolveRequiredWorkspaceUser(
+        context.db,
+        input.authorUserId,
+        input.author,
+        'The selected author could not be found.'
+      );
       const languageId = this.normalizeOptionalReference(
         context.db,
         'Languages',
@@ -1475,6 +1516,7 @@ export class DocumentService {
                 Title = ?,
                 ModifiedDate = ?,
                 Author = ?,
+                AuthorUserId = ?,
                 StartDate = ?,
                 LanguageId = ?,
                 ConfidentialityClassId = ?,
@@ -1489,7 +1531,8 @@ export class DocumentService {
           .run(
             nextTitle,
             changedDate,
-            input.author.trim(),
+            authorUser.displayName,
+            authorUser.id,
             startDate,
             languageId,
             confidentialityClassId,
@@ -1547,7 +1590,9 @@ export class DocumentService {
       documentVersionId: latestVersion.Id,
       status: input.status,
       releasedDate: input.releasedDate,
+      reviewedByUserId: input.reviewedByUserId,
       reviewedBy: input.reviewedBy,
+      approvedByUserId: input.approvedByUserId,
       approvedBy: input.approvedBy,
       revisionDescription: input.revisionDescription
     });
@@ -1561,8 +1606,20 @@ export class DocumentService {
     const currentStatus = this.assertStatus(context.rootPath, version.Status);
     const nextStatus = this.assertStatus(context.rootPath, input.status);
     const releasedDate = this.normalizeOptionalDateString(input.releasedDate);
-    const reviewedBy = input.reviewedBy.trim();
-    const approvedBy = input.approvedBy.trim();
+    const reviewedByUser = this.resolveOptionalWorkspaceUser(
+      context.db,
+      input.reviewedByUserId,
+      input.reviewedBy,
+      'The selected reviewer could not be found.'
+    );
+    const approvedByUser = this.resolveOptionalWorkspaceUser(
+      context.db,
+      input.approvedByUserId,
+      input.approvedBy,
+      'The selected approver could not be found.'
+    );
+    const reviewedBy = reviewedByUser?.displayName ?? '';
+    const approvedBy = approvedByUser?.displayName ?? '';
     const revisionDescription = input.revisionDescription.trim();
     const missingMetadata = getMissingLifecycleMetadata(nextStatus, {
       releasedDate,
@@ -1588,7 +1645,14 @@ export class DocumentService {
         .prepare(
           `
             UPDATE DocumentVersions
-            SET Status = ?, ReleasedDate = ?, ReviewedBy = ?, ApprovedBy = ?, Notes = ?
+            SET
+              Status = ?,
+              ReleasedDate = ?,
+              ReviewedBy = ?,
+              ReviewedByUserId = ?,
+              ApprovedBy = ?,
+              ApprovedByUserId = ?,
+              Notes = ?
             WHERE Id = ?
         `
         )
@@ -1596,7 +1660,9 @@ export class DocumentService {
           nextStatus.name,
           releasedDate,
           reviewedBy,
+          reviewedByUser?.id ?? null,
           approvedBy,
+          approvedByUser?.id ?? null,
           revisionDescription,
           version.Id
         );
@@ -1695,7 +1761,9 @@ export class DocumentService {
             Status,
             ReleasedDate,
             ReviewedBy,
+            ReviewedByUserId,
             ApprovedBy,
+            ApprovedByUserId,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -1992,7 +2060,9 @@ export class DocumentService {
       status: row.Status,
       releasedDate: row.ReleasedDate,
       reviewedBy: row.ReviewedBy,
+      reviewedByUserId: row.ReviewedByUserId,
       approvedBy: row.ApprovedBy,
+      approvedByUserId: row.ApprovedByUserId,
       createdDate: row.CreatedDate,
       revisionDescription: row.Notes,
       files: this.sortVersionFiles(filesByVersionId.get(row.Id) ?? [])
@@ -2009,6 +2079,7 @@ export class DocumentService {
       createdDate: document.CreatedDate,
       modifiedDate: document.ModifiedDate,
       author: document.Author,
+      authorUserId: document.AuthorUserId,
       languageId: document.LanguageId,
       languageCode: document.LanguageCode,
       confidentialityClassId: document.ConfidentialityClassId,
@@ -2041,7 +2112,9 @@ export class DocumentService {
       status: version.Status,
       releasedDate: version.ReleasedDate,
       reviewedBy: version.ReviewedBy,
+      reviewedByUserId: version.ReviewedByUserId,
       approvedBy: version.ApprovedBy,
+      approvedByUserId: version.ApprovedByUserId,
       createdDate: version.CreatedDate,
       revisionDescription: version.Notes,
       files: this.sortVersionFiles(files)
@@ -2098,6 +2171,7 @@ export class DocumentService {
             d.CreatedDate,
             d.ModifiedDate,
             d.Author,
+            d.AuthorUserId,
             d.LanguageId,
             l.Code AS LanguageCode,
             d.ConfidentialityClassId,
@@ -2138,7 +2212,9 @@ export class DocumentService {
             Status,
             ReleasedDate,
             ReviewedBy,
+            ReviewedByUserId,
             ApprovedBy,
+            ApprovedByUserId,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -2167,7 +2243,9 @@ export class DocumentService {
             Status,
             ReleasedDate,
             ReviewedBy,
+            ReviewedByUserId,
             ApprovedBy,
+            ApprovedByUserId,
             CreatedDate,
             Notes
           FROM DocumentVersions
@@ -2454,12 +2532,74 @@ export class DocumentService {
     }
   }
 
+  private resolveRequiredWorkspaceUser(
+    db: Database.Database,
+    userId: number | null | undefined,
+    legacyDisplayName: string | undefined,
+    errorMessage: string
+  ): { id: number | null; displayName: string } {
+    const resolved = this.resolveOptionalWorkspaceUser(db, userId, legacyDisplayName, errorMessage);
+    if (!resolved) {
+      throw new Error(errorMessage);
+    }
+
+    return resolved;
+  }
+
+  private resolveOptionalWorkspaceUser(
+    db: Database.Database,
+    userId: number | null | undefined,
+    legacyDisplayName: string | undefined,
+    errorMessage: string
+  ): { id: number | null; displayName: string } | null {
+    if (typeof userId === 'number' && userId > 0) {
+      return this.workspaceUserService.requireUserById(db, userId, errorMessage);
+    }
+
+    const displayName = legacyDisplayName?.trim();
+    if (!displayName) {
+      return null;
+    }
+
+    if (!this.isWorkspaceUserSystemEnabled(db)) {
+      return {
+        id: null,
+        displayName
+      };
+    }
+
+    return this.workspaceUserService.ensureImportedUser(db, displayName);
+  }
+
+  private isWorkspaceUserSystemEnabled(db: Database.Database): boolean {
+    const workspaceColumns = new Set(
+      (
+        db.prepare('PRAGMA table_info(Workspaces)').all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name)
+    );
+
+    if (!workspaceColumns.has('UserSystemEnabled')) {
+      return true;
+    }
+
+    const row = db
+      .prepare('SELECT UserSystemEnabled FROM Workspaces WHERE Id = 1')
+      .get() as { UserSystemEnabled?: number } | undefined;
+
+    return typeof row?.UserSystemEnabled === 'number' ? Boolean(row.UserSystemEnabled) : true;
+  }
+
   private assertCreateDocumentInput(input: CreateDocumentInput): void {
     if (!input.title.trim()) {
       throw new Error('Document title is required.');
     }
 
-    if (!input.author.trim()) {
+    if (
+      (typeof input.authorUserId !== 'number' || input.authorUserId <= 0) &&
+      !input.author?.trim()
+    ) {
       throw new Error('Author is required.');
     }
 
@@ -2480,7 +2620,10 @@ export class DocumentService {
       throw new Error('Document title is required.');
     }
 
-    if (!input.author.trim()) {
+    if (
+      (typeof input.authorUserId !== 'number' || input.authorUserId <= 0) &&
+      !input.author?.trim()
+    ) {
       throw new Error('Author is required.');
     }
 

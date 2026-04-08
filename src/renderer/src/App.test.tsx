@@ -10,7 +10,13 @@ import type { AppUpdateState } from '@shared/appUpdates';
 import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import type { DocTrackApi } from '@shared/ipc';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_DOCUMENT_VIEW_STATE } from '@shared/savedViews';
-import type { DocumentDetail, OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
+import type {
+  DocumentDetail,
+  OpenWorkspaceResult,
+  WorkspaceInfo,
+  WorkspaceSession,
+  WorkspaceUser
+} from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '@renderer/App';
@@ -36,12 +42,37 @@ const defaultDashboard = {
   recentActivity: []
 };
 
+const workspaceUsers: WorkspaceUser[] = [
+  {
+    id: 1,
+    username: 'jordan',
+    displayName: 'Jordan Singh',
+    role: 'admin',
+    signInEnabled: true,
+    lastSignedInDate: '2026-03-31T12:00:00.000Z',
+    createdDate: '2026-03-28T09:00:00.000Z',
+    modifiedDate: '2026-03-31T12:00:00.000Z'
+  }
+];
+
+const workspaceSession: WorkspaceSession = {
+  user: workspaceUsers[0],
+  permissions: {
+    canReadWorkspace: true,
+    canEditWorkspace: true,
+    canManageWorkspace: true
+  },
+  signedInAt: '2026-03-31T12:00:00.000Z'
+};
+
 const openWorkspaceResult: OpenWorkspaceResult = {
+  kind: 'authenticated',
   workspace: workspaceInfo,
   summary: {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
     lifecycle: createDefaultWorkspaceLifecycle(),
+    users: workspaceUsers,
     documents: [
       {
         id: 101,
@@ -102,7 +133,8 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     ],
     statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'],
     savedViews: []
-  }
+  },
+  session: workspaceSession
 };
 
 const cloneWorkspaceResult = (): OpenWorkspaceResult =>
@@ -272,6 +304,15 @@ const buildDocTrackMock = (
       ]),
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(workspaceResult),
+      signIn: vi.fn().mockResolvedValue(workspaceResult),
+      signOut: vi.fn().mockResolvedValue(undefined),
+      getSession: vi.fn().mockResolvedValue(workspaceSession),
+      listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      deactivateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
       ,
       getDashboard: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard),
@@ -717,10 +758,6 @@ describe('App', () => {
     const settingsDialog = getDialog();
     expect(getButton('Light', settingsDialog).closest('label')).toBeNull();
     await click(getButton('Dark', settingsDialog));
-    await changeInput(
-      getLabeledControl(settingsDialog, 'Default Document Author', 'input') as HTMLInputElement,
-      'Taylor Reed'
-    );
     await changeSelect(
       getLabeledControl(
         settingsDialog,
@@ -750,7 +787,6 @@ describe('App', () => {
     expect(docTrack.appSettings.update).toHaveBeenCalledWith(
       expect.objectContaining({
         themeMode: 'dark',
-        defaultDocumentAuthor: 'Taylor Reed',
         defaultDocumentVersionScheme: 'alpha-uppercase',
         defaultIncludeExampleData: false,
         documentTableDensity: 'compact',
@@ -761,13 +797,13 @@ describe('App', () => {
 
     await click(getButton('New Document'));
     const documentDialog = getDialog();
-    const authorInput = getLabeledControl(documentDialog, 'Author', 'input') as HTMLInputElement;
+    const authorSelect = getLabeledControl(documentDialog, 'Author', 'select') as HTMLSelectElement;
     const versionSchemeSelect = getLabeledControl(
       documentDialog,
       'Version Scheme',
       'select'
     ) as HTMLSelectElement;
-    expect(authorInput.value).toBe('Taylor Reed');
+    expect(authorSelect.value).toBe(String(workspaceSession.user.id));
     expect(versionSchemeSelect.value).toBe('alpha-uppercase');
     await click(getButton('Cancel'));
 
@@ -867,6 +903,9 @@ describe('App', () => {
         ...state.openWorkspaces,
         [secondaryWorkspace.workspace.rootPath]: {
           ...secondaryWorkspace.summary,
+          users: secondaryWorkspace.summary.users ?? [],
+          authKind: 'authenticated',
+          session: workspaceSession,
           selectedView: 'documents',
           selectedDocumentsVisualization: 'table',
           documentViewState: { ...DEFAULT_DOCUMENT_VIEW_STATE }
@@ -1352,13 +1391,26 @@ describe('App', () => {
       getLabeledControl(workspaceDialog, 'Workspace Location', 'input') as HTMLInputElement,
       '/Users/you/Documents'
     );
+    await changeInput(
+      getLabeledControl(workspaceDialog, 'Admin Display Name', 'input') as HTMLInputElement,
+      'Taylor Reed'
+    );
+    await changeInput(
+      getLabeledControl(workspaceDialog, 'Admin Password / PIN', 'input') as HTMLInputElement,
+      '2468'
+    );
     await click(getButton('Create Workspace', workspaceDialog));
 
     expect(docTrack.workspace.create).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Quality Workspace',
         folderName: 'Quality Files',
-        parentPath: '/Users/you/Documents'
+        parentPath: '/Users/you/Documents',
+        initialAdmin: expect.objectContaining({
+          username: 'admin',
+          displayName: 'Taylor Reed',
+          password: '2468'
+        })
       })
     );
 
@@ -2831,9 +2883,9 @@ describe('App', () => {
       getLabeledControl(dialog, 'Title', 'input') as HTMLInputElement,
       'Templated Procedure'
     );
-    await changeInput(
-      getLabeledControl(dialog, 'Author', 'input') as HTMLInputElement,
-      'Taylor Reed'
+    await changeSelect(
+      getLabeledControl(dialog, 'Author', 'select') as HTMLSelectElement,
+      String(workspaceSession.user.id)
     );
     await changeSelect(
       getLabeledControl(dialog, 'Document Type', 'select') as HTMLSelectElement,
@@ -2849,7 +2901,8 @@ describe('App', () => {
       workspaceInfo.rootPath,
       expect.objectContaining({
         title: 'Templated Procedure',
-        author: 'Taylor Reed',
+        author: workspaceSession.user.displayName,
+        authorUserId: workspaceSession.user.id,
         documentTypeId: 2,
         versionScheme: 'numeric-3',
         templateId: 'Procedure Starter'
@@ -2874,16 +2927,17 @@ describe('App', () => {
       '2'
     );
 
-    const authorInput = getLabeledControl(dialog, 'Author', 'input') as HTMLInputElement;
+    const authorSelect = getLabeledControl(dialog, 'Author', 'select') as HTMLSelectElement;
+    await changeSelect(authorSelect, '');
     await click(getButton('Create Document', dialog));
 
     expect(docTrack.documents.create).not.toHaveBeenCalled();
-    expect(authorInput.getAttribute('aria-invalid')).toBe('true');
+    expect(authorSelect.getAttribute('aria-invalid')).toBe('true');
     expect(normalizeText(dialog.textContent)).toContain('Author is required.');
 
-    await changeInput(authorInput, 'Taylor Reed');
+    await changeSelect(authorSelect, String(workspaceSession.user.id));
 
-    expect(authorInput.getAttribute('aria-invalid')).not.toBe('true');
+    expect(authorSelect.getAttribute('aria-invalid')).not.toBe('true');
     expect(normalizeText(dialog.textContent)).not.toContain('Author is required.');
 
     await view.unmount();

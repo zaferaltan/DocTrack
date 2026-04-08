@@ -5,6 +5,7 @@ import {
   type DocumentsVisualizationMode,
   type WorkspaceView
 } from '@shared/applicationSettings';
+import { createDefaultWorkspaceLifecycle } from '@shared/documentLifecycle';
 import {
   DEFAULT_DOCUMENT_VIEW_STATE,
   buildDocumentViewStateFromSavedView,
@@ -13,6 +14,7 @@ import {
   type SavedView,
   type SavedViewHealthFlagValue
 } from '@shared/savedViews';
+import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import type {
   CreateSavedViewInput,
   DeleteSavedViewInput,
@@ -23,12 +25,17 @@ import type {
   RecentWorkspace,
   UpdateDashboardLayoutInput,
   UpdateSavedViewInput,
+  WorkspaceSession,
   WorkspaceCreateInput,
   WorkspaceSettingsUpdateInput,
-  WorkspaceSummary
+  WorkspaceSummary,
+  WorkspaceUser
 } from '@shared/types';
 
-export interface WorkspaceTabState extends WorkspaceSummary {
+export interface WorkspaceTabState extends Omit<WorkspaceSummary, 'users'> {
+  users: WorkspaceUser[];
+  authKind: OpenWorkspaceResult['kind'];
+  session: WorkspaceSession | null;
   selectedView: WorkspaceView;
   selectedDocumentsVisualization: DocumentsVisualizationMode;
   documentViewState: DocumentViewState;
@@ -53,6 +60,8 @@ interface AppStoreState {
   dismissRecentWorkspace: (rootPath: string) => Promise<void>;
   updateWorkspaceSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<void>;
   updateDashboardLayout: (rootPath: string, input: UpdateDashboardLayoutInput) => Promise<DashboardLayout>;
+  signInWorkspace: (rootPath: string, username: string, password: string) => Promise<void>;
+  signOutWorkspace: (rootPath: string) => Promise<void>;
   createSavedView: (rootPath: string, input: CreateSavedViewInput) => Promise<SavedView>;
   updateSavedView: (
     rootPath: string,
@@ -87,23 +96,58 @@ interface AppStoreState {
   setNotification: (notification?: AppStoreState['notification']) => void;
 }
 
+const EMPTY_WORKSPACE_SUMMARY: Omit<WorkspaceSummary, 'workspace'> = {
+  settings: { ...DEFAULT_WORKSPACE_SETTINGS },
+  lifecycle: createDefaultWorkspaceLifecycle(),
+  users: [],
+  documents: [],
+  dashboard: {
+    generatedDate: '',
+    totalDocuments: 0,
+    countsByStatus: [],
+    countsByType: [],
+    countsByProject: [],
+    healthInsights: [],
+    recentActivity: []
+  },
+  dashboardLayout: { widgets: [] },
+  documentTypes: [],
+  projects: [],
+  templates: [],
+  confidentialityClasses: [],
+  languages: [],
+  statuses: [],
+  savedViews: []
+};
+
 const buildWorkspaceState = (
   result: OpenWorkspaceResult,
   applicationSettings: ApplicationSettings,
   existing?: WorkspaceTabState
 ): WorkspaceTabState => {
+  const summary =
+    result.kind === 'authenticated'
+      ? result.summary
+      : result.summary ?? {
+          workspace: result.workspace,
+          ...EMPTY_WORKSPACE_SUMMARY,
+          users: result.users
+        };
   const existingDocumentViewState = existing?.documentViewState ?? {
     ...DEFAULT_DOCUMENT_VIEW_STATE
   };
   const normalizedStatusFilter =
     existingDocumentViewState.statusFilter === 'All' ||
     existingDocumentViewState.statusFilter === 'Not started' ||
-    result.summary.statuses.includes(existingDocumentViewState.statusFilter)
+    summary.statuses.includes(existingDocumentViewState.statusFilter)
       ? existingDocumentViewState.statusFilter
       : 'All';
 
   return {
-    ...result.summary,
+    ...summary,
+    users: summary.users ?? [],
+    authKind: result.kind,
+    session: result.kind === 'authenticated' ? result.session : null,
     selectedView: existing?.selectedView ?? applicationSettings.defaultWorkspaceView,
     selectedDocumentsVisualization:
       existing?.selectedDocumentsVisualization ?? applicationSettings.defaultDocumentsVisualization,
@@ -290,6 +334,25 @@ export const createAppStore = () =>
         };
       });
       return layout;
+    },
+    signInWorkspace: async (rootPath, username, password) => {
+      const result = await window.docTrack.workspace.signIn(rootPath, { username, password });
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [rootPath]: buildWorkspaceState(result, state.applicationSettings, state.openWorkspaces[rootPath])
+        }
+      }));
+    },
+    signOutWorkspace: async (rootPath) => {
+      await window.docTrack.workspace.signOut(rootPath);
+      const result = await window.docTrack.workspace.getSummary(rootPath);
+      set((state) => ({
+        openWorkspaces: {
+          ...state.openWorkspaces,
+          [rootPath]: buildWorkspaceState(result, state.applicationSettings, state.openWorkspaces[rootPath])
+        }
+      }));
     },
     createSavedView: async (rootPath, input) => {
       const savedView = await window.docTrack.savedViews.create(rootPath, input);
