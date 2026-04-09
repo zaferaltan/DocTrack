@@ -289,7 +289,7 @@ const buildDocTrackMock = (
     JSON.stringify(initialAppUpdateState)
   ) as AppUpdateState;
 
-  const docTrack: DocTrackApi = {
+  const docTrack = {
     workspace: {
       create: vi.fn().mockResolvedValue(workspaceResult),
       open: vi.fn().mockResolvedValue(workspaceResult),
@@ -506,7 +506,7 @@ const buildDocTrackMock = (
       quitAndInstall: vi.fn().mockResolvedValue(undefined),
       onStateChange: vi.fn().mockImplementation(() => () => undefined)
     }
-  };
+  } satisfies DocTrackApi;
 
   window.docTrack = docTrack;
   return docTrack;
