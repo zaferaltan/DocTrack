@@ -5,6 +5,7 @@ import { WorkspaceManager } from '@main/database/workspaceManager';
 import { registerIpcHandlers } from '@main/ipc';
 import { AppUpdaterService } from '@main/services/appUpdaterService';
 import { ActivityLogService } from '@main/services/activityLogService';
+import { ActorContextService } from '@main/services/actorContextService';
 import { DocumentIdGeneratorService } from '@main/services/documentIdGeneratorService';
 import { DocumentExportService } from '@main/services/documentExportService';
 import { DocumentService } from '@main/services/documentService';
@@ -15,6 +16,8 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
+import { WorkspaceSessionService } from '@main/services/workspaceSessionService';
+import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { WorkspaceService } from '@main/services/workspaceService';
 import { IPC_CHANNELS } from '@shared/ipc';
 
@@ -55,6 +58,8 @@ app.whenReady().then(async () => {
   const catalogService = new AppCatalogService(path.join(app.getPath('userData'), 'catalog.json'));
   const appUpdaterService = new AppUpdaterService();
   const workspaceManager = new WorkspaceManager();
+  const actorContextService = new ActorContextService();
+  const workspaceSessionService = new WorkspaceSessionService();
   const workspaceFilesystemWatcherService = new WorkspaceFilesystemWatcherService((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.workspaceFilesystemDrift, event);
@@ -63,7 +68,8 @@ app.whenReady().then(async () => {
   const fileStorageService = new FileStorageService(workspaceFilesystemWatcherService);
   const templateService = new TemplateService(fileStorageService, workspaceManager);
   const documentIdGenerator = new DocumentIdGeneratorService();
-  const activityLogService = new ActivityLogService();
+  const activityLogService = new ActivityLogService(actorContextService);
+  const workspaceUserService = new WorkspaceUserService(workspaceManager);
   const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
   const documentExportService = new DocumentExportService();
   const documentService = new DocumentService(
@@ -72,6 +78,7 @@ app.whenReady().then(async () => {
     fileStorageService,
     templateService,
     activityLogService,
+    workspaceUserService,
     workspaceBackupService
   );
   const documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
@@ -88,6 +95,7 @@ app.whenReady().then(async () => {
     documentIdGenerator,
     activityLogService,
     workspaceBackupService,
+    workspaceUserService,
     workspaceFilesystemWatcherService
   );
 
@@ -104,6 +112,7 @@ app.whenReady().then(async () => {
     unsubscribeUpdater();
     appUpdaterService.dispose();
     workspaceFilesystemWatcherService.dispose();
+    workspaceSessionService.clearAll();
     workspaceManager.dispose();
   };
 
@@ -115,8 +124,11 @@ app.whenReady().then(async () => {
     workspaceCatalogService,
     templateService,
     savedViewService,
+    workspaceUserService,
     catalogService,
     appUpdaterService,
+    workspaceSessionService,
+    actorContextService,
     prepareForAppQuit: disposeServices
   });
 

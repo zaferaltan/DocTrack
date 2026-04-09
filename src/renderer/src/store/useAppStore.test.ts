@@ -10,7 +10,12 @@ import {
   type SavedView
 } from '@shared/savedViews';
 import { createDefaultWorkspaceLifecycle } from '@shared/documentLifecycle';
-import type { OpenWorkspaceResult, WorkspaceInfo } from '@shared/types';
+import type {
+  OpenWorkspaceResult,
+  WorkspaceInfo,
+  WorkspaceSession,
+  WorkspaceUser
+} from '@shared/types';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
 import { describe, expect, it, vi } from 'vitest';
 import { createAppStore } from '@renderer/store/useAppStore';
@@ -33,12 +38,37 @@ const defaultDashboard = {
   recentActivity: []
 };
 
+const workspaceUsers: WorkspaceUser[] = [
+  {
+    id: 1,
+    username: 'jordan',
+    displayName: 'Jordan Singh',
+    role: 'admin',
+    signInEnabled: true,
+    lastSignedInDate: '2026-03-31T12:00:00.000Z',
+    createdDate: '2026-03-28T09:00:00.000Z',
+    modifiedDate: '2026-03-31T12:00:00.000Z'
+  }
+];
+
+const workspaceSession: WorkspaceSession = {
+  user: workspaceUsers[0],
+  permissions: {
+    canReadWorkspace: true,
+    canEditWorkspace: true,
+    canManageWorkspace: true
+  },
+  signedInAt: '2026-03-31T12:00:00.000Z'
+};
+
 const openWorkspaceResult: OpenWorkspaceResult = {
+  kind: 'authenticated',
   workspace: workspaceInfo,
   summary: {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
     lifecycle: createDefaultWorkspaceLifecycle(),
+    users: workspaceUsers,
     documents: [],
     dashboard: defaultDashboard,
     dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
@@ -55,7 +85,8 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     languages: [],
     statuses: ['Draft', 'In Review', 'Released', 'Archived', 'Obsolete'],
     savedViews: []
-  }
+  },
+  session: workspaceSession
 };
 
 const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS) => {
@@ -68,6 +99,16 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       listRecent: vi.fn().mockResolvedValue([]),
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
+      signIn: vi.fn().mockResolvedValue(openWorkspaceResult),
+      signOut: vi.fn().mockResolvedValue(undefined),
+      getSession: vi.fn().mockResolvedValue(workspaceSession),
+      listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      recoverAccess: vi.fn().mockResolvedValue(openWorkspaceResult),
+      createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      deactivateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
       getDashboard: vi.fn().mockResolvedValue(defaultDashboard),
       getDashboardLayout: vi.fn().mockResolvedValue(DEFAULT_DASHBOARD_LAYOUT),
       listActivity: vi.fn().mockResolvedValue([]),

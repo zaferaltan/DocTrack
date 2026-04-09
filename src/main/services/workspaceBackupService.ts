@@ -282,6 +282,7 @@ export class WorkspaceBackupService {
     try {
       const sections: RestoreBackupDiffSection[] = [
         this.buildWorkspaceSettingsSection(context.settings, this.readWorkspaceSettings(backupDb), backup),
+        this.buildEntitySection('users', 'Users', this.listWorkspaceUsers(context.db), this.listWorkspaceUsers(backupDb)),
         this.buildEntitySection(
           'documentTypes',
           'Document Types',
@@ -593,10 +594,12 @@ export class WorkspaceBackupService {
     const hasActivityLogColumns =
       workspaceColumns.has('ActivityLogEnabled') &&
       workspaceColumns.has('ActivityLogMaxRows');
+    const hasUserSystemEnabledColumn = workspaceColumns.has('UserSystemEnabled');
     const row = db
       .prepare(
         `
           SELECT
+            ${hasUserSystemEnabledColumn ? 'UserSystemEnabled,' : `${DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled ? 1 : 0} AS UserSystemEnabled,`}
             StorageLayoutPreset,
             FileOrganizationMode,
             VersionManagementMode,
@@ -619,6 +622,7 @@ export class WorkspaceBackupService {
       )
       .get() as
       | {
+          UserSystemEnabled?: number;
           StorageLayoutPreset: WorkspaceSettings['storageLayoutPreset'];
           FileOrganizationMode: WorkspaceSettings['fileOrganizationMode'];
           VersionManagementMode: WorkspaceSettings['versionManagementMode'];
@@ -644,6 +648,10 @@ export class WorkspaceBackupService {
 
     return {
       ...DEFAULT_WORKSPACE_SETTINGS,
+      userSystemEnabled:
+        typeof row.UserSystemEnabled === 'number'
+          ? Boolean(row.UserSystemEnabled)
+          : DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled,
       storageLayoutPreset: row.StorageLayoutPreset ?? DEFAULT_WORKSPACE_SETTINGS.storageLayoutPreset,
       fileOrganizationMode: row.FileOrganizationMode ?? DEFAULT_WORKSPACE_SETTINGS.fileOrganizationMode,
       versionManagementMode: row.VersionManagementMode ?? DEFAULT_WORKSPACE_SETTINGS.versionManagementMode,
@@ -695,6 +703,7 @@ export class WorkspaceBackupService {
 
   private buildWorkspaceSettingsFields(settings: WorkspaceSettings): Record<string, string | null> {
     return {
+      'User System Enabled': formatFieldValue(settings.userSystemEnabled),
       'Storage Layout': formatFieldValue(settings.storageLayoutPreset),
       'File Organization': formatFieldValue(settings.fileOrganizationMode),
       'Version Management': formatFieldValue(settings.versionManagementMode),
@@ -739,6 +748,41 @@ export class WorkspaceBackupService {
       fields: {
         Name: formatFieldValue(row.Name),
         Prefix: formatFieldValue(row.NumberPrefix)
+      }
+    }));
+  }
+
+  private listWorkspaceUsers(db: Database.Database): ComparableRow[] {
+    return (
+      db.prepare(
+        `
+          SELECT
+            Id,
+            Username,
+            DisplayName,
+            Role,
+            SignInEnabled,
+            LastSignedInDate
+          FROM WorkspaceUsers
+          ORDER BY Id ASC
+        `
+      ).all() as Array<{
+        Id: number;
+        Username: string;
+        DisplayName: string;
+        Role: string;
+        SignInEnabled: number;
+        LastSignedInDate: string | null;
+      }>
+    ).map((row) => ({
+      id: `workspace-user-${row.Id}`,
+      label: row.DisplayName,
+      fields: {
+        Username: formatFieldValue(row.Username),
+        'Display Name': formatFieldValue(row.DisplayName),
+        Role: formatFieldValue(row.Role),
+        'Sign-In Enabled': formatFieldValue(Boolean(row.SignInEnabled)),
+        'Last Signed In': formatFieldValue(row.LastSignedInDate)
       }
     }));
   }

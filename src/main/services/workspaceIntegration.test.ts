@@ -15,6 +15,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceService } from '@main/services/workspaceService';
+import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_SAVED_VIEW_PRESENTATION } from '@shared/savedViews';
 import {
@@ -43,6 +44,7 @@ describe('workspace integration', () => {
   let templateService: TemplateService;
   let savedViewService: SavedViewService;
   let catalogService: AppCatalogService;
+  let workspaceUserService: WorkspaceUserService;
 
   const mapTransitions = (lifecycle: WorkspaceLifecycle): string[] =>
     lifecycle.allowedTransitions
@@ -107,12 +109,14 @@ describe('workspace integration', () => {
     const documentIdGenerator = new DocumentIdGeneratorService();
     const activityLogService = new ActivityLogService();
     const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
+    workspaceUserService = new WorkspaceUserService(workspaceManager);
     documentService = new DocumentService(
       workspaceManager,
       documentIdGenerator,
       fileStorageService,
       templateService,
-      activityLogService
+      activityLogService,
+      workspaceUserService
     );
     new DocumentTypeService(workspaceManager, fileStorageService);
     const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
@@ -127,7 +131,8 @@ describe('workspace integration', () => {
       savedViewService,
       documentIdGenerator,
       activityLogService,
-      workspaceBackupService
+      workspaceBackupService,
+      workspaceUserService
     );
   });
 
@@ -179,6 +184,94 @@ describe('workspace integration', () => {
     expect(result.summary.templates).toEqual([]);
     expect(result.summary.dashboardLayout).toEqual(DEFAULT_DASHBOARD_LAYOUT);
     expect(result.summary.savedViews).toEqual([]);
+  });
+
+  it('can create a workspace with the user system disabled', () => {
+    const result = workspaceService.create({
+      name: 'Open Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        userSystemEnabled: false
+      },
+      includeExampleData: true
+    });
+
+    expect(result.summary.settings.userSystemEnabled).toBe(false);
+    expect(result.summary.users).toEqual([]);
+    expect(result.summary.documents.length).toBeGreaterThan(0);
+
+    const userCount =
+      (
+        workspaceManager
+          .getContext(result.workspace.rootPath)
+          .db.prepare('SELECT COUNT(*) AS total FROM WorkspaceUsers')
+          .get() as { total: number } | undefined
+      )?.total ?? 0;
+
+    expect(userCount).toBe(0);
+  });
+
+  it('does not allow the final active workspace user to be deactivated', () => {
+    const result = workspaceService.create({
+      name: 'Protected Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+
+    const [adminUser] = workspaceUserService.list(result.workspace.rootPath);
+
+    expect(() =>
+      workspaceUserService.deactivate(result.workspace.rootPath, adminUser.id)
+    ).toThrow('At least one active workspace user must remain.');
+  });
+
+  it('can recover access by creating a new admin when no active users remain', () => {
+    const result = workspaceService.create({
+      name: 'Recovery Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+
+    workspaceManager
+      .getContext(result.workspace.rootPath)
+      .db.prepare('UPDATE WorkspaceUsers SET SignInEnabled = 0')
+      .run();
+
+    expect(workspaceUserService.canRecoverAccess(result.workspace.rootPath)).toBe(true);
+
+    const recoveredUser = workspaceUserService.recoverAccess(result.workspace.rootPath, {
+      username: 'recovery-admin',
+      displayName: 'Recovery Admin',
+      password: 'rescue123'
+    });
+
+    expect(recoveredUser.role).toBe('admin');
+    expect(recoveredUser.signInEnabled).toBe(true);
+    expect(workspaceUserService.listSignInUsers(result.workspace.rootPath)).toContainEqual(
+      expect.objectContaining({
+        username: 'recovery.admin',
+        displayName: 'Recovery Admin',
+        role: 'admin',
+        signInEnabled: true
+      })
+    );
   });
 
   it('persists shared saved views and includes them in workspace summaries', () => {
@@ -776,6 +869,42 @@ describe('workspace integration', () => {
     const integrity = workspaceService.integrityCheck(workspaceRootPath);
     expect(integrity.issueCount).toBeGreaterThan(0);
     expect(integrity.issues.some((issue) => issue.code === 'missing-managed-file')).toBe(true);
+  });
+
+  it('includes workspace user changes in backup restore diffs', () => {
+    const created = workspaceService.create({
+      name: 'Quality Offline',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = created.workspace.rootPath;
+    const backup = workspaceService.createBackup(workspaceRootPath);
+
+    workspaceUserService.create(workspaceRootPath, {
+      username: 'taylor',
+      displayName: 'Taylor Reed',
+      password: '2468',
+      role: 'editor'
+    });
+
+    const diff = workspaceService.getRestoreDiff(workspaceRootPath, backup.backup.id);
+    const userSection = diff.sections.find((section) => section.id === 'users');
+
+    expect(userSection).toBeDefined();
+    expect(userSection?.removedCount).toBe(1);
+    expect(userSection?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Taylor Reed',
+          changeType: 'removed'
+        })
+      ])
+    );
   });
 
   it('preserves renamed document root paths when overwriting from a snapshot', () => {

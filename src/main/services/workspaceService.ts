@@ -12,6 +12,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import type { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
+import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { nowIso } from '@main/utils/date';
 import {
   createDefaultWorkspaceLifecycle,
@@ -31,7 +32,6 @@ import type {
   DocumentStatus,
   DocumentType,
   IntegrityCheckResult,
-  OpenWorkspaceResult,
   RestoreBackupDiffResult,
   RestoreBackupInput,
   RestoreBackupPreview,
@@ -40,6 +40,8 @@ import type {
   WorkspaceBackupSummary,
   WorkspaceCreateInput,
   WorkspaceDashboardSummary,
+  WorkspaceInfo,
+  WorkspaceSummary,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
 import {
@@ -65,8 +67,21 @@ const STARTER_TYPES: Array<{ name: string; numberPrefix: string }> = [
   { name: 'Procedure', numberPrefix: '02' },
   { name: 'Report', numberPrefix: '03' }
 ];
+const DEFAULT_INITIAL_ADMIN = {
+  username: 'admin',
+  displayName: 'Workspace Admin',
+  password: 'admin'
+};
+
+export interface WorkspaceSummaryResult {
+  workspace: WorkspaceInfo;
+  summary: WorkspaceSummary;
+  warnings?: string[];
+}
 
 export class WorkspaceService {
+  private readonly workspaceUserService: WorkspaceUserService;
+
   constructor(
     private readonly workspaceManager: WorkspaceManager,
     private readonly documentService: DocumentService,
@@ -78,13 +93,18 @@ export class WorkspaceService {
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly activityLogService: ActivityLogService,
     private readonly workspaceBackupService: WorkspaceBackupService,
+    workspaceUserService?: WorkspaceUserService,
     private readonly workspaceFilesystemWatcherService?: Pick<
       WorkspaceFilesystemWatcherService,
       'ensureWatching' | 'closeWatching'
     >
-  ) {}
+  ) {
+    this.workspaceUserService =
+      workspaceUserService ?? new WorkspaceUserService(workspaceManager);
+  }
 
-  create(input: WorkspaceCreateInput): OpenWorkspaceResult {
+  create(input: WorkspaceCreateInput): WorkspaceSummaryResult {
+    const initialAdmin = input.initialAdmin ?? DEFAULT_INITIAL_ADMIN;
     const nextSettings = this.normalizeWorkspaceSettings(input.settings);
     const nextLifecycle = this.normalizeWorkspaceLifecycle(
       input.lifecycle,
@@ -92,6 +112,9 @@ export class WorkspaceService {
     );
     this.assertDocumentIdTemplateIsValid(nextSettings);
     const context = this.workspaceManager.createWorkspace(input, (workspaceContext) => {
+      if (nextSettings.userSystemEnabled) {
+        this.workspaceUserService.createInitialAdmin(workspaceContext.db, initialAdmin);
+      }
       this.persistWorkspaceLifecycle(workspaceContext, nextLifecycle);
       workspaceContext.lifecycle = nextLifecycle;
       this.seedStarterTypes(workspaceContext.db);
@@ -115,7 +138,7 @@ export class WorkspaceService {
     return this.getSummary(context.rootPath);
   }
 
-  open(rootPath: string): OpenWorkspaceResult {
+  open(rootPath: string): WorkspaceSummaryResult {
     const context = this.workspaceManager.openWorkspace(rootPath);
     this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath, context.settings);
     this.catalogService.touchRecentWorkspace({
@@ -146,9 +169,12 @@ export class WorkspaceService {
     return this.catalogService.dismissRecentWorkspace(rootPath);
   }
 
-  getSummary(rootPath: string, warnings: string[] = []): OpenWorkspaceResult {
+  getSummary(rootPath: string, warnings: string[] = []): WorkspaceSummaryResult {
     const context = this.workspaceManager.getContext(rootPath);
     const documents = this.documentService.list(rootPath);
+    const users = context.settings.userSystemEnabled
+      ? this.workspaceUserService.list(rootPath)
+      : [];
     const typeRows = context.db
       .prepare('SELECT Id, Name, NumberPrefix FROM DocumentTypes ORDER BY NumberPrefix ASC')
       .all() as Array<{ Id: number; Name: string; NumberPrefix: string }>;
@@ -159,6 +185,7 @@ export class WorkspaceService {
         workspace: context.workspace,
         settings: context.settings,
         lifecycle: context.lifecycle,
+        users,
         documents,
         dashboard: this.buildDashboardSummary(context, documents),
         dashboardLayout: this.savedViewService.getDashboardLayout(rootPath),
@@ -174,10 +201,14 @@ export class WorkspaceService {
     };
   }
 
+  isUserSystemEnabled(rootPath: string): boolean {
+    return this.workspaceManager.getContext(rootPath).settings.userSystemEnabled;
+  }
+
   updateSettings(
     rootPath: string,
     input: WorkspaceSettings | WorkspaceSettingsUpdateInput
-  ): OpenWorkspaceResult {
+  ): WorkspaceSummaryResult {
     const context = this.workspaceManager.getContext(rootPath);
     const normalizedInput =
       'settings' in input
@@ -210,6 +241,17 @@ export class WorkspaceService {
       normalizedInput,
       databaseDirectoryChanged
     );
+
+    if (!context.settings.userSystemEnabled && nextSettings.userSystemEnabled) {
+      const hasExistingUsers = this.workspaceUserService.list(rootPath).length > 0;
+      if (!hasExistingUsers) {
+        if (!normalizedInput.initialAdmin) {
+          throw new Error('Provide an initial admin before enabling the user system for this workspace.');
+        }
+
+        this.workspaceUserService.createInitialAdmin(context.db, normalizedInput.initialAdmin);
+      }
+    }
 
     if (
       this.areWorkspaceSettingsEqual(context.settings, nextSettings) &&
@@ -360,7 +402,7 @@ export class WorkspaceService {
     return this.workspaceBackupService.getRestoreDiff(rootPath, backupId);
   }
 
-  restoreBackup(rootPath: string, input: RestoreBackupInput): OpenWorkspaceResult {
+  restoreBackup(rootPath: string, input: RestoreBackupInput): WorkspaceSummaryResult {
     if (input.mode === 'overwrite-current-database') {
       return this.restoreBackupIntoCurrentWorkspace(rootPath, input.backupId);
     }
@@ -395,7 +437,7 @@ export class WorkspaceService {
     return integrity.issues.slice(0, 10).map((issue) => issue.message);
   }
 
-  private restoreBackupIntoCurrentWorkspace(rootPath: string, backupId: string): OpenWorkspaceResult {
+  private restoreBackupIntoCurrentWorkspace(rootPath: string, backupId: string): WorkspaceSummaryResult {
     const context = this.workspaceManager.getContext(rootPath);
     this.workspaceBackupService.createBackup(rootPath, 'safety');
     this.workspaceFilesystemWatcherService?.closeWatching(rootPath);
@@ -457,6 +499,7 @@ export class WorkspaceService {
         `
           UPDATE Workspaces
           SET
+            UserSystemEnabled = ?,
             StorageLayoutPreset = ?,
             FileOrganizationMode = ?,
             VersionManagementMode = ?,
@@ -477,6 +520,7 @@ export class WorkspaceService {
         `
       )
       .run(
+        settings.userSystemEnabled ? 1 : 0,
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
         settings.versionManagementMode,
@@ -917,6 +961,7 @@ export class WorkspaceService {
 
   private areWorkspaceSettingsEqual(left: WorkspaceSettings, right: WorkspaceSettings): boolean {
     return (
+      left.userSystemEnabled === right.userSystemEnabled &&
       left.storageLayoutPreset === right.storageLayoutPreset &&
       left.fileOrganizationMode === right.fileOrganizationMode &&
       left.versionManagementMode === right.versionManagementMode &&
@@ -1311,12 +1356,18 @@ export class WorkspaceService {
     const createdDate = nowIso();
     const company = context.settings.defaultCompany;
     const department = context.settings.defaultDepartment;
+    const authorUser = context.settings.userSystemEnabled
+      ? this.workspaceUserService.ensureImportedUser(context.db, input.author)
+      : {
+          id: null,
+          displayName: input.author.trim()
+        };
     const documentId = this.documentIdGenerator.generateNextDocumentId(context.db, context.settings, {
       numberPrefix: type.NumberPrefix,
       documentTypeName: type.Name,
       createdDate,
       title: input.title,
-      author: input.author,
+      author: authorUser.displayName,
       company,
       department
     });
@@ -1340,10 +1391,11 @@ export class WorkspaceService {
             CreatedDate,
             ModifiedDate,
             Author,
+            AuthorUserId,
             StartDate,
             Company,
             Department
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -1354,7 +1406,8 @@ export class WorkspaceService {
         documentFolderPath,
         createdDate,
         createdDate,
-        input.author,
+        authorUser.displayName,
+        authorUser.id,
         createdDate.slice(0, 10),
         company,
         department
@@ -1370,9 +1423,12 @@ export class WorkspaceService {
           VersionLabel,
           Status,
           ReviewedBy,
+          ReviewedByUserId,
+          ApprovedBy,
+          ApprovedByUserId,
           CreatedDate,
           Notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     );
     const insertFile = context.db.prepare(
@@ -1405,7 +1461,7 @@ export class WorkspaceService {
             documentTypeName: type.Name,
             createdDate,
             title: input.title,
-            author: input.author,
+            author: authorUser.displayName,
             company,
             department
           }
@@ -1419,6 +1475,9 @@ export class WorkspaceService {
         version.versionLabel,
         version.status,
         '',
+        null,
+        '',
+        null,
         createdDate,
         version.notes
       );
@@ -1457,6 +1516,10 @@ export class WorkspaceService {
     }
 
     return {
+      userSystemEnabled:
+        typeof settings.userSystemEnabled === 'boolean'
+          ? settings.userSystemEnabled
+          : DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled,
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
       versionManagementMode: settings.versionManagementMode,

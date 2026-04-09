@@ -117,6 +117,7 @@ export class WorkspaceManager {
             FilePath,
             RootPath,
             CreatedDate,
+            UserSystemEnabled,
             StorageLayoutPreset,
             FileOrganizationMode,
             VersionManagementMode,
@@ -133,13 +134,14 @@ export class WorkspaceManager {
             AutoMarkPreviousVersionObsolete,
             ActivityLogEnabled,
             ActivityLogMaxRows
-          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         workspaceName,
         databaseFilePath,
         resolvedRootPath,
         nowIso(),
+        settings.userSystemEnabled ? 1 : 0,
         settings.storageLayoutPreset,
         settings.fileOrganizationMode,
         settings.versionManagementMode,
@@ -306,10 +308,12 @@ export class WorkspaceManager {
     const hasActivityLogColumns =
       workspaceColumns.has('ActivityLogEnabled') &&
       workspaceColumns.has('ActivityLogMaxRows');
+    const hasUserSystemEnabledColumn = workspaceColumns.has('UserSystemEnabled');
     const row = db
       .prepare(
         `
           SELECT
+            ${hasUserSystemEnabledColumn ? 'UserSystemEnabled,' : `${DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled ? 1 : 0} AS UserSystemEnabled,`}
             StorageLayoutPreset,
             FileOrganizationMode,
             VersionManagementMode,
@@ -332,6 +336,7 @@ export class WorkspaceManager {
       )
       .get() as
       | {
+          UserSystemEnabled?: number;
           StorageLayoutPreset: string;
           FileOrganizationMode: string;
           VersionManagementMode: string;
@@ -369,6 +374,10 @@ export class WorkspaceManager {
     });
 
     return {
+      userSystemEnabled:
+        typeof row.UserSystemEnabled === 'number'
+          ? Boolean(row.UserSystemEnabled)
+          : DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled,
       storageLayoutPreset: row.StorageLayoutPreset,
       fileOrganizationMode: row.FileOrganizationMode,
       versionManagementMode: row.VersionManagementMode,
@@ -520,6 +529,10 @@ export class WorkspaceManager {
     }
 
     return {
+      userSystemEnabled:
+        typeof settings.userSystemEnabled === 'boolean'
+          ? settings.userSystemEnabled
+          : DEFAULT_WORKSPACE_SETTINGS.userSystemEnabled,
       storageLayoutPreset: settings.storageLayoutPreset,
       fileOrganizationMode: settings.fileOrganizationMode,
       versionManagementMode: settings.versionManagementMode,

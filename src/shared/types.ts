@@ -33,6 +33,60 @@ export interface WorkspaceInfo {
   isOpen: boolean;
 }
 
+export const WORKSPACE_ROLES = ['admin', 'editor', 'viewer'] as const;
+
+export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
+
+export interface WorkspacePermissions {
+  canReadWorkspace: boolean;
+  canEditWorkspace: boolean;
+  canManageWorkspace: boolean;
+}
+
+export interface WorkspaceUser {
+  id: number;
+  username: string;
+  displayName: string;
+  role: WorkspaceRole;
+  signInEnabled: boolean;
+  lastSignedInDate: string | null;
+  createdDate: string;
+  modifiedDate: string;
+}
+
+export interface WorkspaceSession {
+  user: WorkspaceUser;
+  permissions: WorkspacePermissions;
+  signedInAt: string;
+}
+
+export interface WorkspaceUserCredentialsInput {
+  username: string;
+  password: string;
+}
+
+export interface WorkspaceInitialAdminInput extends WorkspaceUserCredentialsInput {
+  displayName: string;
+}
+
+export interface WorkspaceAccessRecoveryInput extends WorkspaceInitialAdminInput {}
+
+export interface WorkspaceUserCreateInput extends WorkspaceInitialAdminInput {
+  role: WorkspaceRole;
+  signInEnabled?: boolean;
+}
+
+export interface WorkspaceUserUpdateInput {
+  username: string;
+  displayName: string;
+  role: WorkspaceRole;
+}
+
+export interface WorkspaceUserPasswordResetInput {
+  userId: number;
+  password: string;
+}
+
 export interface DocumentType {
   id: number;
   name: string;
@@ -82,10 +136,12 @@ export interface DocumentListItem {
   effectiveDate: string | null;
   releasedDate: string | null;
   approvedBy: string;
+  approvedByUserId?: number | null;
   revisionDescription: string;
   modifiedDate: string;
   createdDate: string;
   author: string;
+  authorUserId?: number | null;
   languageId: number | null;
   languageCode: string | null;
   confidentialityClassId: number | null;
@@ -102,6 +158,7 @@ export interface DocumentListItem {
   latestVersionFileCount: number;
   lastActivityDate: string;
   reviewedBy: string;
+  reviewedByUserId?: number | null;
 }
 
 export interface RecentActivityItem {
@@ -111,6 +168,8 @@ export interface RecentActivityItem {
   createdDate: string;
   documentRecordId: number | null;
   documentVersionId: number | null;
+  actorUserId?: number | null;
+  actorDisplayName?: string | null;
 }
 
 export interface DashboardInsight {
@@ -298,7 +357,9 @@ export interface DocumentVersion {
   status: DocumentStatus;
   releasedDate: string | null;
   reviewedBy: string;
+  reviewedByUserId?: number | null;
   approvedBy: string;
+  approvedByUserId?: number | null;
   createdDate: string;
   revisionDescription: string;
   files: DocumentVersionFile[];
@@ -318,6 +379,7 @@ export interface DocumentDetail {
   createdDate: string;
   modifiedDate: string;
   author: string;
+  authorUserId?: number | null;
   languageId: number | null;
   languageCode: string | null;
   confidentialityClassId: number | null;
@@ -334,7 +396,8 @@ export interface DocumentDetail {
 export interface CreateDocumentInput {
   title: string;
   documentTypeId: number;
-  author: string;
+  authorUserId?: number | null;
+  author?: string;
   versionScheme: DocumentVersionScheme;
   templateId?: string | null;
   startDate?: string | null;
@@ -363,7 +426,8 @@ export interface DeleteDocumentVersionInput {
 export interface UpdateDocumentInput {
   documentRecordId: number;
   title: string;
-  author: string;
+  authorUserId?: number | null;
+  author?: string;
   startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
@@ -377,8 +441,10 @@ export interface UpdateDocumentVersionInput {
   documentVersionId: number;
   status: DocumentStatus;
   releasedDate: string | null;
-  reviewedBy: string;
-  approvedBy: string;
+  reviewedByUserId?: number | null;
+  reviewedBy?: string;
+  approvedByUserId?: number | null;
+  approvedBy?: string;
   revisionDescription: string;
 }
 
@@ -386,8 +452,10 @@ export interface UpdateLatestVersionInput {
   documentRecordId: number;
   status: DocumentStatus;
   releasedDate: string | null;
-  reviewedBy: string;
-  approvedBy: string;
+  reviewedByUserId?: number | null;
+  reviewedBy?: string;
+  approvedByUserId?: number | null;
+  approvedBy?: string;
   revisionDescription: string;
 }
 
@@ -445,6 +513,7 @@ export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
   lifecycle: WorkspaceLifecycle;
+  users?: WorkspaceUser[];
   documents: DocumentListItem[];
   dashboard: WorkspaceDashboardSummary;
   dashboardLayout: DashboardLayout;
@@ -457,11 +526,26 @@ export interface WorkspaceSummary {
   savedViews: SavedView[];
 }
 
-export interface OpenWorkspaceResult {
+export interface AuthenticatedWorkspaceResult {
+  kind: 'authenticated';
   workspace: WorkspaceInfo;
   summary: WorkspaceSummary;
+  session: WorkspaceSession;
+  users?: WorkspaceUser[];
   warnings?: string[];
 }
+
+export interface UnauthenticatedWorkspaceResult {
+  kind: 'unauthenticated';
+  workspace: WorkspaceInfo;
+  summary: WorkspaceSummary;
+  users: WorkspaceUser[];
+  canRecoverAccess: boolean;
+  session: null;
+  warnings?: string[];
+}
+
+export type OpenWorkspaceResult = AuthenticatedWorkspaceResult | UnauthenticatedWorkspaceResult;
 
 export interface WorkspaceCreateInput {
   name: string;
@@ -470,11 +554,13 @@ export interface WorkspaceCreateInput {
   settings: WorkspaceSettings;
   lifecycle?: WorkspaceLifecycle;
   includeExampleData?: boolean;
+  initialAdmin?: WorkspaceInitialAdminInput;
 }
 
 export interface WorkspaceSettingsUpdateInput {
   settings: WorkspaceSettings;
   lifecycle?: WorkspaceLifecycle;
+  initialAdmin?: WorkspaceInitialAdminInput;
   statusRemaps?: Array<{
     fromStatusKey: string;
     toStatusKey: string;
@@ -581,6 +667,7 @@ export interface RestoreBackupDiffItem {
 export interface RestoreBackupDiffSection {
   id:
     | 'workspaceSettings'
+    | 'users'
     | 'documentTypes'
     | 'projects'
     | 'confidentialityClasses'

@@ -179,6 +179,7 @@ import {
 } from "@shared/savedViews";
 import type {
   ConfidentialityClass,
+  WorkspaceAccessRecoveryInput,
   CreateSavedViewInput,
   CreateDocumentInput,
   CreateVersionInput,
@@ -213,7 +214,12 @@ import type {
   VersionFilesystemChange,
   WorkspaceBackupSummary,
   WorkspaceLanguage,
+  WorkspaceRole,
   WorkspaceSettingsUpdateInput,
+  WorkspaceSummary,
+  WorkspaceUser,
+  WorkspaceUserCreateInput,
+  WorkspaceUserUpdateInput,
 } from "@shared/types";
 
 type NotificationTone = "success" | "error";
@@ -521,17 +527,22 @@ const buildWorkspaceDialogState = (
 ): WorkspaceDialogState => ({
   ...defaultWorkspaceDialogState,
   open: true,
+  initialAdminUsername: "admin",
+  initialAdminDisplayName: "",
+  initialAdminPassword: "",
   includeExampleData: applicationSettings.defaultIncludeExampleData,
 });
 
 const buildCreateDocumentDialogState = (
   applicationSettings: ApplicationSettings,
   workspaceSettings: WorkspaceSettings,
+  activeUser?: { id: number; displayName: string } | null,
 ): DocumentDialogState => ({
   ...defaultDocumentDialogState,
   mode: "create",
   open: true,
-  author: applicationSettings.defaultDocumentAuthor,
+  author: activeUser?.displayName ?? applicationSettings.defaultDocumentAuthor,
+  authorUserId: activeUser ? String(activeUser.id) : "",
   versionScheme: applicationSettings.defaultDocumentVersionScheme,
   templateId: "",
   company: workspaceSettings.defaultCompany,
@@ -549,6 +560,7 @@ const buildEditDocumentDialogState = (
   title: documentDetail.title,
   documentTypeId: String(documentDetail.typeId),
   author: documentDetail.author,
+  authorUserId: documentDetail.authorUserId ? String(documentDetail.authorUserId) : "",
   versionScheme: documentDetail.versionScheme,
   templateId: "",
   languageId: documentDetail.languageId
@@ -584,6 +596,9 @@ interface WorkspaceDialogState {
   folderName: string;
   useCustomFolderName: boolean;
   parentPath: string;
+  initialAdminUsername: string;
+  initialAdminDisplayName: string;
+  initialAdminPassword: string;
   settings: WorkspaceSettings;
   lifecycle: WorkspaceLifecycle;
   includeExampleData: boolean;
@@ -597,6 +612,10 @@ interface WorkspaceSettingsDialogState {
   rootPath?: string;
   workspaceName: string;
   settings: WorkspaceSettings;
+  originalSettings?: WorkspaceSettings;
+  initialAdminUsername: string;
+  initialAdminDisplayName: string;
+  initialAdminPassword: string;
   lifecycle: WorkspaceLifecycle;
   originalLifecycle?: WorkspaceLifecycle;
   statusRemaps: Record<string, string>;
@@ -627,6 +646,7 @@ interface DocumentDialogState {
   title: string;
   documentTypeId: string;
   author: string;
+  authorUserId: string;
   versionScheme: DocumentVersionScheme;
   templateId: string;
   startDate: string;
@@ -666,7 +686,9 @@ interface LatestVersionDialogState {
   status: DocumentStatus;
   releasedDate: string;
   reviewedBy: string;
+  reviewedByUserId: string;
   approvedBy: string;
+  approvedByUserId: string;
   revisionDescription: string;
   isSubmitting: boolean;
 }
@@ -751,6 +773,30 @@ interface BackupDialogState {
   restoreDiff: RestoreBackupDiffResult | null;
   isLoading: boolean;
   isSubmitting: boolean;
+}
+
+interface WorkspaceUsersDialogState {
+  open: boolean;
+  users: WorkspaceUser[];
+  selectedUserId?: number;
+  username: string;
+  displayName: string;
+  role: WorkspaceRole;
+  password: string;
+  isLoading: boolean;
+  isSubmitting: boolean;
+  formMessage: string;
+  formTone: "warning" | "error";
+  validationErrors: ValidationErrors;
+}
+
+interface AccessRecoveryState {
+  username: string;
+  displayName: string;
+  password: string;
+  isSubmitting: boolean;
+  error: string;
+  validationErrors: ValidationErrors;
 }
 
 interface FilePreviewDialogState {
@@ -840,6 +886,9 @@ const defaultWorkspaceDialogState: WorkspaceDialogState = {
   folderName: "",
   useCustomFolderName: false,
   parentPath: "",
+  initialAdminUsername: "admin",
+  initialAdminDisplayName: "",
+  initialAdminPassword: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   lifecycle: createDefaultWorkspaceLifecycle(),
   includeExampleData: true,
@@ -853,6 +902,10 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   rootPath: undefined,
   workspaceName: "",
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
+  originalSettings: undefined,
+  initialAdminUsername: "admin",
+  initialAdminDisplayName: "",
+  initialAdminPassword: "",
   lifecycle: createDefaultWorkspaceLifecycle(),
   originalLifecycle: undefined,
   statusRemaps: {},
@@ -886,6 +939,7 @@ const defaultDocumentDialogState: DocumentDialogState = {
   title: "",
   documentTypeId: "",
   author: "",
+  authorUserId: "",
   versionScheme: "numeric-3",
   templateId: "",
   startDate: "",
@@ -925,7 +979,9 @@ const defaultLatestVersionDialogState: LatestVersionDialogState = {
   status: "Draft",
   releasedDate: "",
   reviewedBy: "",
+  reviewedByUserId: "",
   approvedBy: "",
+  approvedByUserId: "",
   revisionDescription: "",
   isSubmitting: false,
 };
@@ -1003,6 +1059,30 @@ const defaultBackupDialogState: BackupDialogState = {
   restoreDiff: null,
   isLoading: false,
   isSubmitting: false,
+};
+
+const defaultWorkspaceUsersDialogState: WorkspaceUsersDialogState = {
+  open: false,
+  users: [],
+  selectedUserId: undefined,
+  username: "",
+  displayName: "",
+  role: "viewer",
+  password: "",
+  isLoading: false,
+  isSubmitting: false,
+  formMessage: "",
+  formTone: "warning",
+  validationErrors: {},
+};
+
+const defaultAccessRecoveryState: AccessRecoveryState = {
+  username: "admin",
+  displayName: "",
+  password: "",
+  isSubmitting: false,
+  error: "",
+  validationErrors: {},
 };
 
 const defaultFilePreviewDialogState: FilePreviewDialogState = {
@@ -1104,6 +1184,7 @@ const applyInputChange = <
   patch: Partial<TState>,
 ): TState => ({
   ...state,
+  ...(("formMessage" in state ? { formMessage: "" } : {}) as Partial<TState>),
   ...patch,
   validationErrors: clearValidationError(state.validationErrors, field),
 });
@@ -1635,6 +1716,14 @@ const validateWorkspaceDialogState = (
     errors.parentPath = "Workspace location is required.";
   }
 
+  if (state.settings.userSystemEnabled && !state.initialAdminDisplayName.trim()) {
+    errors.initialAdminDisplayName = "Admin display name is required.";
+  }
+
+  if (state.settings.userSystemEnabled && !state.initialAdminPassword.trim()) {
+    errors.initialAdminPassword = "Admin password or PIN is required.";
+  }
+
   return errors;
 };
 
@@ -1659,7 +1748,11 @@ const validateDocumentDialogState = (
     errors.title = "Document title is required.";
   }
 
-  if (availableColumns.includes("author") && !state.author.trim()) {
+  if (
+    availableColumns.includes("author") &&
+    !state.authorUserId.trim() &&
+    !state.author.trim()
+  ) {
     errors.author = "Author is required.";
   }
 
@@ -1747,6 +1840,9 @@ function App() {
     dismissRecentWorkspace,
     updateWorkspaceSettings,
     updateDashboardLayout,
+    signInWorkspace,
+    recoverWorkspaceAccess,
+    signOutWorkspace,
     createSavedView,
     updateSavedView,
     deleteSavedView,
@@ -1801,6 +1897,12 @@ function App() {
     defaultLanguageDialogState,
   );
   const [backupDialog, setBackupDialog] = useState(defaultBackupDialogState);
+  const [workspaceUsersDialog, setWorkspaceUsersDialog] = useState(
+    defaultWorkspaceUsersDialogState,
+  );
+  const [accessRecoveryState, setAccessRecoveryState] = useState(
+    defaultAccessRecoveryState,
+  );
   const [filePreviewDialog, setFilePreviewDialog] = useState(
     defaultFilePreviewDialogState,
   );
@@ -1831,6 +1933,12 @@ function App() {
     useState<DocumentDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [signInState, setSignInState] = useState({
+    username: "",
+    password: "",
+    isSubmitting: false,
+    error: "",
+  });
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(
     null,
@@ -1843,6 +1951,12 @@ function App() {
   const activeWorkspace = activeWorkspacePath
     ? openWorkspaces[activeWorkspacePath]
     : undefined;
+  const activeWorkspaceSession = activeWorkspace?.session ?? null;
+  const isActiveWorkspaceAuthenticated = activeWorkspace?.authKind === "authenticated";
+  const hasActiveWorkspaceAccess = Boolean(activeWorkspace && isActiveWorkspaceAuthenticated);
+  const isActiveWorkspaceUserSystemEnabled = Boolean(
+    activeWorkspace?.settings.userSystemEnabled,
+  );
   const activeWorkspaceFilesystemAttention = activeWorkspace
     ? getWorkspaceFilesystemAttentionCounts(activeWorkspace)
     : null;
@@ -1897,6 +2011,7 @@ function App() {
     classificationDialog.open ||
     languageDialog.open ||
     backupDialog.open ||
+    workspaceUsersDialog.open ||
     filePreviewDialog.open ||
     activityLogDialog.open ||
     versionComparisonDialog.open ||
@@ -1912,6 +2027,10 @@ function App() {
       });
     },
   );
+
+  useEffect(() => {
+    setAccessRecoveryState(defaultAccessRecoveryState);
+  }, [activeWorkspace?.workspace.rootPath, activeWorkspace?.canRecoverAccess]);
   const openConfirmationDialog = useEffectEvent(
     (input: Omit<ConfirmationDialogState, "open" | "isSubmitting">): void => {
       setConfirmationDialog({
@@ -1944,7 +2063,13 @@ function App() {
         status: overrides?.status ?? version.status,
         releasedDate: toDateInputValue(version.releasedDate),
         reviewedBy: version.reviewedBy,
+        reviewedByUserId: version.reviewedByUserId
+          ? String(version.reviewedByUserId)
+          : "",
         approvedBy: version.approvedBy,
+        approvedByUserId: version.approvedByUserId
+          ? String(version.approvedByUserId)
+          : "",
         revisionDescription: version.revisionDescription,
         isSubmitting: false,
       });
@@ -2375,6 +2500,9 @@ function App() {
       buildCreateDocumentDialogState(
         applicationSettings,
         activeWorkspace.settings,
+        activeWorkspace.settings.userSystemEnabled
+          ? activeWorkspace.session?.user
+          : null,
       ),
     );
   };
@@ -2553,6 +2681,10 @@ function App() {
       rootPath: activeWorkspace.workspace.rootPath,
       workspaceName: activeWorkspace.workspace.name,
       settings: { ...activeWorkspace.settings },
+      originalSettings: { ...activeWorkspace.settings },
+      initialAdminUsername: "admin",
+      initialAdminDisplayName: "",
+      initialAdminPassword: "",
       lifecycle: structuredClone(activeWorkspace.lifecycle),
       originalLifecycle: structuredClone(activeWorkspace.lifecycle),
       statusRemaps: {},
@@ -3154,6 +3286,15 @@ function App() {
         settings: workspaceDialog.settings,
         lifecycle: workspaceDialog.lifecycle,
         includeExampleData: workspaceDialog.includeExampleData,
+        ...(workspaceDialog.settings.userSystemEnabled
+          ? {
+              initialAdmin: {
+                username: workspaceDialog.initialAdminUsername,
+                displayName: workspaceDialog.initialAdminDisplayName,
+                password: workspaceDialog.initialAdminPassword,
+              },
+            }
+          : {}),
       });
       setWorkspaceDialog(defaultWorkspaceDialogState);
     } catch (error) {
@@ -3187,6 +3328,15 @@ function App() {
       await updateWorkspaceSettings(workspaceSettingsDialog.rootPath, {
         settings: workspaceSettingsDialog.settings,
         lifecycle: workspaceSettingsDialog.lifecycle,
+        initialAdmin:
+          workspaceSettingsDialog.initialAdminDisplayName.trim() &&
+          workspaceSettingsDialog.initialAdminPassword.trim()
+            ? {
+                username: workspaceSettingsDialog.initialAdminUsername,
+                displayName: workspaceSettingsDialog.initialAdminDisplayName,
+                password: workspaceSettingsDialog.initialAdminPassword,
+              }
+            : undefined,
         statusRemaps: Object.entries(workspaceSettingsDialog.statusRemaps)
           .filter(([, toStatusKey]) => toStatusKey.trim().length > 0)
           .map(([fromStatusKey, toStatusKey]) => ({
@@ -3388,6 +3538,7 @@ function App() {
       const documentInput = {
         title: documentDialog.title,
         author: documentDialog.author,
+        authorUserId: parseOptionalSelectNumber(documentDialog.authorUserId),
         startDate: availableColumns.includes("startDate")
           ? documentDialog.startDate || null
           : null,
@@ -3497,7 +3648,13 @@ function App() {
                 status: latestVersionDialog.status,
                 releasedDate: latestVersionDialog.releasedDate || null,
                 reviewedBy: latestVersionDialog.reviewedBy,
+                reviewedByUserId: parseOptionalSelectNumber(
+                  latestVersionDialog.reviewedByUserId,
+                ),
                 approvedBy: latestVersionDialog.approvedBy,
+                approvedByUserId: parseOptionalSelectNumber(
+                  latestVersionDialog.approvedByUserId,
+                ),
                 revisionDescription: latestVersionDialog.revisionDescription,
               } satisfies UpdateLatestVersionInput,
             )
@@ -3508,7 +3665,13 @@ function App() {
                 status: latestVersionDialog.status,
                 releasedDate: latestVersionDialog.releasedDate || null,
                 reviewedBy: latestVersionDialog.reviewedBy,
+                reviewedByUserId: parseOptionalSelectNumber(
+                  latestVersionDialog.reviewedByUserId,
+                ),
                 approvedBy: latestVersionDialog.approvedBy,
+                approvedByUserId: parseOptionalSelectNumber(
+                  latestVersionDialog.approvedByUserId,
+                ),
                 revisionDescription: latestVersionDialog.revisionDescription,
               } satisfies UpdateDocumentVersionInput,
             );
@@ -3616,7 +3779,9 @@ function App() {
           status: statusChangeDialog.nextStatus,
           releasedDate: document.releasedDate,
           reviewedBy: document.reviewedBy,
+          reviewedByUserId: document.reviewedByUserId,
           approvedBy: document.approvedBy,
+          approvedByUserId: document.approvedByUserId,
           revisionDescription: document.revisionDescription,
         } satisfies UpdateLatestVersionInput,
       );
@@ -4597,6 +4762,251 @@ function App() {
     void refreshBackupDialog(activeWorkspacePath);
   };
 
+  const openWorkspaceUsersDialog = () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    setWorkspaceUsersDialog((state) => ({
+      ...state,
+      open: true,
+      isLoading: true,
+      validationErrors: {},
+    }));
+    void window.docTrack.workspace
+      .listUsers(activeWorkspacePath)
+      .then((users) =>
+        setWorkspaceUsersDialog((state) => ({
+          ...state,
+          open: true,
+          users,
+          isLoading: false,
+          selectedUserId: users[0]?.id,
+          username: users[0]?.username ?? "",
+          displayName: users[0]?.displayName ?? "",
+          role: users[0]?.role ?? "viewer",
+          password: "",
+          formMessage: "",
+          formTone: "warning",
+          validationErrors: {},
+        })),
+      )
+      .catch((error: Error) => {
+        notifyError(error, "Unable to load workspace users.");
+        setWorkspaceUsersDialog(defaultWorkspaceUsersDialogState);
+      });
+  };
+
+  const handleSelectWorkspaceUser = (userId: number) => {
+    const selectedUser =
+      workspaceUsersDialog.users.find((user) => user.id === userId) ?? null;
+    setWorkspaceUsersDialog((state) => ({
+      ...state,
+      selectedUserId: selectedUser?.id,
+      username: selectedUser?.username ?? "",
+      displayName: selectedUser?.displayName ?? "",
+      role: selectedUser?.role ?? "viewer",
+      password: "",
+      formMessage: "",
+      formTone: "warning",
+      validationErrors: {},
+    }));
+  };
+
+  const handleSaveWorkspaceUser = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const validationErrors: ValidationErrors = {};
+    if (!workspaceUsersDialog.username.trim()) {
+      validationErrors.username = "Username is required.";
+    }
+    if (!workspaceUsersDialog.displayName.trim()) {
+      validationErrors.displayName = "Display name is required.";
+    }
+    if (
+      !workspaceUsersDialog.selectedUserId &&
+      !workspaceUsersDialog.password.trim()
+    ) {
+      validationErrors.password = "Password or PIN is required.";
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "Fix the highlighted fields before saving.",
+        formTone: "warning",
+        validationErrors,
+      }));
+      return;
+    }
+
+    try {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        formMessage: "",
+        validationErrors: {},
+      }));
+
+      if (workspaceUsersDialog.selectedUserId) {
+        await window.docTrack.workspace.updateUser(
+          activeWorkspacePath,
+          workspaceUsersDialog.selectedUserId,
+          {
+            username: workspaceUsersDialog.username,
+            displayName: workspaceUsersDialog.displayName,
+            role: workspaceUsersDialog.role,
+          } satisfies WorkspaceUserUpdateInput,
+        );
+      } else {
+        await window.docTrack.workspace.createUser(activeWorkspacePath, {
+          username: workspaceUsersDialog.username,
+          displayName: workspaceUsersDialog.displayName,
+          password: workspaceUsersDialog.password,
+          role: workspaceUsersDialog.role,
+        } satisfies WorkspaceUserCreateInput);
+      }
+
+      await refreshWorkspace(activeWorkspacePath);
+      openWorkspaceUsersDialog();
+    } catch (error) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(error, "Unable to save the workspace user."),
+        formTone: "error",
+      }));
+    }
+  };
+
+  const handleToggleWorkspaceUserAccess = async (user: WorkspaceUser) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    if (activeWorkspaceSession?.user.id === user.id && user.signInEnabled) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "You cannot deactivate the account that is currently signed in.",
+        formTone: "warning",
+      }));
+      return;
+    }
+
+    try {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        formMessage: "",
+      }));
+      if (user.signInEnabled) {
+        await window.docTrack.workspace.deactivateUser(activeWorkspacePath, user.id);
+      } else {
+        await window.docTrack.workspace.activateUser(activeWorkspacePath, user.id);
+      }
+      await refreshWorkspace(activeWorkspacePath);
+      openWorkspaceUsersDialog();
+    } catch (error) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(error, "Unable to update the selected user."),
+        formTone: "error",
+      }));
+    }
+  };
+
+  const handleResetWorkspaceUserPassword = async () => {
+    if (!activeWorkspacePath || !workspaceUsersDialog.selectedUserId) {
+      return;
+    }
+
+    if (!workspaceUsersDialog.password.trim()) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "Enter a new password or PIN before resetting this account.",
+        formTone: "warning",
+        validationErrors: {
+          ...state.validationErrors,
+          password: "Enter a password or PIN to reset.",
+        },
+      }));
+      return;
+    }
+
+    try {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        formMessage: "",
+        validationErrors: {},
+      }));
+      await window.docTrack.workspace.resetUserPassword(activeWorkspacePath, {
+        userId: workspaceUsersDialog.selectedUserId,
+        password: workspaceUsersDialog.password,
+      });
+      await refreshWorkspace(activeWorkspacePath);
+      openWorkspaceUsersDialog();
+    } catch (error) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(
+          error,
+          "Unable to reset the selected user's password.",
+        ),
+        formTone: "error",
+      }));
+    }
+  };
+
+  const handleRecoverWorkspaceAccess = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const validationErrors: ValidationErrors = {};
+    if (!accessRecoveryState.username.trim()) {
+      validationErrors.username = "Username is required.";
+    }
+    if (!accessRecoveryState.displayName.trim()) {
+      validationErrors.displayName = "Display name is required.";
+    }
+    if (!accessRecoveryState.password.trim()) {
+      validationErrors.password = "Password or PIN is required.";
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        error: "Complete all required recovery fields before continuing.",
+        validationErrors,
+      }));
+      return;
+    }
+
+    try {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        isSubmitting: true,
+        error: "",
+        validationErrors: {},
+      }));
+      await recoverWorkspaceAccess(activeWorkspacePath, {
+        username: accessRecoveryState.username,
+        displayName: accessRecoveryState.displayName,
+        password: accessRecoveryState.password,
+      } satisfies WorkspaceAccessRecoveryInput);
+      setAccessRecoveryState(defaultAccessRecoveryState);
+    } catch (error) {
+      setAccessRecoveryState((current) => ({
+        ...current,
+        isSubmitting: false,
+        error: getErrorMessage(error, "Unable to recover workspace access."),
+      }));
+    }
+  };
+
   const handleCreateBackup = async () => {
     if (!activeWorkspacePath) {
       return;
@@ -4982,6 +5392,259 @@ function App() {
           });
         }}
       />
+    );
+  } else if (activeWorkspace.authKind === "unauthenticated") {
+    const enteredUsername = signInState.username.trim();
+    const canRecoverAccess = activeWorkspace.canRecoverAccess;
+    activeWorkspaceContent = (
+      <div className="mx-auto flex max-w-xl flex-col gap-6 rounded-3xl border border-border bg-card p-8 shadow-sm">
+        <div>
+          <div className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Workspace Locked
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold text-foreground">
+            {canRecoverAccess
+              ? `Recover access to ${activeWorkspace.workspace.name}`
+              : `Sign in to ${activeWorkspace.workspace.name}`}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {canRecoverAccess
+              ? "No active workspace users remain. Create a new admin account to unlock this workspace."
+              : "This workspace uses local accounts stored in its SQLite database."}
+          </p>
+        </div>
+
+        {canRecoverAccess ? (
+          <>
+            {accessRecoveryState.error ? (
+              <InlineAlert tone="error" message={accessRecoveryState.error} />
+            ) : (
+              <InlineAlert
+                tone="warning"
+                message="Recovery access is available because there are currently zero active users in this workspace."
+              />
+            )}
+
+            <div className="grid gap-4">
+              <Field
+                label="Recovery Admin Display Name"
+                error={accessRecoveryState.validationErrors.displayName}
+              >
+                <Input
+                  value={accessRecoveryState.displayName}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      displayName: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "displayName",
+                      ),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Recovery Admin Username"
+                error={accessRecoveryState.validationErrors.username}
+              >
+                <Input
+                  value={accessRecoveryState.username}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      username: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "username",
+                      ),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Recovery Password or PIN"
+                error={accessRecoveryState.validationErrors.password}
+              >
+                <Input
+                  type="password"
+                  value={accessRecoveryState.password}
+                  onChange={(event) =>
+                    setAccessRecoveryState((current) => ({
+                      ...current,
+                      password: event.target.value,
+                      error: "",
+                      validationErrors: clearValidationError(
+                        current.validationErrors,
+                        "password",
+                      ),
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      accessRecoveryState.username.trim() &&
+                      accessRecoveryState.displayName.trim() &&
+                      accessRecoveryState.password
+                    ) {
+                      event.preventDefault();
+                      void handleRecoverWorkspaceAccess();
+                    }
+                  }}
+                />
+              </Field>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                disabled={
+                  !accessRecoveryState.username.trim() ||
+                  !accessRecoveryState.displayName.trim() ||
+                  !accessRecoveryState.password ||
+                  accessRecoveryState.isSubmitting
+                }
+                onClick={() => void handleRecoverWorkspaceAccess()}
+              >
+                {accessRecoveryState.isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Recover Access
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+              >
+                Close Workspace
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-4">
+              <Field label="User">
+                <Input
+                  value={signInState.username}
+                  placeholder="Username"
+                  onChange={(event) =>
+                    setSignInState((current) => ({
+                      ...current,
+                      username: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      enteredUsername &&
+                      signInState.password
+                    ) {
+                      event.preventDefault();
+                      void signInWorkspace(
+                        activeWorkspace.workspace.rootPath,
+                        enteredUsername,
+                        signInState.password,
+                      ).catch((error: Error) => {
+                        setSignInState((current) => ({
+                          ...current,
+                          error: getErrorMessage(error, "Unable to sign in."),
+                        }));
+                      });
+                    }
+                  }}
+                />
+              </Field>
+
+              <Field
+                label="Password or PIN"
+                error={signInState.error || undefined}
+              >
+                <Input
+                  type="password"
+                  value={signInState.password}
+                  onChange={(event) =>
+                    setSignInState((current) => ({
+                      ...current,
+                      password: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      enteredUsername &&
+                      signInState.password
+                    ) {
+                      event.preventDefault();
+                      void signInWorkspace(
+                        activeWorkspace.workspace.rootPath,
+                        enteredUsername,
+                        signInState.password,
+                      ).catch((error: Error) => {
+                        setSignInState((current) => ({
+                          ...current,
+                          error: getErrorMessage(error, "Unable to sign in."),
+                        }));
+                      });
+                    }
+                  }}
+                />
+              </Field>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                disabled={
+                  !enteredUsername ||
+                  !signInState.password ||
+                  signInState.isSubmitting
+                }
+                onClick={() => {
+                  setSignInState((current) => ({
+                    ...current,
+                    isSubmitting: true,
+                    error: "",
+                  }));
+                  void signInWorkspace(
+                    activeWorkspace.workspace.rootPath,
+                    enteredUsername,
+                    signInState.password,
+                  )
+                    .then(() =>
+                      setSignInState({
+                        username: enteredUsername,
+                        password: "",
+                        isSubmitting: false,
+                        error: "",
+                      }),
+                    )
+                    .catch((error: Error) => {
+                      setSignInState((current) => ({
+                        ...current,
+                        isSubmitting: false,
+                        error: getErrorMessage(error, "Unable to sign in."),
+                      }));
+                    });
+                }}
+              >
+                {signInState.isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Sign In
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+              >
+                Close Workspace
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     );
   } else if (activeWorkspace.selectedView === "dashboard") {
     activeWorkspaceContent = (
@@ -5620,7 +6283,7 @@ function App() {
               icon={Sparkles}
               label="Dashboard"
               active={activeWorkspace?.selectedView === "dashboard"}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               attentionCount={activeWorkspaceFilesystemAttention?.totalAttentionCount}
               onClick={() =>
                 activeWorkspacePath &&
@@ -5631,7 +6294,7 @@ function App() {
               icon={Table2}
               label="Documents"
               active={activeWorkspace?.selectedView === "documents"}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "documents")
@@ -5642,7 +6305,7 @@ function App() {
                 icon={FolderOpen}
                 label="Projects"
                 active={activeWorkspace?.selectedView === "projects"}
-                disabled={!activeWorkspace}
+                disabled={!hasActiveWorkspaceAccess}
                 onClick={() =>
                   activeWorkspacePath &&
                   setWorkspaceView(activeWorkspacePath, "projects")
@@ -5653,7 +6316,7 @@ function App() {
               icon={FileStack}
               label="Templates"
               active={activeWorkspace?.selectedView === "templates"}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "templates")
@@ -5663,7 +6326,7 @@ function App() {
               icon={LayoutPanelLeft}
               label="Document Types"
               active={activeWorkspace?.selectedView === "documentTypes"}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "documentTypes")
@@ -5674,7 +6337,7 @@ function App() {
                 icon={Settings2}
                 label="Classifications"
                 active={activeWorkspace?.selectedView === "classifications"}
-                disabled={!activeWorkspace}
+                disabled={!hasActiveWorkspaceAccess}
                 onClick={() =>
                   activeWorkspacePath &&
                   setWorkspaceView(activeWorkspacePath, "classifications")
@@ -5686,7 +6349,7 @@ function App() {
                 icon={Pencil}
                 label="Languages"
                 active={activeWorkspace?.selectedView === "languages"}
-                disabled={!activeWorkspace}
+                disabled={!hasActiveWorkspaceAccess}
                 onClick={() =>
                   activeWorkspacePath &&
                   setWorkspaceView(activeWorkspacePath, "languages")
@@ -5699,26 +6362,62 @@ function App() {
             <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Workspace Controls
             </div>
+            {activeWorkspaceSession && isActiveWorkspaceUserSystemEnabled ? (
+              <div className="mb-2 rounded-xl border border-border bg-card px-3 py-2 text-[12px]">
+                <div className="font-semibold text-foreground">
+                  {activeWorkspaceSession.user.displayName}
+                </div>
+                <div className="text-muted-foreground">
+                  {activeWorkspaceSession.user.role}
+                </div>
+              </div>
+            ) : null}
             <SidebarButton
               icon={FilePlus2}
               label="New Document"
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={openCreateDocumentDialog}
             />
             <SidebarButton
               icon={Settings2}
               label="Workspace Settings"
               active={workspaceSettingsDialog.open}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={openWorkspaceSettingsDialog}
             />
+            {isActiveWorkspaceUserSystemEnabled &&
+            activeWorkspaceSession?.user.role === "admin" ? (
+              <SidebarButton
+                icon={Settings}
+                label="Workspace Users"
+                active={workspaceUsersDialog.open}
+                disabled={!hasActiveWorkspaceAccess}
+                onClick={openWorkspaceUsersDialog}
+              />
+            ) : null}
             <SidebarButton
               icon={History}
               label="Backups & Recovery"
               active={backupDialog.open}
-              disabled={!activeWorkspace}
+              disabled={!hasActiveWorkspaceAccess}
               onClick={openBackupDialog}
             />
+            {isActiveWorkspaceUserSystemEnabled ? (
+              <SidebarButton
+                icon={X}
+                label="Sign Out"
+                disabled={!activeWorkspaceSession}
+                onClick={() => {
+                  if (!activeWorkspacePath) {
+                    return;
+                  }
+
+                  void signOutWorkspace(activeWorkspacePath).catch((error: Error) => {
+                    notifyError(error, "Unable to sign out of the workspace.");
+                  });
+                }}
+              />
+            ) : null}
           </div>
         </aside>
 
@@ -5765,6 +6464,23 @@ function App() {
         onSubmit={handleSaveWorkspaceSettings}
       />
 
+      <WorkspaceUsersDialog
+        state={workspaceUsersDialog}
+        currentUserId={activeWorkspaceSession?.user.id}
+        onOpenChange={(open) =>
+          setWorkspaceUsersDialog(
+            open
+              ? { ...workspaceUsersDialog, open }
+              : defaultWorkspaceUsersDialogState,
+          )
+        }
+        onStateChange={setWorkspaceUsersDialog}
+        onSelectUser={handleSelectWorkspaceUser}
+        onSave={handleSaveWorkspaceUser}
+        onResetPassword={handleResetWorkspaceUserPassword}
+        onToggleAccess={handleToggleWorkspaceUserAccess}
+      />
+
       <ApplicationSettingsDialog
         state={applicationSettingsDialog}
         persistedSettings={applicationSettings}
@@ -5797,6 +6513,8 @@ function App() {
         onStateChange={setDocumentDialog}
         onSubmit={handleSaveDocument}
         documentTypes={activeWorkspace?.documentTypes ?? []}
+        userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
+        workspaceUsers={activeWorkspace?.users ?? []}
         templates={activeWorkspace?.templates ?? []}
         projects={activeWorkspace?.projects ?? []}
         confidentialityClasses={activeWorkspace?.confidentialityClasses ?? []}
@@ -5830,6 +6548,8 @@ function App() {
         onStateChange={setLatestVersionDialog}
         onSubmit={handleSaveLatestVersion}
         documentDetail={selectedDocumentDetail}
+        userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
+        workspaceUsers={activeWorkspace?.users ?? []}
         lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
         availableColumns={activeWorkspaceAvailableColumns}
       />
@@ -6333,21 +7053,6 @@ function ApplicationSettingsDialog({
                   updateSettings({ defaultIncludeExampleData: checked })
                 }
               />
-
-              <Field label="Default Document Author">
-                <Input
-                  placeholder="Jordan Singh"
-                  value={state.settings.defaultDocumentAuthor}
-                  onChange={(event) =>
-                    updateSettings({
-                      defaultDocumentAuthor: event.target.value,
-                    })
-                  }
-                />
-                <div className="text-xs text-muted-foreground">
-                  New document dialogs start with this author name pre-filled.
-                </div>
-              </Field>
 
               <Field label="Default Document Version Scheme">
                 <Select
@@ -6857,6 +7562,31 @@ function NotificationBar({
       >
         <X className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+function InlineAlert({
+  tone,
+  message,
+}: {
+  tone: "warning" | "error";
+  message: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-3 py-2 text-[13px]",
+        tone === "warning"
+          ? "border-[#E6D6A8] bg-[#FBF7EA] text-[#8F6400] dark:border-[#5D4920] dark:bg-[#332717]/60 dark:text-[#EBCB8B]"
+          : "border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]",
+      )}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>{message}</div>
+      </div>
     </div>
   );
 }
@@ -12564,6 +13294,84 @@ function WorkspaceDialog({
               </div>
             </Field>
 
+            <ToggleSetting
+              title="Enable local user sign-in"
+              description="Store workspace users inside the SQLite database and require sign-in before editing this workspace."
+              checked={state.settings.userSystemEnabled}
+              onChange={(checked) =>
+                onStateChange((current) => ({
+                  ...current,
+                  settings: {
+                    ...current.settings,
+                    userSystemEnabled: checked,
+                  },
+                  validationErrors: {},
+                }))
+              }
+            />
+
+            {state.settings.userSystemEnabled ? (
+              <div className="grid gap-4 rounded-2xl border border-border bg-background p-4 md:grid-cols-3">
+                <Field
+                  label="Admin Display Name"
+                  error={state.validationErrors.initialAdminDisplayName}
+                >
+                  <Input
+                    aria-invalid={Boolean(
+                      state.validationErrors.initialAdminDisplayName,
+                    )}
+                    placeholder="Taylor Reed"
+                    value={state.initialAdminDisplayName}
+                    onChange={(event) =>
+                      onStateChange((current) =>
+                        applyInputChange(current, "initialAdminDisplayName", {
+                          initialAdminDisplayName: event.target.value,
+                        }),
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field label="Admin Username">
+                  <Input
+                    placeholder="admin"
+                    value={state.initialAdminUsername}
+                    onChange={(event) =>
+                      onStateChange((current) => ({
+                        ...current,
+                        initialAdminUsername: event.target.value,
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field
+                  label="Admin Password / PIN"
+                  error={state.validationErrors.initialAdminPassword}
+                >
+                  <Input
+                    aria-invalid={Boolean(
+                      state.validationErrors.initialAdminPassword,
+                    )}
+                    type="password"
+                    value={state.initialAdminPassword}
+                    onChange={(event) =>
+                      onStateChange((current) =>
+                        applyInputChange(current, "initialAdminPassword", {
+                          initialAdminPassword: event.target.value,
+                        }),
+                      )
+                    }
+                  />
+                </Field>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-background px-4 py-3 text-[13px] text-muted-foreground">
+                This workspace will open without sign-in and will use free-text
+                author, reviewer, and approver fields.
+              </div>
+            )}
+
             <WorkspaceStorageSettingsFields
               workspaceName={
                 state.useCustomFolderName
@@ -12912,6 +13720,75 @@ function WorkspaceSettingsDialog({
 
         <div className="min-h-0 overflow-y-auto">
           <div className="px-1 py-1 pr-2">
+            <div className="mb-4 grid gap-4">
+              <ToggleSetting
+                title="Enable local user sign-in"
+                description="Require workspace sign-in and use workspace user records for author, reviewer, and approver metadata."
+                checked={state.settings.userSystemEnabled}
+                onChange={(checked) =>
+                  onStateChange((current) => ({
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      userSystemEnabled: checked,
+                    },
+                    validationErrors: {},
+                  }))
+                }
+              />
+
+              {!state.originalSettings?.userSystemEnabled &&
+              state.settings.userSystemEnabled ? (
+                <div className="grid gap-4 rounded-2xl border border-border bg-background p-4 md:grid-cols-3">
+                  <Field label="Bootstrap Admin Display Name">
+                    <Input
+                      placeholder="Taylor Reed"
+                      value={state.initialAdminDisplayName}
+                      onChange={(event) =>
+                        onStateChange((current) =>
+                          applyInputChange(current, "initialAdminDisplayName", {
+                            initialAdminDisplayName: event.target.value,
+                          }),
+                        )
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Bootstrap Admin Username">
+                    <Input
+                      placeholder="admin"
+                      value={state.initialAdminUsername}
+                      onChange={(event) =>
+                        onStateChange((current) => ({
+                          ...current,
+                          initialAdminUsername: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Bootstrap Admin Password / PIN">
+                    <Input
+                      type="password"
+                      value={state.initialAdminPassword}
+                      onChange={(event) =>
+                        onStateChange((current) =>
+                          applyInputChange(current, "initialAdminPassword", {
+                            initialAdminPassword: event.target.value,
+                          }),
+                        )
+                      }
+                    />
+                  </Field>
+
+                  <div className="md:col-span-3 text-xs text-muted-foreground">
+                    Only needed if this workspace does not already have any
+                    local users.
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <WorkspaceStorageSettingsFields
               workspaceName={state.workspaceName}
               settings={state.settings}
@@ -14005,6 +14882,221 @@ function WorkspaceAdvancedSettingsDialog({
   );
 }
 
+function WorkspaceUsersDialog({
+  state,
+  currentUserId,
+  onOpenChange,
+  onStateChange,
+  onSelectUser,
+  onSave,
+  onResetPassword,
+  onToggleAccess,
+}: {
+  state: WorkspaceUsersDialogState;
+  currentUserId?: number;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<WorkspaceUsersDialogState>
+  >;
+  onSelectUser: (userId: number) => void;
+  onSave: () => Promise<void>;
+  onResetPassword: () => Promise<void>;
+  onToggleAccess: (user: WorkspaceUser) => Promise<void>;
+}) {
+  const selectedUser =
+    state.users.find((user) => user.id === state.selectedUserId) ?? null;
+  const isCurrentSignedInUser = selectedUser?.id === currentUserId;
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,980px)] max-h-[84vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Workspace Users</DialogTitle>
+          <DialogDescription>
+            Manage local accounts, roles, and passwords stored inside this
+            workspace database.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-background p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">Users</div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  onStateChange((current) => ({
+                    ...current,
+                    selectedUserId: undefined,
+                    username: "",
+                    displayName: "",
+                    role: "viewer",
+                    password: "",
+                    formMessage: "",
+                    formTone: "warning",
+                    validationErrors: {},
+                  }))
+                }
+              >
+                <Plus className="h-4 w-4" />
+                New
+              </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {state.isLoading ? (
+                <div className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  Loading users...
+                </div>
+              ) : state.users.map((user) => (
+                <button
+                  key={user.id}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left",
+                    state.selectedUserId === user.id
+                      ? "border-primary/40 bg-accent"
+                      : "border-border bg-card",
+                  )}
+                  onClick={() => onSelectUser(user.id)}
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{user.displayName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      @{user.username} • {user.role}
+                    </div>
+                  </div>
+                  <Badge
+                    variant={user.signInEnabled ? "success" : "destructive"}
+                  >
+                    {user.signInEnabled ? "Active" : "Inactive"}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 overflow-y-auto rounded-2xl border border-border bg-background p-4">
+            <div className="grid gap-4">
+              {state.formMessage ? (
+                <InlineAlert tone={state.formTone} message={state.formMessage} />
+              ) : null}
+
+              <Field label="Display Name" error={state.validationErrors.displayName}>
+                <Input
+                  value={state.displayName}
+                  onChange={(event) =>
+                    onStateChange((current) =>
+                      applyInputChange(current, "displayName", {
+                        displayName: event.target.value,
+                      }),
+                    )
+                  }
+                />
+              </Field>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Username" error={state.validationErrors.username}>
+                  <Input
+                    value={state.username}
+                    onChange={(event) =>
+                      onStateChange((current) =>
+                        applyInputChange(current, "username", {
+                          username: event.target.value,
+                        }),
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field label="Role">
+                  <Select
+                    value={state.role}
+                    onChange={(event) =>
+                      onStateChange((current) => ({
+                        ...current,
+                        formMessage: "",
+                        role: event.target.value as WorkspaceRole,
+                      }))
+                    }
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="editor">Editor</option>
+                    <option value="viewer">Viewer</option>
+                  </Select>
+                </Field>
+              </div>
+
+              <Field label="Password / PIN" error={state.validationErrors.password}>
+                <Input
+                  type="password"
+                  value={state.password}
+                  onChange={(event) =>
+                    onStateChange((current) =>
+                      applyInputChange(current, "password", {
+                        password: event.target.value,
+                      }),
+                    )
+                  }
+                />
+                <div className="text-xs text-muted-foreground">
+                  Required for new users. For existing users, enter a new value only when resetting.
+                </div>
+              </Field>
+
+              {state.selectedUserId ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={state.isSubmitting}
+                    onClick={() => void onResetPassword()}
+                  >
+                    Reset Password
+                  </Button>
+                  {selectedUser ? (
+                    <Button
+                      variant="outline"
+                      disabled={
+                        state.isSubmitting ||
+                        (Boolean(selectedUser.signInEnabled) &&
+                          isCurrentSignedInUser)
+                      }
+                      onClick={() => void onToggleAccess(selectedUser)}
+                    >
+                      {selectedUser.signInEnabled ? "Deactivate" : "Activate"}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {state.selectedUserId && isCurrentSignedInUser ? (
+                <div className="text-xs text-muted-foreground">
+                  The account currently signed in to this window cannot be set
+                  to inactive.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button disabled={state.isSubmitting} onClick={() => void onSave()}>
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings className="h-4 w-4" />
+            )}
+            {state.selectedUserId ? "Save User" : "Create User"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DocumentDialog({
   open,
   onOpenChange,
@@ -14012,6 +15104,8 @@ function DocumentDialog({
   onStateChange,
   onSubmit,
   documentTypes,
+  userSystemEnabled,
+  workspaceUsers,
   templates,
   projects,
   confidentialityClasses,
@@ -14024,6 +15118,8 @@ function DocumentDialog({
   onStateChange: React.Dispatch<React.SetStateAction<DocumentDialogState>>;
   onSubmit: () => Promise<void>;
   documentTypes: DocumentType[];
+  userSystemEnabled: boolean;
+  workspaceUsers: WorkspaceUser[];
   templates: TemplateSummary[];
   projects: Project[];
   confidentialityClasses: ConfidentialityClass[];
@@ -14078,16 +15174,43 @@ function DocumentDialog({
                 }
               />
             </Field>
-            {showAuthor ? (
+            {showAuthor && userSystemEnabled ? (
+              <Field label="Author" error={state.validationErrors.author}>
+                <Select
+                  aria-invalid={Boolean(state.validationErrors.author)}
+                  value={state.authorUserId}
+                  onChange={(event) =>
+                    onStateChange((current) =>
+                      applyInputChange(current, "author", {
+                        authorUserId: event.target.value,
+                        author:
+                          workspaceUsers.find(
+                            (user: WorkspaceUser) =>
+                              String(user.id) === event.target.value,
+                          )?.displayName ?? "",
+                      }),
+                    )
+                  }
+                >
+                  <option value="">Select an author</option>
+                  {workspaceUsers.map((user: WorkspaceUser) => (
+                    <option key={user.id} value={String(user.id)}>
+                      {user.displayName} ({user.role})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            {showAuthor && !userSystemEnabled ? (
               <Field label="Author" error={state.validationErrors.author}>
                 <Input
                   aria-invalid={Boolean(state.validationErrors.author)}
-                  placeholder="Jordan Singh"
                   value={state.author}
                   onChange={(event) =>
                     onStateChange((current) =>
                       applyInputChange(current, "author", {
                         author: event.target.value,
+                        authorUserId: "",
                       }),
                     )
                   }
@@ -14430,6 +15553,8 @@ function LatestVersionDialog({
   onStateChange,
   onSubmit,
   documentDetail,
+  userSystemEnabled,
+  workspaceUsers,
   lifecycle,
   availableColumns,
 }: {
@@ -14439,6 +15564,8 @@ function LatestVersionDialog({
   onStateChange: React.Dispatch<React.SetStateAction<LatestVersionDialogState>>;
   onSubmit: () => Promise<void>;
   documentDetail: DocumentDetail | null;
+  userSystemEnabled: boolean;
+  workspaceUsers: WorkspaceUser[];
   lifecycle: WorkspaceLifecycle;
   availableColumns: DocumentTableColumn[];
 }) {
@@ -14551,14 +15678,40 @@ function LatestVersionDialog({
               </Field>
             ) : null}
 
-            {showReviewedBy ? (
+            {showReviewedBy && userSystemEnabled ? (
+              <Field label="Reviewed By">
+                <Select
+                  value={state.reviewedByUserId}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      reviewedByUserId: event.target.value,
+                      reviewedBy:
+                        workspaceUsers.find(
+                          (user: WorkspaceUser) =>
+                            String(user.id) === event.target.value,
+                        )?.displayName ?? "",
+                    }))
+                  }
+                >
+                  <option value="">No reviewer</option>
+                  {workspaceUsers.map((user: WorkspaceUser) => (
+                    <option key={user.id} value={String(user.id)}>
+                      {user.displayName} ({user.role})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+
+            {showReviewedBy && !userSystemEnabled ? (
               <Field label="Reviewed By">
                 <Input
-                  placeholder="Morgan Patel"
                   value={state.reviewedBy}
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
+                      reviewedByUserId: "",
                       reviewedBy: event.target.value,
                     }))
                   }
@@ -14566,14 +15719,40 @@ function LatestVersionDialog({
               </Field>
             ) : null}
 
-            {showApprovedBy ? (
+            {showApprovedBy && userSystemEnabled ? (
+              <Field label="Approved By">
+                <Select
+                  value={state.approvedByUserId}
+                  onChange={(event) =>
+                    onStateChange((current) => ({
+                      ...current,
+                      approvedByUserId: event.target.value,
+                      approvedBy:
+                        workspaceUsers.find(
+                          (user: WorkspaceUser) =>
+                            String(user.id) === event.target.value,
+                        )?.displayName ?? "",
+                    }))
+                  }
+                >
+                  <option value="">No approver</option>
+                  {workspaceUsers.map((user: WorkspaceUser) => (
+                    <option key={user.id} value={String(user.id)}>
+                      {user.displayName} ({user.role})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+
+            {showApprovedBy && !userSystemEnabled ? (
               <Field label="Approved By">
                 <Input
-                  placeholder="Taylor Reed"
                   value={state.approvedBy}
                   onChange={(event) =>
                     onStateChange((current) => ({
                       ...current,
+                      approvedByUserId: "",
                       approvedBy: event.target.value,
                     }))
                   }
