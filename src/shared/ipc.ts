@@ -52,6 +52,8 @@ import type {
   WorkspaceLanguageInput,
   WorkspaceCreateInput,
   WorkspaceInfo,
+  WorkspaceRoleSettings,
+  WorkspaceRoleSettingsUpdateInput,
   RecentActivityItem,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
@@ -74,13 +76,15 @@ export const IPC_CHANNELS = {
   workspaceGetSession: 'workspace:getSession',
   workspaceListUsers: 'workspace:listUsers',
   workspaceRecoverAccess: 'workspace:recoverAccess',
-    workspaceCreateUser: 'workspace:createUser',
-    workspaceUpdateUser: 'workspace:updateUser',
-    workspaceActivateUser: 'workspace:activateUser',
-    workspaceDeactivateUser: 'workspace:deactivateUser',
-    workspaceDeleteUser: 'workspace:deleteUser',
-    workspaceUnarchiveUser: 'workspace:unarchiveUser',
-    workspaceResetUserPassword: 'workspace:resetUserPassword',
+  workspaceCreateUser: 'workspace:createUser',
+  workspaceUpdateUser: 'workspace:updateUser',
+  workspaceActivateUser: 'workspace:activateUser',
+  workspaceDeactivateUser: 'workspace:deactivateUser',
+  workspaceDeleteUser: 'workspace:deleteUser',
+  workspaceUnarchiveUser: 'workspace:unarchiveUser',
+  workspaceResetUserPassword: 'workspace:resetUserPassword',
+  workspaceListRoles: 'workspace:listRoles',
+  workspaceSaveRoleSettings: 'workspace:saveRoleSettings',
   workspaceUpdateSettings: 'workspace:updateSettings',
   workspaceUpdateDashboardLayout: 'workspace:updateDashboardLayout',
   workspaceListBackups: 'workspace:listBackups',
@@ -198,6 +202,11 @@ export interface DocTrackApi {
       rootPath: string,
       input: import('@shared/types').WorkspaceUserPasswordResetInput
     ) => Promise<import('@shared/types').WorkspaceUser>;
+    listRoles: (rootPath: string) => Promise<WorkspaceRoleSettings>;
+    saveRoleSettings: (
+      rootPath: string,
+      input: WorkspaceRoleSettingsUpdateInput
+    ) => Promise<WorkspaceRoleSettings>;
     updateSettings: (rootPath: string, input: WorkspaceSettingsUpdateInput) => Promise<OpenWorkspaceResult>;
     updateDashboardLayout: (
       rootPath: string,

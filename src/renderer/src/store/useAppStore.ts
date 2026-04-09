@@ -15,6 +15,7 @@ import {
   type SavedViewHealthFlagValue
 } from '@shared/savedViews';
 import { DEFAULT_WORKSPACE_SETTINGS } from '@shared/workspaceLayout';
+import { createDefaultWorkspaceRoleSettings } from '@shared/workspaceRoles';
 import type {
   CreateSavedViewInput,
   DeleteSavedViewInput,
@@ -104,6 +105,7 @@ interface AppStoreState {
 const EMPTY_WORKSPACE_SUMMARY: Omit<WorkspaceSummary, 'workspace'> = {
   settings: { ...DEFAULT_WORKSPACE_SETTINGS },
   lifecycle: createDefaultWorkspaceLifecycle(),
+  roleSettings: createDefaultWorkspaceRoleSettings(),
   users: [],
   documents: [],
   dashboard: {
@@ -150,6 +152,7 @@ const buildWorkspaceState = (
 
   return {
     ...summary,
+    roleSettings: summary.roleSettings ?? createDefaultWorkspaceRoleSettings(),
     users: summary.users ?? [],
     authKind: result.kind,
     canRecoverAccess: result.kind === 'unauthenticated' ? result.canRecoverAccess : false,

@@ -163,6 +163,13 @@ import {
   type WorkspaceSettings,
 } from "@shared/workspaceLayout";
 import {
+  BUILT_IN_WORKSPACE_ROLE_KEYS,
+  cloneWorkspaceRoleSettings,
+  createDefaultWorkspaceRoleSettings,
+  isBuiltInWorkspaceRoleKey,
+  WORKSPACE_ROLE_PERMISSION_KEYS,
+} from "@shared/workspaceRoles";
+import {
   filterDocumentsBySavedViewQuery,
   getDashboardWidgetTypeLabel,
   normalizeDashboardLayout,
@@ -218,6 +225,11 @@ import type {
   WorkspaceBackupSummary,
   WorkspaceLanguage,
   WorkspaceRole,
+  WorkspaceRoleDefinition,
+  WorkspaceRoleMode,
+  WorkspaceRolePermissions,
+  WorkspaceRoleSettings,
+  WorkspaceRoleSettingsUpdateInput,
   WorkspaceSettingsUpdateInput,
   WorkspaceSummary,
   WorkspaceUser,
@@ -391,6 +403,142 @@ const resequenceLifecycleStatuses = (
 
 const buildLifecycleStatusKey = (): string =>
   `status-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const normalizeWorkspaceRoleKey = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+const buildWorkspaceRoleKey = (
+  name: string,
+  existingKeys: Iterable<string>,
+): string => {
+  const usedKeys = new Set(existingKeys);
+  const baseKey = normalizeWorkspaceRoleKey(name) || "role";
+  let nextKey = baseKey;
+  let suffix = 2;
+  while (usedKeys.has(nextKey)) {
+    nextKey = `${baseKey}-${suffix}`;
+    suffix += 1;
+  }
+  return nextKey;
+};
+
+const resequenceWorkspaceRoles = (
+  roles: WorkspaceRoleDefinition[],
+): WorkspaceRoleDefinition[] =>
+  roles.map((role, index) => ({
+    ...role,
+    sortOrder: index,
+  }));
+
+const createEmptyWorkspaceRolePermissions = (): WorkspaceRolePermissions => ({
+  canViewWorkspace: true,
+  canEditDocuments: false,
+  canManageSharedViews: false,
+  canManageUsers: false,
+  canManageRoles: false,
+  canManageWorkspaceSettings: false,
+  canManageWorkspaceMaintenance: false,
+});
+
+const addWorkspaceRoleDefinition = (
+  roleSettings: WorkspaceRoleSettings,
+): WorkspaceRoleSettings => {
+  const nextRoleNumber = roleSettings.roles.length + 1;
+  const key = buildWorkspaceRoleKey(
+    `role-${nextRoleNumber}`,
+    roleSettings.roles.map((role) => role.key),
+  );
+  return {
+    ...roleSettings,
+    roles: resequenceWorkspaceRoles([
+      ...roleSettings.roles,
+      {
+        key,
+        name: `Role ${nextRoleNumber}`,
+        sortOrder: roleSettings.roles.length,
+        permissions: createEmptyWorkspaceRolePermissions(),
+      },
+    ]),
+  };
+};
+
+const updateWorkspaceRoleDefinition = (
+  roleSettings: WorkspaceRoleSettings,
+  roleKey: string,
+  updater: (role: WorkspaceRoleDefinition) => WorkspaceRoleDefinition,
+): WorkspaceRoleSettings => ({
+  ...roleSettings,
+  roles: resequenceWorkspaceRoles(
+    roleSettings.roles.map((role) =>
+      role.key === roleKey ? updater(role) : role,
+    ),
+  ),
+});
+
+const removeWorkspaceRoleDefinition = (
+  roleSettings: WorkspaceRoleSettings,
+  roleKey: string,
+): WorkspaceRoleSettings => ({
+  ...roleSettings,
+  roles: resequenceWorkspaceRoles(
+    roleSettings.roles.filter((role) => role.key !== roleKey),
+  ),
+});
+
+const moveWorkspaceRoleDefinition = (
+  roleSettings: WorkspaceRoleSettings,
+  roleKey: string,
+  direction: -1 | 1,
+): WorkspaceRoleSettings => {
+  const roles = [...roleSettings.roles];
+  const index = roles.findIndex((role) => role.key === roleKey);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= roles.length) {
+    return roleSettings;
+  }
+
+  const [role] = roles.splice(index, 1);
+  roles.splice(nextIndex, 0, role);
+  return {
+    ...roleSettings,
+    roles: resequenceWorkspaceRoles(roles),
+  };
+};
+
+const getAssignedCustomWorkspaceRoles = (
+  users: WorkspaceUser[],
+  roleSettings: WorkspaceRoleSettings,
+): Array<[roleKey: string, roleName: string]> =>
+  [
+    ...new Map(
+      users
+        .filter((user) => !isBuiltInWorkspaceRoleKey(user.role))
+        .map((user) => [
+          user.role,
+          roleSettings.roles.find((role) => role.key === user.role)?.name ??
+            user.roleName ??
+            user.role,
+        ]),
+    ).entries(),
+  ];
+
+const WORKSPACE_ROLE_PERMISSION_LABELS: Record<
+  (typeof WORKSPACE_ROLE_PERMISSION_KEYS)[number],
+  string
+> = {
+  canViewWorkspace: "View Workspace",
+  canEditDocuments: "Edit Documents & Data",
+  canManageSharedViews: "Manage Shared Views",
+  canManageUsers: "Manage Users",
+  canManageRoles: "Manage Roles",
+  canManageWorkspaceSettings: "Manage Workspace Settings",
+  canManageWorkspaceMaintenance: "Manage Backups / Restore / Integrity",
+};
 
 const setWorkspaceLifecycleMode = (
   lifecycle: WorkspaceLifecycle,
@@ -635,9 +783,20 @@ interface WorkspaceSettingsDialogState {
   statusRemaps: Record<string, string>;
   companyLogoSourceFilePath: string | null;
   clearCompanyLogo: boolean;
+  roleSettings: WorkspaceRoleSettings;
+  roleSettingsDialog: WorkspaceRoleSettingsDialogState;
   isSubmitting: boolean;
   validationErrors: ValidationErrors;
   isAdvancedSettingsOpen: boolean;
+}
+
+interface WorkspaceRoleSettingsDialogState {
+  open: boolean;
+  draft: WorkspaceRoleSettings;
+  remaps: Record<string, string>;
+  isSubmitting: boolean;
+  message: string;
+  tone: "warning" | "error";
 }
 
 interface ApplicationSettingsDialogState {
@@ -792,6 +951,7 @@ interface BackupDialogState {
 interface WorkspaceUsersDialogState {
   open: boolean;
   users: WorkspaceUser[];
+  roleSettings: WorkspaceRoleSettings;
   showArchivedUsers: boolean;
   selectedUserId?: number;
   username: string;
@@ -926,6 +1086,15 @@ const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
   statusRemaps: {},
   companyLogoSourceFilePath: null,
   clearCompanyLogo: false,
+  roleSettings: createDefaultWorkspaceRoleSettings(),
+  roleSettingsDialog: {
+    open: false,
+    draft: createDefaultWorkspaceRoleSettings(),
+    remaps: {},
+    isSubmitting: false,
+    message: "",
+    tone: "warning",
+  },
   isSubmitting: false,
   validationErrors: {},
   isAdvancedSettingsOpen: false,
@@ -1079,6 +1248,7 @@ const defaultBackupDialogState: BackupDialogState = {
 const defaultWorkspaceUsersDialogState: WorkspaceUsersDialogState = {
   open: false,
   users: [],
+  roleSettings: createDefaultWorkspaceRoleSettings(),
   showArchivedUsers: false,
   selectedUserId: undefined,
   username: "",
@@ -1982,6 +2152,7 @@ function App() {
     ? openWorkspaces[activeWorkspacePath]
     : undefined;
   const activeWorkspaceSession = activeWorkspace?.session ?? null;
+  const activeWorkspacePermissions = activeWorkspaceSession?.permissions ?? null;
   const isActiveWorkspaceAuthenticated =
     activeWorkspace?.authKind === "authenticated";
   const hasActiveWorkspaceAccess = Boolean(
@@ -1990,6 +2161,13 @@ function App() {
   const isActiveWorkspaceUserSystemEnabled = Boolean(
     activeWorkspace?.settings.userSystemEnabled,
   );
+  const canManageWorkspaceUsers = Boolean(
+    activeWorkspacePermissions?.canManageUsers,
+  );
+  const canManageWorkspaceRoles = Boolean(
+    activeWorkspacePermissions?.canManageRoles,
+  );
+  const canOpenWorkspaceUsers = canManageWorkspaceUsers;
   const activeWorkspaceFilesystemAttention = activeWorkspace
     ? getWorkspaceFilesystemAttentionCounts(activeWorkspace)
     : null;
@@ -2712,6 +2890,9 @@ function App() {
       return;
     }
 
+    const roleSettings =
+      activeWorkspace.roleSettings ?? createDefaultWorkspaceRoleSettings();
+
     setWorkspaceSettingsDialog({
       open: true,
       rootPath: activeWorkspace.workspace.rootPath,
@@ -2726,6 +2907,15 @@ function App() {
       statusRemaps: {},
       companyLogoSourceFilePath: null,
       clearCompanyLogo: false,
+      roleSettings: cloneWorkspaceRoleSettings(roleSettings),
+      roleSettingsDialog: {
+        open: false,
+        draft: cloneWorkspaceRoleSettings(roleSettings),
+        remaps: {},
+        isSubmitting: false,
+        message: "",
+        tone: "warning",
+      },
       isSubmitting: false,
       validationErrors: {},
       isAdvancedSettingsOpen: false,
@@ -4820,19 +5010,31 @@ function App() {
       showArchivedUsers: options?.showArchivedUsers ?? state.showArchivedUsers,
       validationErrors: {},
     }));
-    void window.docTrack.workspace
-      .listUsers(activeWorkspacePath)
-      .then((users) => {
+    void Promise.all([
+      window.docTrack.workspace.listUsers(activeWorkspacePath),
+      window.docTrack.workspace.listRoles(activeWorkspacePath),
+    ])
+      .then(([users, roleSettings]) => {
+        const normalizedUsers = users.map((user) => ({
+          ...user,
+          roleName:
+            roleSettings.roles.find((role) => role.key === user.role)?.name ??
+            user.roleName ??
+            user.role,
+        }));
         const initialSelectedUser =
-          users.find((user) => user.id === options?.selectedUserId) ??
-          users.find((user) => user.id === activeWorkspaceSession?.user.id) ??
-          users.find((user) => !user.archived) ??
-          users[0];
+          normalizedUsers.find((user) => user.id === options?.selectedUserId) ??
+          normalizedUsers.find((user) => user.id === activeWorkspaceSession?.user.id) ??
+          normalizedUsers.find((user) => !user.archived) ??
+          normalizedUsers[0];
+        const defaultRoleKey =
+          roleSettings.roles[0]?.key ?? BUILT_IN_WORKSPACE_ROLE_KEYS[2];
 
         setWorkspaceUsersDialog((state) => ({
           ...state,
           open: true,
-          users,
+          users: normalizedUsers,
+          roleSettings,
           showArchivedUsers:
             options?.showArchivedUsers ?? state.showArchivedUsers,
           isLoading: false,
@@ -4840,7 +5042,7 @@ function App() {
           selectedUserId: initialSelectedUser?.id,
           username: initialSelectedUser?.username ?? "",
           displayName: initialSelectedUser?.displayName ?? "",
-          role: initialSelectedUser?.role ?? "viewer",
+          role: initialSelectedUser?.role ?? defaultRoleKey,
           password: "",
           formMessage: "",
           formTone: "warning",
@@ -4861,7 +5063,10 @@ function App() {
       selectedUserId: selectedUser?.id,
       username: selectedUser?.username ?? "",
       displayName: selectedUser?.displayName ?? "",
-      role: selectedUser?.role ?? "viewer",
+      role:
+        selectedUser?.role ??
+        state.roleSettings.roles[0]?.key ??
+        BUILT_IN_WORKSPACE_ROLE_KEYS[2],
       password: "",
       formMessage: "",
       formTone: "warning",
@@ -5124,6 +5329,184 @@ function App() {
           "Unable to reset the selected user's password.",
         ),
         formTone: "error",
+      }));
+    }
+  };
+
+  const openWorkspaceRoleSettingsDialog = (
+    mode?: WorkspaceRoleMode,
+  ): void => {
+    setWorkspaceSettingsDialog((state) => {
+      const draft =
+        mode === "default"
+          ? createDefaultWorkspaceRoleSettings("default")
+          : mode === "custom"
+            ? state.roleSettings.mode === "custom"
+              ? cloneWorkspaceRoleSettings(state.roleSettings)
+              : createDefaultWorkspaceRoleSettings("custom")
+            : cloneWorkspaceRoleSettings(state.roleSettings);
+
+      return {
+        ...state,
+        roleSettingsDialog: {
+          open: true,
+          draft,
+          remaps: {},
+          isSubmitting: false,
+          message: "",
+          tone: "warning",
+        },
+      };
+    });
+  };
+
+  const handleSaveWorkspaceRoleSettings = async () => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const draft = workspaceSettingsDialog.roleSettingsDialog.draft;
+    const assignedCustomRoles = getAssignedCustomWorkspaceRoles(
+      activeWorkspace?.users ?? [],
+      workspaceSettingsDialog.roleSettings,
+    );
+    let input: WorkspaceRoleSettingsUpdateInput;
+
+    if (draft.mode === "custom") {
+      const trimmedNames = draft.roles.map((role) => role.name.trim());
+      const normalizedNames = trimmedNames.map((name) =>
+        name.toLocaleLowerCase(),
+      );
+      if (draft.roles.length === 0) {
+        setWorkspaceSettingsDialog((state) => ({
+          ...state,
+          roleSettingsDialog: {
+            ...state.roleSettingsDialog,
+            message: "At least one custom role must remain.",
+            tone: "warning",
+          },
+        }));
+        return;
+      }
+      if (trimmedNames.some((name) => name.length === 0)) {
+        setWorkspaceSettingsDialog((state) => ({
+          ...state,
+          roleSettingsDialog: {
+            ...state.roleSettingsDialog,
+            message: "Every role needs a name before saving.",
+            tone: "warning",
+          },
+        }));
+        return;
+      }
+      if (new Set(normalizedNames).size !== normalizedNames.length) {
+        setWorkspaceSettingsDialog((state) => ({
+          ...state,
+          roleSettingsDialog: {
+            ...state.roleSettingsDialog,
+            message: "Role names must be unique.",
+            tone: "warning",
+          },
+        }));
+        return;
+      }
+      if (
+        !draft.roles.some(
+          (role) =>
+            role.permissions.canManageUsers &&
+            role.permissions.canManageRoles,
+        )
+      ) {
+        setWorkspaceSettingsDialog((state) => ({
+          ...state,
+          roleSettingsDialog: {
+            ...state.roleSettingsDialog,
+            message:
+              "At least one custom role must be able to manage users and roles.",
+            tone: "warning",
+          },
+        }));
+        return;
+      }
+
+      input = {
+        mode: "custom",
+        roles: resequenceWorkspaceRoles(
+          draft.roles.map((role) => ({
+            ...role,
+            name: role.name.trim(),
+          })),
+        ),
+      };
+    } else {
+      const assignedCustomRoleKeys = assignedCustomRoles.map(([roleKey]) => roleKey);
+      const missingRemap = assignedCustomRoleKeys.find(
+        (roleKey) => !workspaceSettingsDialog.roleSettingsDialog.remaps[roleKey],
+      );
+      if (missingRemap) {
+        setWorkspaceSettingsDialog((state) => ({
+          ...state,
+          roleSettingsDialog: {
+            ...state.roleSettingsDialog,
+            message:
+              "Choose a built-in replacement for every assigned custom role before saving.",
+            tone: "warning",
+          },
+        }));
+        return;
+      }
+
+      input = {
+        mode: "default",
+        roleRemaps: assignedCustomRoleKeys.map((roleKey) => ({
+          fromRoleKey: roleKey,
+          toRoleKey: workspaceSettingsDialog.roleSettingsDialog.remaps[roleKey],
+        })),
+      };
+    }
+
+    try {
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        roleSettingsDialog: {
+          ...state.roleSettingsDialog,
+          isSubmitting: true,
+          message: "",
+        },
+      }));
+      const nextRoleSettings = await window.docTrack.workspace.saveRoleSettings(
+        activeWorkspacePath,
+        input,
+      );
+      await refreshWorkspace(activeWorkspacePath);
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        roleSettings: nextRoleSettings,
+        roleSettingsDialog: {
+          open: false,
+          draft: cloneWorkspaceRoleSettings(nextRoleSettings),
+          remaps: {},
+          isSubmitting: false,
+          message: "",
+          tone: "warning",
+        },
+      }));
+      setNotification({
+        tone: "success",
+        message: "Workspace role settings were updated.",
+      });
+    } catch (error) {
+      setWorkspaceSettingsDialog((state) => ({
+        ...state,
+        roleSettingsDialog: {
+          ...state.roleSettingsDialog,
+          isSubmitting: false,
+          message: getErrorMessage(
+            error,
+            "Unable to save the workspace role settings.",
+          ),
+          tone: "error",
+        },
       }));
     }
   };
@@ -6554,25 +6937,32 @@ function App() {
                   {activeWorkspaceSession.user.displayName}
                 </div>
                 <div className="text-muted-foreground">
-                  {activeWorkspaceSession.user.role}
+                  {activeWorkspaceSession.user.roleName ??
+                    activeWorkspaceSession.user.role}
                 </div>
               </div>
             ) : null}
             <SidebarButton
               icon={FilePlus2}
               label="New Document"
-              disabled={!hasActiveWorkspaceAccess}
+              disabled={
+                !hasActiveWorkspaceAccess ||
+                !activeWorkspacePermissions?.canEditDocuments
+              }
               onClick={openCreateDocumentDialog}
             />
             <SidebarButton
               icon={Settings2}
               label="Workspace Settings"
               active={workspaceSettingsDialog.open}
-              disabled={!hasActiveWorkspaceAccess}
+              disabled={
+                !hasActiveWorkspaceAccess ||
+                (!activeWorkspacePermissions?.canManageWorkspaceSettings &&
+                  !activeWorkspacePermissions?.canManageRoles)
+              }
               onClick={openWorkspaceSettingsDialog}
             />
-            {isActiveWorkspaceUserSystemEnabled &&
-            activeWorkspaceSession?.user.role === "admin" ? (
+            {isActiveWorkspaceUserSystemEnabled && canOpenWorkspaceUsers ? (
               <SidebarButton
                 icon={Settings}
                 label="Workspace Users"
@@ -6585,7 +6975,10 @@ function App() {
               icon={History}
               label="Backups & Recovery"
               active={backupDialog.open}
-              disabled={!hasActiveWorkspaceAccess}
+              disabled={
+                !hasActiveWorkspaceAccess ||
+                !activeWorkspacePermissions?.canManageWorkspaceMaintenance
+              }
               onClick={openBackupDialog}
             />
             {isActiveWorkspaceUserSystemEnabled ? (
@@ -6651,13 +7044,21 @@ function App() {
 
       <WorkspaceSettingsDialog
         state={workspaceSettingsDialog}
+        currentPermissions={activeWorkspacePermissions ?? undefined}
+        assignedCustomRoles={getAssignedCustomWorkspaceRoles(
+          activeWorkspace?.users ?? [],
+          workspaceSettingsDialog.roleSettings,
+        )}
         onStateChange={setWorkspaceSettingsDialog}
         onSubmit={handleSaveWorkspaceSettings}
+        onOpenRoleSettings={openWorkspaceRoleSettingsDialog}
+        onSaveRoleSettings={handleSaveWorkspaceRoleSettings}
       />
 
       <WorkspaceUsersDialog
         state={workspaceUsersDialog}
         currentUserId={activeWorkspaceSession?.user.id}
+        currentPermissions={activeWorkspacePermissions ?? undefined}
         onOpenChange={(open) =>
           setWorkspaceUsersDialog(
             open
@@ -7708,18 +8109,26 @@ function ToggleSetting({
   title,
   description,
   checked,
+  disabled = false,
   onChange,
 }: {
   title: string;
   description: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-[13px]">
+    <label
+      className={cn(
+        "flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-[13px]",
+        disabled && "opacity-70",
+      )}
+    >
       <input
         checked={checked}
         className="mt-1"
+        disabled={disabled}
         type="checkbox"
         onChange={(event) => onChange(event.target.checked)}
       />
@@ -13986,15 +14395,32 @@ function DocumentExportDialog({
 
 function WorkspaceSettingsDialog({
   state,
+  currentPermissions,
+  assignedCustomRoles,
   onStateChange,
   onSubmit,
+  onOpenRoleSettings,
+  onSaveRoleSettings,
 }: {
   state: WorkspaceSettingsDialogState;
+  currentPermissions?: NonNullable<
+    ReturnType<typeof useAppStore.getState>["openWorkspaces"][string]["session"]
+  >["permissions"];
+  assignedCustomRoles: Array<[roleKey: string, roleName: string]>;
   onStateChange: React.Dispatch<
     React.SetStateAction<WorkspaceSettingsDialogState>
   >;
   onSubmit: () => Promise<void>;
+  onOpenRoleSettings: (mode?: WorkspaceRoleMode) => void;
+  onSaveRoleSettings: () => Promise<void>;
 }) {
+  const canManageWorkspaceSettings = Boolean(
+    currentPermissions?.canManageWorkspaceSettings,
+  );
+  const canManageRoles = Boolean(currentPermissions?.canManageRoles);
+  const roleModeLabel =
+    state.roleSettings.mode === "custom" ? "Custom roles" : "Default roles";
+
   return (
     <Dialog
       open={state.open}
@@ -14016,70 +14442,163 @@ function WorkspaceSettingsDialog({
         <div className="min-h-0 overflow-y-auto">
           <div className="px-1 py-1 pr-2">
             <div className="mb-4 grid gap-4">
-              <ToggleSetting
-                title="Enable local user sign-in"
-                description="Require workspace sign-in and use workspace user records for author, reviewer, and approver metadata."
-                checked={state.settings.userSystemEnabled}
-                onChange={(checked) =>
-                  onStateChange((current) => ({
-                    ...current,
-                    settings: {
-                      ...current.settings,
-                      userSystemEnabled: checked,
-                    },
-                    validationErrors: {},
-                  }))
-                }
-              />
-
-              {!state.originalSettings?.userSystemEnabled &&
-              state.settings.userSystemEnabled ? (
-                <div className="grid gap-4 rounded-2xl border border-border bg-background p-4 md:grid-cols-3">
-                  <Field label="Bootstrap Admin Display Name">
-                    <Input
-                      placeholder="Taylor Reed"
-                      value={state.initialAdminDisplayName}
-                      onChange={(event) =>
-                        onStateChange((current) =>
-                          applyInputChange(current, "initialAdminDisplayName", {
-                            initialAdminDisplayName: event.target.value,
-                          }),
-                        )
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Bootstrap Admin Username">
-                    <Input
-                      placeholder="admin"
-                      value={state.initialAdminUsername}
-                      onChange={(event) =>
-                        onStateChange((current) => ({
-                          ...current,
-                          initialAdminUsername: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Bootstrap Admin Password / PIN">
-                    <Input
-                      type="password"
-                      value={state.initialAdminPassword}
-                      onChange={(event) =>
-                        onStateChange((current) =>
-                          applyInputChange(current, "initialAdminPassword", {
-                            initialAdminPassword: event.target.value,
-                          }),
-                        )
-                      }
-                    />
-                  </Field>
-
-                  <div className="md:col-span-3 text-xs text-muted-foreground">
-                    Only needed if this workspace does not already have any
-                    local users.
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div>
+                  <div className="text-base font-semibold">
+                    Permissions & Authentication
                   </div>
+                  <div className="mt-1 text-[13px] text-muted-foreground">
+                    Configure local sign-in access and choose whether this
+                    workspace uses the built-in role model or custom roles.
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4">
+                  <ToggleSetting
+                    title="Enable local user sign-in"
+                    description="Require workspace sign-in and use workspace user records for author, reviewer, and approver metadata."
+                    checked={state.settings.userSystemEnabled}
+                    disabled={!canManageWorkspaceSettings}
+                    onChange={(checked) =>
+                      onStateChange((current) => ({
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          userSystemEnabled: checked,
+                        },
+                        validationErrors: {},
+                      }))
+                    }
+                  />
+
+                  {!state.originalSettings?.userSystemEnabled &&
+                  state.settings.userSystemEnabled ? (
+                    <div className="grid gap-4 rounded-2xl border border-border bg-background p-4 md:grid-cols-3">
+                      <Field label="Bootstrap Admin Display Name">
+                        <Input
+                          disabled={!canManageWorkspaceSettings}
+                          placeholder="Taylor Reed"
+                          value={state.initialAdminDisplayName}
+                          onChange={(event) =>
+                            onStateChange((current) =>
+                              applyInputChange(
+                                current,
+                                "initialAdminDisplayName",
+                                {
+                                  initialAdminDisplayName: event.target.value,
+                                },
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+
+                      <Field label="Bootstrap Admin Username">
+                        <Input
+                          disabled={!canManageWorkspaceSettings}
+                          placeholder="admin"
+                          value={state.initialAdminUsername}
+                          onChange={(event) =>
+                            onStateChange((current) => ({
+                              ...current,
+                              initialAdminUsername: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+
+                      <Field label="Bootstrap Admin Password / PIN">
+                        <Input
+                          disabled={!canManageWorkspaceSettings}
+                          type="password"
+                          value={state.initialAdminPassword}
+                          onChange={(event) =>
+                            onStateChange((current) =>
+                              applyInputChange(
+                                current,
+                                "initialAdminPassword",
+                                {
+                                  initialAdminPassword: event.target.value,
+                                },
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+
+                      <div className="md:col-span-3 text-xs text-muted-foreground">
+                        Only needed if this workspace does not already have any
+                        local users.
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">Roles</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {state.settings.userSystemEnabled
+                            ? "Choose the role model for workspace users and open the designer to review or edit role definitions."
+                            : "Role rules are saved per workspace and take effect whenever local user sign-in is enabled."}
+                        </div>
+                      </div>
+                      <Badge variant="outline">{roleModeLabel}</Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        variant={
+                          state.roleSettings.mode === "default"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        disabled={!canManageRoles}
+                        onClick={() => onOpenRoleSettings("default")}
+                      >
+                        Default
+                      </Button>
+                      <Button
+                        variant={
+                          state.roleSettings.mode === "custom"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        disabled={!canManageRoles}
+                        onClick={() => onOpenRoleSettings("custom")}
+                      >
+                        Custom
+                      </Button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200",
+                          !canManageRoles && "cursor-not-allowed opacity-70",
+                        )}
+                        disabled={!canManageRoles}
+                        onClick={() => onOpenRoleSettings("custom")}
+                      >
+                        <Settings className="h-4 w-4" />
+                        Role Designer
+                      </button>
+                    </div>
+
+                    {!canManageRoles ? (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        Your account can view the active role model but cannot
+                        change workspace roles.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {!canManageWorkspaceSettings ? (
+                <div className="text-xs text-muted-foreground">
+                  Workspace storage and metadata settings are visible here, but
+                  your account cannot save changes to them.
                 </div>
               ) : null}
             </div>
@@ -14153,7 +14672,10 @@ function WorkspaceSettingsDialog({
           >
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+          <Button
+            disabled={state.isSubmitting || !canManageWorkspaceSettings}
+            onClick={() => void onSubmit()}
+          >
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -14162,6 +14684,36 @@ function WorkspaceSettingsDialog({
             Save Settings
           </Button>
         </DialogFooter>
+
+        <WorkspaceRoleSettingsDialog
+          state={state.roleSettingsDialog}
+          currentRoleSettings={state.roleSettings}
+          assignedCustomRoles={assignedCustomRoles}
+          canManageRoles={canManageRoles}
+          onOpenChange={(open) =>
+            onStateChange((current) => ({
+              ...current,
+              roleSettingsDialog: open
+                ? current.roleSettingsDialog
+                : {
+                    ...current.roleSettingsDialog,
+                    open: false,
+                    isSubmitting: false,
+                    message: "",
+                  },
+            }))
+          }
+          onStateChange={(updater) =>
+            onStateChange((current) => ({
+              ...current,
+              roleSettingsDialog:
+                typeof updater === "function"
+                  ? updater(current.roleSettingsDialog)
+                  : updater,
+            }))
+          }
+          onSave={onSaveRoleSettings}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -15188,6 +15740,7 @@ function WorkspaceAdvancedSettingsDialog({
 function WorkspaceUsersDialog({
   state,
   currentUserId,
+  currentPermissions,
   onOpenChange,
   onStateChange,
   onSelectUser,
@@ -15199,6 +15752,9 @@ function WorkspaceUsersDialog({
 }: {
   state: WorkspaceUsersDialogState;
   currentUserId?: number;
+  currentPermissions?: NonNullable<
+    ReturnType<typeof useAppStore.getState>["openWorkspaces"][string]["session"]
+  >["permissions"];
   onOpenChange: (open: boolean) => void;
   onStateChange: React.Dispatch<
     React.SetStateAction<WorkspaceUsersDialogState>
@@ -15213,6 +15769,7 @@ function WorkspaceUsersDialog({
   const selectedUser =
     state.users.find((user) => user.id === state.selectedUserId) ?? null;
   const isCurrentSignedInUser = selectedUser?.id === currentUserId;
+  const canManageUsers = Boolean(currentPermissions?.canManageUsers);
   const activeUsers = state.users.filter((user) => !user.archived);
   const archivedUsers = state.users.filter((user) => user.archived);
   const currentSignedInUser =
@@ -15222,6 +15779,10 @@ function WorkspaceUsersDialog({
     ? [currentSignedInUser, ...otherUsers]
     : activeUsers;
   const isSelectedArchivedUser = Boolean(selectedUser?.archived);
+  const roleOptions = [...state.roleSettings.roles].sort(
+    (left, right) => left.sortOrder - right.sortOrder,
+  );
+  const userFieldsDisabled = isSelectedArchivedUser || !canManageUsers;
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
@@ -15247,7 +15808,9 @@ function WorkspaceUsersDialog({
                     selectedUserId: undefined,
                     username: "",
                     displayName: "",
-                    role: "viewer",
+                    role:
+                      current.roleSettings.roles[0]?.key ??
+                      BUILT_IN_WORKSPACE_ROLE_KEYS[2],
                     password: "",
                     formMessage: "",
                     formTone: "warning",
@@ -15310,7 +15873,7 @@ function WorkspaceUsersDialog({
                                 ) : null}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                @{user.username} • {user.role}
+                                @{user.username} • {user.roleName}
                               </div>
                             </div>
                             <Badge
@@ -15364,7 +15927,7 @@ function WorkspaceUsersDialog({
                                   {user.displayName}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  @{user.username} • {user.role} •{" "}
+                                  @{user.username} • {user.roleName} •{" "}
                                   {user.linkedRecordCount} linked
                                 </div>
                               </div>
@@ -15394,7 +15957,7 @@ function WorkspaceUsersDialog({
                 error={state.validationErrors.displayName}
               >
                 <Input
-                  disabled={isSelectedArchivedUser}
+                  disabled={userFieldsDisabled}
                   value={state.displayName}
                   onChange={(event) =>
                     onStateChange((current) =>
@@ -15409,7 +15972,7 @@ function WorkspaceUsersDialog({
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Username" error={state.validationErrors.username}>
                   <Input
-                    disabled={isSelectedArchivedUser}
+                    disabled={userFieldsDisabled}
                     value={state.username}
                     onChange={(event) =>
                       onStateChange((current) =>
@@ -15423,7 +15986,7 @@ function WorkspaceUsersDialog({
 
                 <Field label="Role">
                   <Select
-                    disabled={isSelectedArchivedUser}
+                    disabled={userFieldsDisabled}
                     value={state.role}
                     onChange={(event) =>
                       onStateChange((current) => ({
@@ -15433,9 +15996,11 @@ function WorkspaceUsersDialog({
                       }))
                     }
                   >
-                    <option value="admin">Admin</option>
-                    <option value="editor">Editor</option>
-                    <option value="viewer">Viewer</option>
+                    {roleOptions.map((role) => (
+                      <option key={role.key} value={role.key}>
+                        {role.name}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
               </div>
@@ -15445,7 +16010,7 @@ function WorkspaceUsersDialog({
                 error={state.validationErrors.password}
               >
                 <Input
-                  disabled={isSelectedArchivedUser}
+                  disabled={userFieldsDisabled}
                   type="password"
                   value={state.password}
                   onChange={(event) =>
@@ -15466,7 +16031,7 @@ function WorkspaceUsersDialog({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
-                    disabled={state.isSubmitting}
+                    disabled={state.isSubmitting || !canManageUsers}
                     onClick={() => void onResetPassword()}
                   >
                     Reset Password
@@ -15476,6 +16041,7 @@ function WorkspaceUsersDialog({
                       variant="outline"
                       disabled={
                         state.isSubmitting ||
+                        !canManageUsers ||
                         (Boolean(selectedUser.signInEnabled) &&
                           isCurrentSignedInUser)
                       }
@@ -15487,7 +16053,11 @@ function WorkspaceUsersDialog({
                   {selectedUser ? (
                     <Button
                       variant="outline"
-                      disabled={state.isSubmitting || isCurrentSignedInUser}
+                      disabled={
+                        state.isSubmitting ||
+                        !canManageUsers ||
+                        isCurrentSignedInUser
+                      }
                       onClick={() => onDelete(selectedUser)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -15503,7 +16073,7 @@ function WorkspaceUsersDialog({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
-                    disabled={state.isSubmitting}
+                    disabled={state.isSubmitting || !canManageUsers}
                     onClick={() => void onUnarchive(selectedUser)}
                   >
                     Restore User
@@ -15525,6 +16095,11 @@ function WorkspaceUsersDialog({
                   to inactive.
                 </div>
               ) : null}
+              {!canManageUsers ? (
+                <div className="text-xs text-muted-foreground">
+                  Your account can view workspace users but cannot edit them.
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -15534,7 +16109,9 @@ function WorkspaceUsersDialog({
             Close
           </Button>
           <Button
-            disabled={state.isSubmitting || isSelectedArchivedUser}
+            disabled={
+              state.isSubmitting || isSelectedArchivedUser || !canManageUsers
+            }
             onClick={() => void onSave()}
           >
             {state.isSubmitting ? (
@@ -15543,6 +16120,350 @@ function WorkspaceUsersDialog({
               <Settings className="h-4 w-4" />
             )}
             {state.selectedUserId ? "Save User" : "Create User"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspaceRoleSettingsDialog({
+  state,
+  currentRoleSettings,
+  assignedCustomRoles,
+  canManageRoles,
+  onOpenChange,
+  onStateChange,
+  onSave,
+}: {
+  state: WorkspaceRoleSettingsDialogState;
+  currentRoleSettings: WorkspaceRoleSettings;
+  assignedCustomRoles: Array<[roleKey: string, roleName: string]>;
+  canManageRoles: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: React.Dispatch<
+    React.SetStateAction<WorkspaceRoleSettingsDialogState>
+  >;
+  onSave: () => Promise<void>;
+}) {
+  const orderedRoles = [...state.draft.roles].sort(
+    (left, right) => left.sortOrder - right.sortOrder,
+  );
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(92vw,900px)] max-h-[82vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Role Designer</DialogTitle>
+          <DialogDescription>
+            Switch between the built-in role model and a custom workspace role
+            designer.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="grid gap-4">
+            {state.message ? (
+              <InlineAlert tone={state.tone} message={state.message} />
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={state.draft.mode === "default" ? "default" : "outline"}
+                disabled={state.isSubmitting}
+                onClick={() =>
+                  onStateChange((current) => ({
+                    ...current,
+                    message: "",
+                    draft:
+                      current.draft.mode === "default"
+                        ? current.draft
+                        : createDefaultWorkspaceRoleSettings("default"),
+                  }))
+                }
+              >
+                Default
+              </Button>
+              <Button
+                variant={state.draft.mode === "custom" ? "default" : "outline"}
+                disabled={state.isSubmitting}
+                onClick={() =>
+                  onStateChange((current) => ({
+                    ...current,
+                    message: "",
+                    draft:
+                      current.draft.mode === "custom"
+                        ? current.draft
+                        : currentRoleSettings.mode === "custom"
+                          ? cloneWorkspaceRoleSettings(currentRoleSettings)
+                          : createDefaultWorkspaceRoleSettings("custom"),
+                  }))
+                }
+              >
+                Custom
+              </Button>
+            </div>
+
+            {state.draft.mode === "default" ? (
+              <div className="grid gap-3">
+                <div className="rounded-xl border border-border bg-card p-3 text-[13px] text-muted-foreground">
+                  Uses the current built-in `admin`, `editor`, and `viewer`
+                  rules. Switch to custom mode to design workspace-specific
+                  roles.
+                </div>
+                {orderedRoles.map((role) => (
+                  <div
+                    key={role.key}
+                    className="rounded-xl border border-border bg-background p-3"
+                  >
+                    <div className="font-medium">{role.name}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {WORKSPACE_ROLE_PERMISSION_KEYS.filter(
+                        (permissionKey) => role.permissions[permissionKey],
+                      ).map((permissionKey) => (
+                        <Badge key={permissionKey} variant="outline">
+                          {WORKSPACE_ROLE_PERMISSION_LABELS[permissionKey]}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {assignedCustomRoles.length > 0 ? (
+                  <div className="rounded-xl border border-border bg-card p-3">
+                    <div className="font-medium">Custom Role Remapping</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Reassign users on custom roles before switching back to the
+                      built-in model.
+                    </div>
+                    <div className="mt-3 grid gap-3">
+                      {assignedCustomRoles.map(([roleKey, roleName]) => (
+                        <Field key={roleKey} label={roleName}>
+                          <Select
+                            disabled={!canManageRoles || state.isSubmitting}
+                            value={state.remaps[roleKey] ?? ""}
+                            onChange={(event) =>
+                              onStateChange((current) => ({
+                                ...current,
+                                remaps: {
+                                  ...current.remaps,
+                                  [roleKey]: event.target.value,
+                                },
+                                message: "",
+                              }))
+                            }
+                          >
+                            <option value="">Choose a built-in role</option>
+                            {BUILT_IN_WORKSPACE_ROLE_KEYS.map((builtInRoleKey) => {
+                              const role = orderedRoles.find(
+                                (candidate) => candidate.key === builtInRoleKey,
+                              );
+                              return role ? (
+                                <option key={builtInRoleKey} value={builtInRoleKey}>
+                                  {role.name}
+                                </option>
+                              ) : null;
+                            })}
+                          </Select>
+                        </Field>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3">
+                  <div>
+                    <div className="font-medium">Custom Roles</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Define role names, order, and permission combinations for
+                      this workspace.
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canManageRoles || state.isSubmitting}
+                    onClick={() =>
+                      onStateChange((current) => ({
+                        ...current,
+                        message: "",
+                        draft: addWorkspaceRoleDefinition(current.draft),
+                      }))
+                    }
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Role
+                  </Button>
+                </div>
+
+                {orderedRoles.map((role, index) => {
+                  const isAssigned = assignedCustomRoles.some(
+                    ([roleKey]) => roleKey === role.key,
+                  );
+                  return (
+                    <div
+                      key={role.key}
+                      className="rounded-xl border border-border bg-background p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-[220px] flex-1">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            Role Name
+                          </div>
+                          <Input
+                            disabled={!canManageRoles || state.isSubmitting}
+                            value={role.name}
+                            onChange={(event) =>
+                              onStateChange((current) => ({
+                                ...current,
+                                message: "",
+                                draft: updateWorkspaceRoleDefinition(
+                                  current.draft,
+                                  role.key,
+                                  (existing) => ({
+                                    ...existing,
+                                    name: event.target.value,
+                                  }),
+                                ),
+                              }))
+                            }
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !canManageRoles ||
+                              state.isSubmitting ||
+                              index === 0
+                            }
+                            onClick={() =>
+                              onStateChange((current) => ({
+                                ...current,
+                                draft: moveWorkspaceRoleDefinition(
+                                  current.draft,
+                                  role.key,
+                                  -1,
+                                ),
+                              }))
+                            }
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !canManageRoles ||
+                              state.isSubmitting ||
+                              index === orderedRoles.length - 1
+                            }
+                            onClick={() =>
+                              onStateChange((current) => ({
+                                ...current,
+                                draft: moveWorkspaceRoleDefinition(
+                                  current.draft,
+                                  role.key,
+                                  1,
+                                ),
+                              }))
+                            }
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={
+                              !canManageRoles ||
+                              state.isSubmitting ||
+                              orderedRoles.length <= 1 ||
+                              isAssigned
+                            }
+                            onClick={() =>
+                              onStateChange((current) => ({
+                                ...current,
+                                message: "",
+                                draft: removeWorkspaceRoleDefinition(
+                                  current.draft,
+                                  role.key,
+                                ),
+                              }))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {WORKSPACE_ROLE_PERMISSION_KEYS.map((permissionKey) => (
+                          <label
+                            key={permissionKey}
+                            className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[13px]"
+                          >
+                            <input
+                              checked={role.permissions[permissionKey]}
+                              className="mt-1"
+                              disabled={!canManageRoles || state.isSubmitting}
+                              type="checkbox"
+                              onChange={(event) =>
+                                onStateChange((current) => ({
+                                  ...current,
+                                  message: "",
+                                  draft: updateWorkspaceRoleDefinition(
+                                    current.draft,
+                                    role.key,
+                                    (existing) => ({
+                                      ...existing,
+                                      permissions: {
+                                        ...existing.permissions,
+                                        [permissionKey]: event.target.checked,
+                                      },
+                                    }),
+                                  ),
+                                }))
+                              }
+                            />
+                            <span>
+                              {WORKSPACE_ROLE_PERMISSION_LABELS[permissionKey]}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+
+                      {isAssigned ? (
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          This role is still assigned to one or more users and
+                          cannot be removed.
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button
+            disabled={!canManageRoles || state.isSubmitting}
+            onClick={() => void onSave()}
+          >
+            {state.isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Settings className="h-4 w-4" />
+            )}
+            Save Role Settings
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -15648,7 +16569,7 @@ function DocumentDialog({
                   <option value="">Select an author</option>
                   {workspaceUsers.map((user: WorkspaceUser) => (
                     <option key={user.id} value={String(user.id)}>
-                      {user.displayName} ({user.role})
+                      {user.displayName} ({user.roleName})
                     </option>
                   ))}
                 </Select>
@@ -16148,7 +17069,7 @@ function LatestVersionDialog({
                   <option value="">No reviewer</option>
                   {workspaceUsers.map((user: WorkspaceUser) => (
                     <option key={user.id} value={String(user.id)}>
-                      {user.displayName} ({user.role})
+                      {user.displayName} ({user.roleName})
                     </option>
                   ))}
                 </Select>
@@ -16189,7 +17110,7 @@ function LatestVersionDialog({
                   <option value="">No approver</option>
                   {workspaceUsers.map((user: WorkspaceUser) => (
                     <option key={user.id} value={String(user.id)}>
-                      {user.displayName} ({user.role})
+                      {user.displayName} ({user.roleName})
                     </option>
                   ))}
                 </Select>

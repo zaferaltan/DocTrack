@@ -1,28 +1,25 @@
 import path from 'node:path';
-import type { WorkspaceRole, WorkspacePermissions, WorkspaceSession, WorkspaceUser } from '@shared/types';
+import type { WorkspaceSession, WorkspaceUser } from '@shared/types';
+import { WorkspaceRoleService } from '@main/services/workspaceRoleService';
 import { nowIso } from '@main/utils/date';
 
 const normalizeRootPath = (rootPath: string): string => path.resolve(rootPath);
 
-const buildPermissions = (role: WorkspaceRole): WorkspacePermissions => ({
-  canReadWorkspace: true,
-  canEditWorkspace: role === 'admin' || role === 'editor',
-  canManageWorkspace: role === 'admin'
-});
-
 export class WorkspaceSessionService {
   private readonly sessions = new Map<string, WorkspaceSession>();
 
-  createSession(user: WorkspaceUser): WorkspaceSession {
+  constructor(private readonly workspaceRoleService: WorkspaceRoleService) {}
+
+  createSession(rootPath: string, user: WorkspaceUser): WorkspaceSession {
     return {
       user,
-      permissions: buildPermissions(user.role),
+      permissions: this.workspaceRoleService.getPermissions(rootPath, user.role),
       signedInAt: nowIso()
     };
   }
 
   setSession(senderId: number, rootPath: string, user: WorkspaceUser): WorkspaceSession {
-    const session = this.createSession(user);
+    const session = this.createSession(rootPath, user);
     this.sessions.set(this.getKey(senderId, rootPath), session);
     return session;
   }
@@ -42,7 +39,7 @@ export class WorkspaceSessionService {
         this.sessions.set(key, {
           ...session,
           user,
-          permissions: buildPermissions(user.role)
+          permissions: this.workspaceRoleService.getPermissions(rootPath, user.role)
         });
       }
     }

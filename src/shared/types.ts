@@ -35,12 +35,53 @@ export interface WorkspaceInfo {
 
 export const WORKSPACE_ROLES = ['admin', 'editor', 'viewer'] as const;
 
-export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
+export type WorkspaceRole = string;
+export type WorkspaceRoleMode = 'default' | 'custom';
+
+export interface WorkspaceRolePermissions {
+  canViewWorkspace: boolean;
+  canEditDocuments: boolean;
+  canManageSharedViews: boolean;
+  canManageUsers: boolean;
+  canManageRoles: boolean;
+  canManageWorkspaceSettings: boolean;
+  canManageWorkspaceMaintenance: boolean;
+}
+
+export interface WorkspaceRoleDefinition {
+  key: string;
+  name: string;
+  sortOrder: number;
+  permissions: WorkspaceRolePermissions;
+}
+
+export interface WorkspaceRoleSettings {
+  mode: WorkspaceRoleMode;
+  roles: WorkspaceRoleDefinition[];
+}
+
+export interface WorkspaceRoleRemap {
+  fromRoleKey: string;
+  toRoleKey: string;
+}
+
+export interface WorkspaceRoleSettingsUpdateInput {
+  mode: WorkspaceRoleMode;
+  roles?: WorkspaceRoleDefinition[];
+  roleRemaps?: WorkspaceRoleRemap[];
+}
 
 export interface WorkspacePermissions {
   canReadWorkspace: boolean;
   canEditWorkspace: boolean;
   canManageWorkspace: boolean;
+  canViewWorkspace: boolean;
+  canEditDocuments: boolean;
+  canManageSharedViews: boolean;
+  canManageUsers: boolean;
+  canManageRoles: boolean;
+  canManageWorkspaceSettings: boolean;
+  canManageWorkspaceMaintenance: boolean;
 }
 
 export interface WorkspaceUser {
@@ -48,6 +89,7 @@ export interface WorkspaceUser {
   username: string;
   displayName: string;
   role: WorkspaceRole;
+  roleName?: string;
   signInEnabled: boolean;
   archived: boolean;
   linkedRecordCount: number;
@@ -521,6 +563,7 @@ export interface WorkspaceSummary {
   workspace: WorkspaceInfo;
   settings: WorkspaceSettings;
   lifecycle: WorkspaceLifecycle;
+  roleSettings?: WorkspaceRoleSettings;
   users?: WorkspaceUser[];
   documents: DocumentListItem[];
   dashboard: WorkspaceDashboardSummary;
