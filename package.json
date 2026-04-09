@@ -1,6 +1,6 @@
 {
   "name": "doctrack",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Cross-platform document management and tracking workspace application.",
   "private": true,
   "homepage": "https://github.com/zaferaltan/DocTrack",
