@@ -55,6 +55,8 @@ import {
   Trash2,
   Upload,
   X,
+  FileText,
+  Grid3x3,
 } from "lucide-react";
 import {
   flexRender,
@@ -271,42 +273,50 @@ const DASHBOARD_RESIZE_HANDLE_CONFIGS = [
   {
     id: "top",
     direction: { top: true, right: false, bottom: false, left: false },
-    className: "absolute left-3 right-3 top-0 h-2 -translate-y-1/2 cursor-n-resize",
+    className:
+      "absolute left-3 right-3 top-0 h-2 -translate-y-1/2 cursor-n-resize",
   },
   {
     id: "right",
     direction: { top: false, right: true, bottom: false, left: false },
-    className: "absolute right-0 top-3 bottom-3 w-2 translate-x-1/2 cursor-e-resize",
+    className:
+      "absolute right-0 top-3 bottom-3 w-2 translate-x-1/2 cursor-e-resize",
   },
   {
     id: "bottom",
     direction: { top: false, right: false, bottom: true, left: false },
-    className: "absolute left-3 right-3 bottom-0 h-2 translate-y-1/2 cursor-s-resize",
+    className:
+      "absolute left-3 right-3 bottom-0 h-2 translate-y-1/2 cursor-s-resize",
   },
   {
     id: "left",
     direction: { top: false, right: false, bottom: false, left: true },
-    className: "absolute left-0 top-3 bottom-3 w-2 -translate-x-1/2 cursor-w-resize",
+    className:
+      "absolute left-0 top-3 bottom-3 w-2 -translate-x-1/2 cursor-w-resize",
   },
   {
     id: "top-left",
     direction: { top: true, right: false, bottom: false, left: true },
-    className: "absolute left-0 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-nw-resize",
+    className:
+      "absolute left-0 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-nw-resize",
   },
   {
     id: "top-right",
     direction: { top: true, right: true, bottom: false, left: false },
-    className: "absolute right-0 top-0 h-3 w-3 translate-x-1/2 -translate-y-1/2 cursor-ne-resize",
+    className:
+      "absolute right-0 top-0 h-3 w-3 translate-x-1/2 -translate-y-1/2 cursor-ne-resize",
   },
   {
     id: "bottom-right",
     direction: { top: false, right: true, bottom: true, left: false },
-    className: "absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize",
+    className:
+      "absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize",
   },
   {
     id: "bottom-left",
     direction: { top: false, right: false, bottom: true, left: true },
-    className: "absolute bottom-0 left-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 cursor-sw-resize",
+    className:
+      "absolute bottom-0 left-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 cursor-sw-resize",
   },
 ] as const;
 
@@ -415,8 +425,7 @@ const addWorkspaceLifecycleStatus = (
   return {
     ...lifecycle,
     statuses: nextStatuses,
-    initialStatusKey:
-      lifecycle.initialStatusKey || nextStatuses[0]?.key || "",
+    initialStatusKey: lifecycle.initialStatusKey || nextStatuses[0]?.key || "",
     autoPreviousVersionStatusKey:
       lifecycle.autoPreviousVersionStatusKey ?? nextStatuses[0]?.key ?? null,
   };
@@ -455,7 +464,7 @@ const removeWorkspaceLifecycleStatus = (
         : lifecycle.initialStatusKey,
     autoPreviousVersionStatusKey:
       lifecycle.autoPreviousVersionStatusKey === statusKey
-        ? (fallbackKey || null)
+        ? fallbackKey || null
         : lifecycle.autoPreviousVersionStatusKey,
     allowedTransitions: lifecycle.allowedTransitions.filter(
       (transition) =>
@@ -520,7 +529,9 @@ const getRemovedLifecycleStatuses = (
   }
 
   const nextKeys = new Set(nextLifecycle.statuses.map((status) => status.key));
-  return previousLifecycle.statuses.filter((status) => !nextKeys.has(status.key));
+  return previousLifecycle.statuses.filter(
+    (status) => !nextKeys.has(status.key),
+  );
 };
 
 const buildWorkspaceDialogState = (
@@ -561,7 +572,9 @@ const buildEditDocumentDialogState = (
   title: documentDetail.title,
   documentTypeId: String(documentDetail.typeId),
   author: documentDetail.author,
-  authorUserId: documentDetail.authorUserId ? String(documentDetail.authorUserId) : "",
+  authorUserId: documentDetail.authorUserId
+    ? String(documentDetail.authorUserId)
+    : "",
   versionScheme: documentDetail.versionScheme,
   templateId: "",
   languageId: documentDetail.languageId
@@ -1375,7 +1388,9 @@ const getFilePathsFromFileList = (files: FileList | File[]): string[] =>
     .map((file) => file.path ?? "")
     .filter((value): value is string => value.trim().length > 0);
 
-const resolveDroppedFilePaths = async (files: FileList | File[]): Promise<string[]> => {
+const resolveDroppedFilePaths = async (
+  files: FileList | File[],
+): Promise<string[]> => {
   const directPaths = getFilePathsFromFileList(files);
   if (directPaths.length > 0) {
     return directPaths;
@@ -1535,7 +1550,9 @@ const getCommandPaletteSearchRank = (
     } else if (normalizedField.startsWith(normalizedQuery)) {
       rank = 1;
     } else if (
-      normalizedField.split(" ").some((word) => word.startsWith(normalizedQuery))
+      normalizedField
+        .split(" ")
+        .some((word) => word.startsWith(normalizedQuery))
     ) {
       rank = 2;
     } else if (normalizedField.includes(normalizedQuery)) {
@@ -1588,8 +1605,10 @@ const filterCommandPaletteCommands = (
           : Number.NaN;
 
         if (!Number.isNaN(leftTime) || !Number.isNaN(rightTime)) {
-          return (Number.isNaN(rightTime) ? 0 : rightTime) -
-            (Number.isNaN(leftTime) ? 0 : leftTime);
+          return (
+            (Number.isNaN(rightTime) ? 0 : rightTime) -
+            (Number.isNaN(leftTime) ? 0 : leftTime)
+          );
         }
       }
 
@@ -1612,12 +1631,14 @@ const validateWorkspaceRootDirectorySettings = (
     const fieldKey = `rootDirectory.${key}`;
 
     if (!value) {
-      errors[fieldKey] = `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name is required.`;
+      errors[fieldKey] =
+        `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name is required.`;
       continue;
     }
 
     if (!isValidWorkspaceRootDirectoryName(value)) {
-      errors[fieldKey] = `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name contains invalid filesystem characters.`;
+      errors[fieldKey] =
+        `${ROOT_DIRECTORY_FIELD_LABELS[key]} folder name contains invalid filesystem characters.`;
       continue;
     }
 
@@ -1719,7 +1740,10 @@ const validateWorkspaceDialogState = (
     errors.parentPath = "Workspace location is required.";
   }
 
-  if (state.settings.userSystemEnabled && !state.initialAdminDisplayName.trim()) {
+  if (
+    state.settings.userSystemEnabled &&
+    !state.initialAdminDisplayName.trim()
+  ) {
     errors.initialAdminDisplayName = "Admin display name is required.";
   }
 
@@ -1732,7 +1756,8 @@ const validateWorkspaceDialogState = (
 
 const validateWorkspaceSettingsDialogState = (
   state: WorkspaceSettingsDialogState,
-): ValidationErrors => validateWorkspaceSettings(state.settings, state.lifecycle);
+): ValidationErrors =>
+  validateWorkspaceSettings(state.settings, state.lifecycle);
 
 const validateTableColumnsDialogState = (
   state: TableColumnsDialogState,
@@ -1889,7 +1914,9 @@ function App() {
   );
   const [typeDialog, setTypeDialog] = useState(defaultTypeDialogState);
   const [projectDialog, setProjectDialog] = useState(defaultProjectDialogState);
-  const [templateDialog, setTemplateDialog] = useState(defaultTemplateDialogState);
+  const [templateDialog, setTemplateDialog] = useState(
+    defaultTemplateDialogState,
+  );
   const [templateFilesDialog, setTemplateFilesDialog] = useState(
     defaultTemplateFilesDialogState,
   );
@@ -1955,8 +1982,11 @@ function App() {
     ? openWorkspaces[activeWorkspacePath]
     : undefined;
   const activeWorkspaceSession = activeWorkspace?.session ?? null;
-  const isActiveWorkspaceAuthenticated = activeWorkspace?.authKind === "authenticated";
-  const hasActiveWorkspaceAccess = Boolean(activeWorkspace && isActiveWorkspaceAuthenticated);
+  const isActiveWorkspaceAuthenticated =
+    activeWorkspace?.authKind === "authenticated";
+  const hasActiveWorkspaceAccess = Boolean(
+    activeWorkspace && isActiveWorkspaceAuthenticated,
+  );
   const isActiveWorkspaceUserSystemEnabled = Boolean(
     activeWorkspace?.settings.userSystemEnabled,
   );
@@ -2107,10 +2137,7 @@ function App() {
     },
   );
   const runCommandPaletteAction = useEffectEvent(
-    (
-      action: () => void | Promise<void>,
-      fallbackMessage: string,
-    ): void => {
+    (action: () => void | Promise<void>, fallbackMessage: string): void => {
       closeCommandPalette();
       window.requestAnimationFrame(() => {
         void Promise.resolve(action()).catch((error) => {
@@ -2198,7 +2225,10 @@ function App() {
           rootPath === activeWorkspacePath &&
           activeWorkspace?.selectedDocumentRecordId
         ) {
-          await loadDocumentDetail(rootPath, activeWorkspace.selectedDocumentRecordId);
+          await loadDocumentDetail(
+            rootPath,
+            activeWorkspace.selectedDocumentRecordId,
+          );
         }
 
         setNotification({
@@ -2206,7 +2236,10 @@ function App() {
           message: `Filesystem changes were detected in "${openWorkspaces[rootPath]?.workspace.name ?? "workspace"}". Review pending file drift before reconciling.`,
         });
       } catch (error) {
-        notifyError(error, "Unable to refresh workspace state after filesystem changes.");
+        notifyError(
+          error,
+          "Unable to refresh workspace state after filesystem changes.",
+        );
       }
     },
   );
@@ -2715,7 +2748,8 @@ function App() {
     });
 
     try {
-      const items = await window.docTrack.workspace.listActivity(workspaceRootPath);
+      const items =
+        await window.docTrack.workspace.listActivity(workspaceRootPath);
       setActivityLogDialog({
         open: true,
         workspaceRootPath,
@@ -2804,7 +2838,8 @@ function App() {
     workspaceTabs
       .filter(
         (workspaceTab) =>
-          workspaceTab.workspace.rootPath !== activeWorkspace.workspace.rootPath,
+          workspaceTab.workspace.rootPath !==
+          activeWorkspace.workspace.rootPath,
       )
       .forEach((workspaceTab) => {
         rootCommands.push({
@@ -2887,18 +2922,15 @@ function App() {
         icon: Download,
         keywords: ["export report pdf csv documents workspace"],
         onSelect: () =>
-          runCommandPaletteAction(
-            () => {
-              setWorkspaceView(activeWorkspacePath, "documents");
-              setDocumentExportDialogRequest({
-                workspacePath: activeWorkspacePath,
-                format: "pdf",
-                scope: "whole-workspace",
-                token: Date.now(),
-              });
-            },
-            "Unable to open the export dialog.",
-          ),
+          runCommandPaletteAction(() => {
+            setWorkspaceView(activeWorkspacePath, "documents");
+            setDocumentExportDialogRequest({
+              workspacePath: activeWorkspacePath,
+              format: "pdf",
+              scope: "whole-workspace",
+              token: Date.now(),
+            });
+          }, "Unable to open the export dialog."),
       },
     ];
     rootCommands.push(...workspaceCommands);
@@ -2985,7 +3017,7 @@ function App() {
         id: "view:documents",
         label: "Go to Documents",
         view: "documents",
-        icon: Table2,
+        icon: FileText,
         enabled: true,
         keywords: ["documents table search"],
       },
@@ -3049,38 +3081,40 @@ function App() {
         });
       });
 
-    const documentPickerCommands = activeWorkspace.documents.map((document) => ({
-      id: `pick-document:${document.id}`,
-      label: document.title,
-      subtitle: `${document.documentId} • ${document.typeName} • ${
-        document.latestVersionLabel
-          ? `Latest version ${document.latestVersionLabel}`
-          : "No versions yet"
-      }`,
-      group: "Documents",
-      icon:
-        commandPalette.mode === "pickDocumentForImport" ? Upload : FileStack,
-      keywords: [
-        document.documentId,
-        document.title,
-        document.typeName,
-        document.author,
-        document.projectName ?? "",
-        document.languageCode ?? "",
-        document.status ?? "",
-      ],
-      searchSortDate: document.modifiedDate,
-      onSelect: () =>
-        runCommandPaletteAction(
-          () =>
+    const documentPickerCommands = activeWorkspace.documents.map(
+      (document) => ({
+        id: `pick-document:${document.id}`,
+        label: document.title,
+        subtitle: `${document.documentId} • ${document.typeName} • ${
+          document.latestVersionLabel
+            ? `Latest version ${document.latestVersionLabel}`
+            : "No versions yet"
+        }`,
+        group: "Documents",
+        icon:
+          commandPalette.mode === "pickDocumentForImport" ? Upload : FileStack,
+        keywords: [
+          document.documentId,
+          document.title,
+          document.typeName,
+          document.author,
+          document.projectName ?? "",
+          document.languageCode ?? "",
+          document.status ?? "",
+        ],
+        searchSortDate: document.modifiedDate,
+        onSelect: () =>
+          runCommandPaletteAction(
+            () =>
+              commandPalette.mode === "pickDocumentForImport"
+                ? openImportFilesForDocument(document.id)
+                : openCreateVersionForDocument(document.id),
             commandPalette.mode === "pickDocumentForImport"
-              ? openImportFilesForDocument(document.id)
-              : openCreateVersionForDocument(document.id),
-          commandPalette.mode === "pickDocumentForImport"
-            ? "Unable to import files into the selected document."
-            : "Unable to open the create version dialog.",
-        ),
-    }));
+              ? "Unable to import files into the selected document."
+              : "Unable to open the create version dialog.",
+          ),
+      }),
+    );
 
     return {
       rootCommands,
@@ -3311,8 +3345,9 @@ function App() {
       return;
     }
 
-    const validationErrors =
-      validateWorkspaceSettingsDialogState(workspaceSettingsDialog);
+    const validationErrors = validateWorkspaceSettingsDialogState(
+      workspaceSettingsDialog,
+    );
     if (Object.keys(validationErrors).length > 0) {
       setWorkspaceSettingsDialog((state) => ({
         ...state,
@@ -3387,8 +3422,8 @@ function App() {
     const workspaceAvailableColumns =
       activeWorkspace?.settings.visibleDocumentColumns ??
       DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
-    const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter((column) =>
-      workspaceAvailableColumns.includes(column),
+    const nextVisibleColumns = tableColumnsDialog.visibleColumns.filter(
+      (column) => workspaceAvailableColumns.includes(column),
     );
     const validationErrors = validateTableColumnsDialogState({
       ...tableColumnsDialog,
@@ -3636,7 +3671,11 @@ function App() {
   };
 
   const handleSaveLatestVersion = async () => {
-    if (!activeWorkspacePath || !selectedDocumentDetail || !latestVersionDialog.versionId) {
+    if (
+      !activeWorkspacePath ||
+      !selectedDocumentDetail ||
+      !latestVersionDialog.versionId
+    ) {
       return;
     }
 
@@ -3661,23 +3700,20 @@ function App() {
                 revisionDescription: latestVersionDialog.revisionDescription,
               } satisfies UpdateLatestVersionInput,
             )
-          : await window.docTrack.documents.updateVersion(
-              activeWorkspacePath,
-              {
-                documentVersionId: latestVersionDialog.versionId,
-                status: latestVersionDialog.status,
-                releasedDate: latestVersionDialog.releasedDate || null,
-                reviewedBy: latestVersionDialog.reviewedBy,
-                reviewedByUserId: parseOptionalSelectNumber(
-                  latestVersionDialog.reviewedByUserId,
-                ),
-                approvedBy: latestVersionDialog.approvedBy,
-                approvedByUserId: parseOptionalSelectNumber(
-                  latestVersionDialog.approvedByUserId,
-                ),
-                revisionDescription: latestVersionDialog.revisionDescription,
-              } satisfies UpdateDocumentVersionInput,
-            );
+          : await window.docTrack.documents.updateVersion(activeWorkspacePath, {
+              documentVersionId: latestVersionDialog.versionId,
+              status: latestVersionDialog.status,
+              releasedDate: latestVersionDialog.releasedDate || null,
+              reviewedBy: latestVersionDialog.reviewedBy,
+              reviewedByUserId: parseOptionalSelectNumber(
+                latestVersionDialog.reviewedByUserId,
+              ),
+              approvedBy: latestVersionDialog.approvedBy,
+              approvedByUserId: parseOptionalSelectNumber(
+                latestVersionDialog.approvedByUserId,
+              ),
+              revisionDescription: latestVersionDialog.revisionDescription,
+            } satisfies UpdateDocumentVersionInput);
       await refreshWorkspace(activeWorkspacePath);
       setSelectedDocument(activeWorkspacePath, detail.id);
       setSelectedDocumentDetail(detail);
@@ -4122,7 +4158,9 @@ function App() {
         description: `Delete "${template.name}" from this workspace. This removes its template files from the Templates folder.`,
         confirmLabel: "Delete Template",
         tone: "destructive",
-        detailLines: [`${template.fileCount} file${template.fileCount === 1 ? "" : "s"}`],
+        detailLines: [
+          `${template.fileCount} file${template.fileCount === 1 ? "" : "s"}`,
+        ],
         onConfirm: performDelete,
       });
       return;
@@ -4707,7 +4745,8 @@ function App() {
     if (!previousVersion) {
       setNotification({
         tone: "error",
-        message: "This version does not have an adjacent older version to compare.",
+        message:
+          "This version does not have an adjacent older version to compare.",
       });
       return;
     }
@@ -4794,7 +4833,8 @@ function App() {
           ...state,
           open: true,
           users,
-          showArchivedUsers: options?.showArchivedUsers ?? state.showArchivedUsers,
+          showArchivedUsers:
+            options?.showArchivedUsers ?? state.showArchivedUsers,
           isLoading: false,
           isSubmitting: false,
           selectedUserId: initialSelectedUser?.id,
@@ -4890,7 +4930,10 @@ function App() {
       setWorkspaceUsersDialog((state) => ({
         ...state,
         isSubmitting: false,
-        formMessage: getErrorMessage(error, "Unable to save the workspace user."),
+        formMessage: getErrorMessage(
+          error,
+          "Unable to save the workspace user.",
+        ),
         formTone: "error",
       }));
     }
@@ -4904,7 +4947,8 @@ function App() {
     if (activeWorkspaceSession?.user.id === user.id && user.signInEnabled) {
       setWorkspaceUsersDialog((state) => ({
         ...state,
-        formMessage: "You cannot deactivate the account that is currently signed in.",
+        formMessage:
+          "You cannot deactivate the account that is currently signed in.",
         formTone: "warning",
       }));
       return;
@@ -4917,9 +4961,15 @@ function App() {
         formMessage: "",
       }));
       if (user.signInEnabled) {
-        await window.docTrack.workspace.deactivateUser(activeWorkspacePath, user.id);
+        await window.docTrack.workspace.deactivateUser(
+          activeWorkspacePath,
+          user.id,
+        );
       } else {
-        await window.docTrack.workspace.activateUser(activeWorkspacePath, user.id);
+        await window.docTrack.workspace.activateUser(
+          activeWorkspacePath,
+          user.id,
+        );
       }
       await refreshWorkspace(activeWorkspacePath);
       openWorkspaceUsersDialog();
@@ -4927,7 +4977,10 @@ function App() {
       setWorkspaceUsersDialog((state) => ({
         ...state,
         isSubmitting: false,
-        formMessage: getErrorMessage(error, "Unable to update the selected user."),
+        formMessage: getErrorMessage(
+          error,
+          "Unable to update the selected user.",
+        ),
         formTone: "error",
       }));
     }
@@ -4941,7 +4994,8 @@ function App() {
     if (activeWorkspaceSession?.user.id === user.id) {
       setWorkspaceUsersDialog((state) => ({
         ...state,
-        formMessage: "You cannot delete the account that is currently signed in.",
+        formMessage:
+          "You cannot delete the account that is currently signed in.",
         formTone: "warning",
       }));
       return;
@@ -4949,7 +5003,9 @@ function App() {
 
     const willDeletePermanently = user.linkedRecordCount === 0;
     openConfirmationDialog({
-      title: willDeletePermanently ? "Delete Workspace User" : "Archive Workspace User",
+      title: willDeletePermanently
+        ? "Delete Workspace User"
+        : "Archive Workspace User",
       description: willDeletePermanently
         ? `Permanently remove ${user.displayName} from this workspace?`
         : `${user.displayName} is linked to existing records, so this action will archive the account instead of deleting it.`,
@@ -5018,7 +5074,10 @@ function App() {
       setWorkspaceUsersDialog((state) => ({
         ...state,
         isSubmitting: false,
-        formMessage: getErrorMessage(error, "Unable to restore the selected user."),
+        formMessage: getErrorMessage(
+          error,
+          "Unable to restore the selected user.",
+        ),
         formTone: "error",
       }));
     }
@@ -5032,7 +5091,8 @@ function App() {
     if (!workspaceUsersDialog.password.trim()) {
       setWorkspaceUsersDialog((state) => ({
         ...state,
-        formMessage: "Enter a new password or PIN before resetting this account.",
+        formMessage:
+          "Enter a new password or PIN before resetting this account.",
         formTone: "warning",
         validationErrors: {
           ...state.validationErrors,
@@ -5171,7 +5231,8 @@ function App() {
       setBackupDialog(defaultBackupDialogState);
       setNotification({
         tone: "success",
-        message: "Live workspace database overwritten from the selected snapshot.",
+        message:
+          "Live workspace database overwritten from the selected snapshot.",
       });
     } catch (error) {
       setBackupDialog((state) => ({ ...state, isSubmitting: false }));
@@ -5330,8 +5391,7 @@ function App() {
 
     try {
       const detail =
-        documentRecordId &&
-        selectedDocumentDetail?.id !== documentRecordId
+        documentRecordId && selectedDocumentDetail?.id !== documentRecordId
           ? await loadDocumentDetail(activeWorkspacePath, documentRecordId)
           : selectedDocumentDetail;
 
@@ -5349,8 +5409,8 @@ function App() {
         filePaths: detail.versions.flatMap((version) =>
           version.files.map((file) => file.filePath),
         ),
-        unmanagedPaths: detail.versions.flatMap((version) =>
-          version.unmanagedPaths,
+        unmanagedPaths: detail.versions.flatMap(
+          (version) => version.unmanagedPaths,
         ),
         isSubmitting: false,
       });
@@ -5371,7 +5431,9 @@ function App() {
             activeWorkspacePath,
             activeWorkspace?.selectedDocumentRecordId ?? 0,
           );
-      const version = detail?.versions.find((item) => item.id === documentVersionId);
+      const version = detail?.versions.find(
+        (item) => item.id === documentVersionId,
+      );
 
       if (!detail || !version) {
         return;
@@ -5623,7 +5685,9 @@ function App() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+                onClick={() =>
+                  void closeWorkspace(activeWorkspace.workspace.rootPath)
+                }
               >
                 Close Workspace
               </Button>
@@ -5744,7 +5808,9 @@ function App() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => void closeWorkspace(activeWorkspace.workspace.rootPath)}
+                onClick={() =>
+                  void closeWorkspace(activeWorkspace.workspace.rootPath)
+                }
               >
                 Close Workspace
               </Button>
@@ -5758,22 +5824,29 @@ function App() {
       <DashboardView
         workspace={activeWorkspace}
         onOpenDocuments={(drilldown) => {
-          applyDashboardDrilldown(activeWorkspace.workspace.rootPath, drilldown);
+          applyDashboardDrilldown(
+            activeWorkspace.workspace.rootPath,
+            drilldown,
+          );
         }}
         onOpenDocument={(documentRecordId) => {
           setWorkspaceView(activeWorkspace.workspace.rootPath, "documents");
-          setSelectedDocument(activeWorkspace.workspace.rootPath, documentRecordId);
+          setSelectedDocument(
+            activeWorkspace.workspace.rootPath,
+            documentRecordId,
+          );
         }}
         onApplySavedView={(savedView) =>
           applySavedView(activeWorkspace.workspace.rootPath, savedView)
         }
         onUpdateDashboardLayout={(input) =>
-          updateDashboardLayout(activeWorkspace.workspace.rootPath, input).catch(
-            (error: Error) => {
-              notifyError(error, "Unable to save the dashboard layout.");
-              throw error;
-            },
-          )
+          updateDashboardLayout(
+            activeWorkspace.workspace.rootPath,
+            input,
+          ).catch((error: Error) => {
+            notifyError(error, "Unable to save the dashboard layout.");
+            throw error;
+          })
         }
         onPromoteSavedViewToShared={(input) =>
           promoteSavedViewToShared(
@@ -6069,7 +6142,10 @@ function App() {
           void window.docTrack.documents
             .openStoredPath(activeWorkspacePath, template.folderPath)
             .catch((error: Error) => {
-              notifyError(error, "Unable to open the selected template folder.");
+              notifyError(
+                error,
+                "Unable to open the selected template folder.",
+              );
             });
         }}
         onDeleteTemplate={handleDeleteTemplate}
@@ -6341,7 +6417,8 @@ function App() {
                         </Badge>
                       ) : null}
                     </div>
-                    {applicationSettings.workspaceTabDensity === "comfortable" ? (
+                    {applicationSettings.workspaceTabDensity ===
+                    "comfortable" ? (
                       <div
                         className={cn(
                           "truncate text-xs",
@@ -6387,18 +6464,20 @@ function App() {
               Workspace Views
             </div>
             <SidebarButton
-              icon={Sparkles}
+              icon={Table2}
               label="Dashboard"
               active={activeWorkspace?.selectedView === "dashboard"}
               disabled={!hasActiveWorkspaceAccess}
-              attentionCount={activeWorkspaceFilesystemAttention?.totalAttentionCount}
+              attentionCount={
+                activeWorkspaceFilesystemAttention?.totalAttentionCount
+              }
               onClick={() =>
                 activeWorkspacePath &&
                 setWorkspaceView(activeWorkspacePath, "dashboard")
               }
             />
             <SidebarButton
-              icon={Table2}
+              icon={FileText}
               label="Documents"
               active={activeWorkspace?.selectedView === "documents"}
               disabled={!hasActiveWorkspaceAccess}
@@ -6519,9 +6598,14 @@ function App() {
                     return;
                   }
 
-                  void signOutWorkspace(activeWorkspacePath).catch((error: Error) => {
-                    notifyError(error, "Unable to sign out of the workspace.");
-                  });
+                  void signOutWorkspace(activeWorkspacePath).catch(
+                    (error: Error) => {
+                      notifyError(
+                        error,
+                        "Unable to sign out of the workspace.",
+                      );
+                    },
+                  );
                 }}
               />
             ) : null}
@@ -6623,7 +6707,9 @@ function App() {
         onSubmit={handleSaveDocument}
         documentTypes={activeWorkspace?.documentTypes ?? []}
         userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
-        workspaceUsers={(activeWorkspace?.users ?? []).filter((user) => !user.archived)}
+        workspaceUsers={(activeWorkspace?.users ?? []).filter(
+          (user) => !user.archived,
+        )}
         templates={activeWorkspace?.templates ?? []}
         projects={activeWorkspace?.projects ?? []}
         confidentialityClasses={activeWorkspace?.confidentialityClasses ?? []}
@@ -6658,8 +6744,12 @@ function App() {
         onSubmit={handleSaveLatestVersion}
         documentDetail={selectedDocumentDetail}
         userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
-        workspaceUsers={(activeWorkspace?.users ?? []).filter((user) => !user.archived)}
-        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
+        workspaceUsers={(activeWorkspace?.users ?? []).filter(
+          (user) => !user.archived,
+        )}
+        lifecycle={
+          activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE
+        }
         availableColumns={activeWorkspaceAvailableColumns}
       />
 
@@ -6673,7 +6763,9 @@ function App() {
           )
         }
         onSubmit={handleConfirmStatusChange}
-        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
+        lifecycle={
+          activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE
+        }
       />
 
       <DocumentTypeDialog
@@ -6767,7 +6859,9 @@ function App() {
         }}
         state={filesDialog}
         onStateChange={setFilesDialog}
-        lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
+        lifecycle={
+          activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE
+        }
         version={activeFilesVersion}
         affectedVersions={activeFilesAffectedVersions}
         canEdit={Boolean(selectedDocumentDetail && activeFilesVersion)}
@@ -6894,7 +6988,9 @@ function App() {
         state={filePreviewDialog}
         onOpenChange={(open) =>
           setFilePreviewDialog(
-            open ? { ...filePreviewDialog, open } : defaultFilePreviewDialogState,
+            open
+              ? { ...filePreviewDialog, open }
+              : defaultFilePreviewDialogState,
           )
         }
       />
@@ -6903,7 +6999,9 @@ function App() {
         state={activityLogDialog}
         onOpenChange={(open) =>
           setActivityLogDialog(
-            open ? { ...activityLogDialog, open } : defaultActivityLogDialogState,
+            open
+              ? { ...activityLogDialog, open }
+              : defaultActivityLogDialogState,
           )
         }
         onOpenDocument={(documentRecordId) => {
@@ -7030,8 +7128,7 @@ function ApplicationSettingsDialog({
     ) ?? DOCUMENT_DETAIL_VIEW_MODE_OPTIONS[0];
   const selectedDocumentsVisualization =
     DOCUMENTS_VISUALIZATION_MODE_OPTIONS.find(
-      (option) =>
-        option.value === state.settings.defaultDocumentsVisualization,
+      (option) => option.value === state.settings.defaultDocumentsVisualization,
     ) ?? DOCUMENTS_VISUALIZATION_MODE_OPTIONS[0];
   const selectedDensity =
     DOCUMENT_TABLE_DENSITY_OPTIONS.find(
@@ -7382,15 +7479,16 @@ function ApplicationSettingsDialog({
                     ) : null}
                     {appUpdateState?.progress ? (
                       <div className="mt-2 text-xs text-muted-foreground">
-                        Download progress {Math.round(appUpdateState.progress.percent)}%
-                        {" • "}
+                        Download progress{" "}
+                        {Math.round(appUpdateState.progress.percent)}%{" • "}
                         {appUpdateState.progress.transferred.toLocaleString()} /{" "}
                         {appUpdateState.progress.total.toLocaleString()} bytes
                       </div>
                     ) : null}
                     {appUpdateState?.lastCheckedAt ? (
                       <div className="mt-2 text-xs text-muted-foreground">
-                        Last checked {formatDateTime(appUpdateState.lastCheckedAt)}
+                        Last checked{" "}
+                        {formatDateTime(appUpdateState.lastCheckedAt)}
                       </div>
                     ) : null}
                   </div>
@@ -7453,18 +7551,6 @@ function ApplicationSettingsDialog({
                     </div>
                   </div>
                 ) : null}
-
-                {isMacOs ? (
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    macOS auto-updates require a signed and notarized build for
-                    public release validation.
-                  </div>
-                ) : (
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    Unsigned Windows builds may still trigger SmartScreen or
-                    other trust prompts until code signing is added.
-                  </div>
-                )}
               </div>
             </SettingsSection>
           </div>
@@ -7708,7 +7794,7 @@ function SidebarButton({
   attentionCount,
   onClick,
 }: {
-  icon: typeof Table2;
+  icon: typeof FileText;
   label: string;
   active?: boolean;
   disabled?: boolean;
@@ -7778,10 +7864,6 @@ function WelcomeView({
   return (
     <div className="grid h-full gap-3 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-        <Badge variant="outline" className="mb-4 w-fit gap-1.5">
-          <Sparkles className="h-3.5 w-3.5" />
-          Workspace-first document operations
-        </Badge>
         <h1 className="max-w-2xl text-3xl font-semibold tracking-tight">
           Keep every document, version, and status inside a portable offline
           workspace.
@@ -7932,12 +8014,14 @@ function DashboardView({
     null,
   );
   const savedViewsById = useMemo(
-    () => Object.fromEntries(workspace.savedViews.map((item) => [item.id, item])),
+    () =>
+      Object.fromEntries(workspace.savedViews.map((item) => [item.id, item])),
     [workspace.savedViews],
   );
   const draggedWidget =
     interaction?.mode === "drag"
-      ? layout.widgets.find((widget) => widget.id === interaction.widgetId) ?? null
+      ? (layout.widgets.find((widget) => widget.id === interaction.widgetId) ??
+        null)
       : null;
 
   useEffect(() => {
@@ -8101,7 +8185,9 @@ function DashboardView({
       const nextLayout = normalizeDashboardLayout(layoutRef.current);
       setInteraction(null);
       dragPointerRef.current = null;
-      void onUpdateDashboardLayout({ layout: nextLayout }).catch(() => undefined);
+      void onUpdateDashboardLayout({ layout: nextLayout }).catch(
+        () => undefined,
+      );
     };
 
     let autoScrollFrameId: number | null = null;
@@ -8118,7 +8204,10 @@ function DashboardView({
         let scrollDelta = 0;
 
         if (topDistance < threshold) {
-          scrollDelta = -Math.max(10, Math.round((threshold - topDistance) / 4));
+          scrollDelta = -Math.max(
+            10,
+            Math.round((threshold - topDistance) / 4),
+          );
         } else if (bottomDistance < threshold) {
           scrollDelta = Math.max(
             10,
@@ -8197,8 +8286,7 @@ function DashboardView({
       previewLeft: widgetRect?.left ?? event.clientX - 160,
       previewTop: widgetRect?.top ?? event.clientY - 32,
       previewWidth: widgetRect?.width ?? 320,
-      previewHeight:
-        widgetRect?.height ?? widget.h * DASHBOARD_GRID_ROW_HEIGHT,
+      previewHeight: widgetRect?.height ?? widget.h * DASHBOARD_GRID_ROW_HEIGHT,
       pointerOffsetX: widgetRect ? event.clientX - widgetRect.left : 32,
       pointerOffsetY: widgetRect ? event.clientY - widgetRect.top : 24,
       resizeDirection,
@@ -8277,7 +8365,11 @@ function DashboardView({
             : getDashboardWidgetTypeLabel(widgetDialog.type)),
         x: 0,
         y: nextY,
-        w: widgetDialog.type === "recentActivity" || widgetDialog.type === "statusSummary" ? 12 : 4,
+        w:
+          widgetDialog.type === "recentActivity" ||
+          widgetDialog.type === "statusSummary"
+            ? 12
+            : 4,
         h:
           widgetDialog.type === "filesystemAttention"
             ? 1
@@ -8288,7 +8380,10 @@ function DashboardView({
         savedViewId,
       };
       const nextLayout = {
-        widgets: resolveDashboardLayoutConflicts([...layout.widgets, nextWidget]),
+        widgets: resolveDashboardLayoutConflicts([
+          ...layout.widgets,
+          nextWidget,
+        ]),
       };
       setLayout(nextLayout);
       await onUpdateDashboardLayout({ layout: nextLayout });
@@ -8310,9 +8405,12 @@ function DashboardView({
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold">{workspace.workspace.name}</div>
+            <div className="text-lg font-semibold">
+              {workspace.workspace.name}
+            </div>
             <div className="mt-1 text-[13px] text-muted-foreground">
-              Dashboard refreshed {formatDateTime(workspace.dashboard.generatedDate)}
+              Dashboard refreshed{" "}
+              {formatDateTime(workspace.dashboard.generatedDate)}
             </div>
             {isEditing ? (
               <div className="mt-2 text-[13px] text-muted-foreground">
@@ -8361,7 +8459,8 @@ function DashboardView({
 
       {layout.widgets.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-8 text-center text-[13px] text-muted-foreground shadow-sm">
-          This dashboard is empty. Enter edit mode to add summary or saved-view widgets.
+          This dashboard is empty. Enter edit mode to add summary or saved-view
+          widgets.
         </div>
       ) : (
         <div
@@ -8374,7 +8473,9 @@ function DashboardView({
         >
           {layout.widgets.map((widget) => {
             const savedView =
-              widget.savedViewId !== null ? savedViewsById[widget.savedViewId] : undefined;
+              widget.savedViewId !== null
+                ? savedViewsById[widget.savedViewId]
+                : undefined;
             const savedViewRows =
               widget.type === "savedView" && savedView
                 ? sortDocumentsBySavedView(
@@ -8386,9 +8487,11 @@ function DashboardView({
                   ).slice(0, SAVED_VIEW_WIDGET_PREVIEW_LIMIT)
                 : [];
             const isDraggingWidget =
-              interaction?.mode === "drag" && interaction.widgetId === widget.id;
+              interaction?.mode === "drag" &&
+              interaction.widgetId === widget.id;
             const isResizingWidget =
-              interaction?.mode === "resize" && interaction.widgetId === widget.id;
+              interaction?.mode === "resize" &&
+              interaction.widgetId === widget.id;
             const interactionLocked =
               interaction !== null && interaction.widgetId !== widget.id;
 
@@ -8409,7 +8512,9 @@ function DashboardView({
                   gridColumn: `${widget.x + 1} / span ${widget.w}`,
                   gridRow: `${widget.y + 1} / span ${widget.h}`,
                 }}
-                onPointerDown={(event) => handleWidgetPointerDown(widget, event)}
+                onPointerDown={(event) =>
+                  handleWidgetPointerDown(widget, event)
+                }
               >
                 {isDraggingWidget ? (
                   <div className="flex h-full flex-1 items-center justify-center rounded-xl border-2 border-dashed border-blue-500/50 bg-background/70 px-4 text-center text-sm font-medium text-blue-700">
@@ -8474,7 +8579,9 @@ function DashboardView({
                                 size="sm"
                                 variant="destructive"
                                 onClick={() =>
-                                  onOpenDocuments({ healthFlag: "unmanagedPaths" })
+                                  onOpenDocuments({
+                                    healthFlag: "unmanagedPaths",
+                                  })
                                 }
                               >
                                 Open affected documents
@@ -8494,7 +8601,9 @@ function DashboardView({
                             <button
                               key={item.id}
                               className="rounded-xl border border-border bg-background p-3 text-left transition hover:bg-accent"
-                              onClick={() => onOpenDocuments({ status: item.status })}
+                              onClick={() =>
+                                onOpenDocuments({ status: item.status })
+                              }
                             >
                               <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                                 {item.label}
@@ -8524,7 +8633,9 @@ function DashboardView({
                                     : "border-border hover:bg-accent",
                                 )}
                                 onClick={() =>
-                                  onOpenDocuments({ healthFlag: item.healthFlag })
+                                  onOpenDocuments({
+                                    healthFlag: item.healthFlag,
+                                  })
                                 }
                               >
                                 <div>
@@ -8610,7 +8721,9 @@ function DashboardView({
                               >
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Badge variant="outline">
-                                    {formatActivityEventTypeLabel(item.eventType)}
+                                    {formatActivityEventTypeLabel(
+                                      item.eventType,
+                                    )}
                                   </Badge>
                                   <div className="text-xs text-muted-foreground">
                                     {formatDateTime(item.createdDate)}
@@ -8689,7 +8802,8 @@ function DashboardView({
                                         {document.title}
                                       </div>
                                       <div className="mt-1 text-xs text-muted-foreground">
-                                        {document.documentId} • {document.typeName}
+                                        {document.documentId} •{" "}
+                                        {document.typeName}
                                       </div>
                                     </div>
                                     <Badge variant="outline">
@@ -8784,7 +8898,8 @@ function DashboardView({
           <DialogHeader>
             <DialogTitle>Add Dashboard Widget</DialogTitle>
             <DialogDescription>
-              Build a shared dashboard with built-in summaries and pinned saved views.
+              Build a shared dashboard with built-in summaries and pinned saved
+              views.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
@@ -8806,7 +8921,9 @@ function DashboardView({
                 }
               >
                 <option value="savedView">Saved View</option>
-                <option value="filesystemAttention">Filesystem Attention</option>
+                <option value="filesystemAttention">
+                  Filesystem Attention
+                </option>
                 <option value="statusSummary">Status Summary</option>
                 <option value="healthInsights">Document Health</option>
                 <option value="typeGrouping">Document Types</option>
@@ -8965,7 +9082,9 @@ function DocumentsView({
   onRequestDeleteVersion: (documentVersionId: number) => void;
   onUpdateSidebarWidth: (nextWidth: number) => Promise<void>;
   onDocumentViewStateChange: (
-    updater: DocumentViewState | ((current: DocumentViewState) => DocumentViewState),
+    updater:
+      | DocumentViewState
+      | ((current: DocumentViewState) => DocumentViewState),
   ) => void;
   onApplySavedView: (savedView: SavedView) => void;
   onCreateSavedView: (input: CreateSavedViewInput) => Promise<SavedView>;
@@ -9023,9 +9142,8 @@ function DocumentsView({
   const [draggedDocumentId, setDraggedDocumentId] = useState<number | null>(
     null,
   );
-  const [kanbanDropStatus, setKanbanDropStatus] = useState<
-    DocumentStatus | null
-  >(null);
+  const [kanbanDropStatus, setKanbanDropStatus] =
+    useState<DocumentStatus | null>(null);
   const hasSelectedDocument = Boolean(workspace.selectedDocumentRecordId);
   const isSidebarOpen = detailViewMode === "sidebar" && hasSelectedDocument;
   const isTableView = documentsVisualizationMode === "table";
@@ -9324,7 +9442,9 @@ function DocumentsView({
         id: "startDate",
         accessorKey: "startDate",
         header: columnHeader("Start Date"),
-        cell: ({ row }) => <span>{formatDateShort(row.original.startDate)}</span>,
+        cell: ({ row }) => (
+          <span>{formatDateShort(row.original.startDate)}</span>
+        ),
       },
       {
         id: "createdDate",
@@ -9481,7 +9601,8 @@ function DocumentsView({
       Object.fromEntries(
         savedViews.map((savedView) => [
           savedView.id,
-          filterDocumentsBySavedViewQuery(workspace.documents, savedView.query).length,
+          filterDocumentsBySavedViewQuery(workspace.documents, savedView.query)
+            .length,
         ]),
       ),
     [savedViews, workspace.documents],
@@ -9564,8 +9685,7 @@ function DocumentsView({
         return;
       }
 
-      const nextTop =
-        section.offsetTop - container.clientTop - 12;
+      const nextTop = section.offsetTop - container.clientTop - 12;
       container.scrollTo({
         top: Math.max(0, nextTop),
         behavior: "auto",
@@ -9589,8 +9709,7 @@ function DocumentsView({
     const selectedProject =
       exportDialog.scope === "current-table" && projectFeatureEnabled
         ? (workspace.projects.find(
-            (project) =>
-              String(project.id) === documentViewState.projectFilter,
+            (project) => String(project.id) === documentViewState.projectFilter,
           )?.name ??
           (documentViewState.projectFilter === ""
             ? "No project"
@@ -9637,7 +9756,9 @@ function DocumentsView({
   const currentSavedViewQuery: SavedViewQuery = {
     search: documentViewState.search,
     statusFilter: documentViewState.statusFilter,
-    projectFilter: projectFeatureEnabled ? documentViewState.projectFilter : "All",
+    projectFilter: projectFeatureEnabled
+      ? documentViewState.projectFilter
+      : "All",
     healthFilter: documentViewState.healthFilter,
     rules: documentViewState.rules,
   };
@@ -9739,7 +9860,9 @@ function DocumentsView({
     setKanbanDropStatus(null);
   };
 
-  const handleKanbanCardDragEnd: React.DragEventHandler<HTMLDivElement> = () => {
+  const handleKanbanCardDragEnd: React.DragEventHandler<
+    HTMLDivElement
+  > = () => {
     setDraggedDocumentId(null);
     setKanbanDropStatus(null);
   };
@@ -9976,9 +10099,7 @@ function DocumentsView({
         selectedDocumentId={workspace.selectedDocumentRecordId}
         onSelectDocument={onSelectDocument}
         onPreviousMonth={() =>
-          setCalendarMonthKey((current) =>
-            shiftMonthKey(current, -1),
-          )
+          setCalendarMonthKey((current) => shiftMonthKey(current, -1))
         }
         onNextMonth={() =>
           setCalendarMonthKey((current) => shiftMonthKey(current, 1))
@@ -10174,7 +10295,9 @@ function DocumentsView({
                 onChange={(event) =>
                   onDocumentViewStateChange((current) => ({
                     ...current,
-                    healthFilter: event.target.value as DocumentHealthFlag | "All",
+                    healthFilter: event.target.value as
+                      | DocumentHealthFlag
+                      | "All",
                   }))
                 }
               >
@@ -10613,20 +10736,24 @@ function DocumentsView({
         onStateChange={setExportDialog}
         onSubmit={handleSubmitExport}
       />
-      <Dialog open={savedViewsDialogOpen} onOpenChange={setSavedViewsDialogOpen}>
+      <Dialog
+        open={savedViewsDialogOpen}
+        onOpenChange={setSavedViewsDialogOpen}
+      >
         <DialogContent className="w-[min(96vw,920px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Saved Views</DialogTitle>
             <DialogDescription>
-              Reopen saved filters, smart collections, and dashboard pins without
-              taking over the documents page.
+              Reopen saved filters, smart collections, and dashboard pins
+              without taking over the documents page.
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto pr-2">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-3">
               <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
                 <Badge variant="outline">
-                  {savedViews.length} saved view{savedViews.length === 1 ? "" : "s"}
+                  {savedViews.length} saved view
+                  {savedViews.length === 1 ? "" : "s"}
                 </Badge>
                 <Badge
                   variant={
@@ -10645,8 +10772,8 @@ function DocumentsView({
             <div className="mt-4 grid gap-3">
               {savedViews.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-[13px] text-muted-foreground">
-                  No saved views yet. Save the current filters to reuse them from
-                  the documents page or pin them to the dashboard later.
+                  No saved views yet. Save the current filters to reuse them
+                  from the documents page or pin them to the dashboard later.
                 </div>
               ) : (
                 savedViews.map((savedView) => (
@@ -10681,7 +10808,9 @@ function DocumentsView({
                         {savedView.presentation.visualizationMode
                           .charAt(0)
                           .toUpperCase() +
-                          savedView.presentation.visualizationMode.slice(1)}{" "}
+                          savedView.presentation.visualizationMode.slice(
+                            1,
+                          )}{" "}
                         view
                         {savedView.query.rules.length > 0
                           ? ` • ${savedView.query.rules.length} smart rule${savedView.query.rules.length === 1 ? "" : "s"}`
@@ -10784,14 +10913,20 @@ function DocumentsView({
         <DialogContent className="w-[min(92vw,520px)]">
           <DialogHeader>
             <DialogTitle>
-              {savedViewDialog.mode === "edit" ? "Update Saved View" : "Save Current View"}
+              {savedViewDialog.mode === "edit"
+                ? "Update Saved View"
+                : "Save Current View"}
             </DialogTitle>
             <DialogDescription>
-              This stores the current search, quick filters, smart rules, sorting, and visualization mode.
+              This stores the current search, quick filters, smart rules,
+              sorting, and visualization mode.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <Field label="View Name" error={savedViewDialog.validationErrors.name}>
+            <Field
+              label="View Name"
+              error={savedViewDialog.validationErrors.name}
+            >
               <Input
                 value={savedViewDialog.name}
                 onChange={(event) =>
@@ -10820,7 +10955,8 @@ function DocumentsView({
               </Select>
             </Field>
             <div className="rounded-xl border border-border bg-background px-3 py-3 text-[13px] text-muted-foreground">
-              {currentTableRows.length} matching document{currentTableRows.length === 1 ? "" : "s"} in the current view.
+              {currentTableRows.length} matching document
+              {currentTableRows.length === 1 ? "" : "s"} in the current view.
             </div>
           </div>
           <DialogFooter>
@@ -10840,7 +10976,10 @@ function DocumentsView({
             >
               Cancel
             </Button>
-            <Button onClick={() => void handleSubmitSavedView()} disabled={savedViewDialog.isSubmitting}>
+            <Button
+              onClick={() => void handleSubmitSavedView()}
+              disabled={savedViewDialog.isSubmitting}
+            >
               {savedViewDialog.isSubmitting ? "Saving..." : "Save View"}
             </Button>
           </DialogFooter>
@@ -10896,14 +11035,17 @@ function SavedViewRulesDialog({
           <div className="grid gap-3">
             {draftRules.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-                No smart rules yet. Add rules for dates, metadata, or missing-file conditions.
+                No smart rules yet. Add rules for dates, metadata, or
+                missing-file conditions.
               </div>
             ) : (
               draftRules.map((rule) => {
                 const operatorOptions = getSavedViewOperatorOptions(rule.field);
-                const showValue = !["isEmpty", "isNotEmpty", "thisMonth"].includes(
-                  rule.operator,
-                );
+                const showValue = ![
+                  "isEmpty",
+                  "isNotEmpty",
+                  "thisMonth",
+                ].includes(rule.operator);
                 const showSecondaryValue = rule.operator === "between";
                 const showAmount = rule.operator === "withinLastDays";
                 const isDateField = isSavedViewDateField(rule.field);
@@ -10922,7 +11064,8 @@ function SavedViewRulesDialog({
                               item.id === rule.id
                                 ? {
                                     ...item,
-                                    field: event.target.value as SavedViewRuleField,
+                                    field: event.target
+                                      .value as SavedViewRuleField,
                                     operator: getSavedViewOperatorOptions(
                                       event.target.value as SavedViewRuleField,
                                     )[0],
@@ -10936,7 +11079,9 @@ function SavedViewRulesDialog({
                         }
                       >
                         {(
-                          Object.keys(SAVED_VIEW_RULE_FIELD_LABELS) as SavedViewRuleField[]
+                          Object.keys(
+                            SAVED_VIEW_RULE_FIELD_LABELS,
+                          ) as SavedViewRuleField[]
                         ).map((field) => (
                           <option key={field} value={field}>
                             {SAVED_VIEW_RULE_FIELD_LABELS[field]}
@@ -10953,14 +11098,15 @@ function SavedViewRulesDialog({
                               item.id === rule.id
                                 ? {
                                     ...item,
-                                    operator: event.target.value as SavedViewRuleOperator,
+                                    operator: event.target
+                                      .value as SavedViewRuleOperator,
                                     secondaryValue:
                                       event.target.value === "between"
                                         ? item.secondaryValue
                                         : "",
                                     amount:
                                       event.target.value === "withinLastDays"
-                                        ? item.amount ?? 30
+                                        ? (item.amount ?? 30)
                                         : undefined,
                                   }
                                 : item,
@@ -11213,7 +11359,15 @@ function getSavedViewOperatorOptions(
   }
 
   if (isSavedViewDateField(field)) {
-    return ["before", "after", "between", "withinLastDays", "thisMonth", "isEmpty", "isNotEmpty"];
+    return [
+      "before",
+      "after",
+      "between",
+      "withinLastDays",
+      "thisMonth",
+      "isEmpty",
+      "isNotEmpty",
+    ];
   }
 
   return ["is", "isNot", "contains", "isEmpty", "isNotEmpty"];
@@ -11227,7 +11381,11 @@ function formatSavedViewRuleSummary(rule: SavedViewRule): string {
     return `${fieldLabel} ${operatorLabel} ${rule.amount ?? 0}`;
   }
 
-  if (rule.operator === "thisMonth" || rule.operator === "isEmpty" || rule.operator === "isNotEmpty") {
+  if (
+    rule.operator === "thisMonth" ||
+    rule.operator === "isEmpty" ||
+    rule.operator === "isNotEmpty"
+  ) {
     return `${fieldLabel} ${operatorLabel}`;
   }
 
@@ -11300,7 +11458,11 @@ function resolveDashboardLayoutConflicts(
       ...widget,
       x: clampNumber(widget.x, 0, DASHBOARD_GRID_COLUMNS - widget.w),
       y: Math.max(0, widget.y),
-      w: clampNumber(widget.w, DASHBOARD_WIDGET_MIN_WIDTH, DASHBOARD_GRID_COLUMNS),
+      w: clampNumber(
+        widget.w,
+        DASHBOARD_WIDGET_MIN_WIDTH,
+        DASHBOARD_GRID_COLUMNS,
+      ),
       h: Math.max(DASHBOARD_WIDGET_MIN_HEIGHT, widget.h),
     }))
     .sort((left, right) => left.y - right.y || left.x - right.x);
@@ -11322,7 +11484,9 @@ function resolveDashboardLayoutConflicts(
     );
   }
 
-  return placedWidgets.sort((left, right) => left.y - right.y || left.x - right.x);
+  return placedWidgets.sort(
+    (left, right) => left.y - right.y || left.x - right.x,
+  );
 }
 
 function placeDashboardWidget(
@@ -11334,9 +11498,13 @@ function placeDashboardWidget(
 ): DashboardWidget {
   const maxX = Math.max(0, DASHBOARD_GRID_COLUMNS - widget.w);
   const preferredX = clampNumber(options?.preferredX ?? widget.x, 0, maxX);
-  const candidateXs = Array.from({ length: maxX + 1 }, (_, index) => index).sort(
+  const candidateXs = Array.from(
+    { length: maxX + 1 },
+    (_, index) => index,
+  ).sort(
     (left, right) =>
-      Math.abs(left - preferredX) - Math.abs(right - preferredX) || left - right,
+      Math.abs(left - preferredX) - Math.abs(right - preferredX) ||
+      left - right,
   );
   const maxY =
     Math.max(0, ...placedWidgets.map((item) => item.y + item.h)) + widget.h + 4;
@@ -11366,7 +11534,10 @@ function placeDashboardWidget(
   };
 }
 
-function dashboardWidgetsOverlap(left: DashboardWidget, right: DashboardWidget): boolean {
+function dashboardWidgetsOverlap(
+  left: DashboardWidget,
+  right: DashboardWidget,
+): boolean {
   return (
     left.x < right.x + right.w &&
     left.x + left.w > right.x &&
@@ -11422,9 +11593,9 @@ interface CalendarMonthData {
 
 const DOCUMENTS_VISUALIZATION_ICONS: Record<
   DocumentsVisualizationMode,
-  typeof Table2
+  typeof Grid3x3
 > = {
-  table: Table2,
+  table: Grid3x3,
   kanban: Columns3,
   timeline: Milestone,
   calendar: CalendarDays,
@@ -11432,7 +11603,7 @@ const DOCUMENTS_VISUALIZATION_ICONS: Record<
 
 const getDocumentsVisualizationIcon = (
   mode: DocumentsVisualizationMode,
-): typeof Table2 => DOCUMENTS_VISUALIZATION_ICONS[mode];
+): typeof Grid3x3 => DOCUMENTS_VISUALIZATION_ICONS[mode];
 
 const parseDateKey = (value: string): Date => {
   const [year, month, day] = value.split("-").map(Number);
@@ -11452,12 +11623,13 @@ const getDateKeyForDate = (value: Date): string =>
   ].join("-");
 
 const getMonthKeyForDate = (value: Date): string =>
-  [
-    value.getFullYear(),
-    String(value.getMonth() + 1).padStart(2, "0"),
-  ].join("-");
+  [value.getFullYear(), String(value.getMonth() + 1).padStart(2, "0")].join(
+    "-",
+  );
 
-const getCanonicalDateKey = (value: string | null | undefined): string | null => {
+const getCanonicalDateKey = (
+  value: string | null | undefined,
+): string | null => {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
@@ -11571,9 +11743,13 @@ const buildTimelineGroups = (
           return dateComparison;
         }
 
-        return left.document.title.localeCompare(right.document.title, undefined, {
-          sensitivity: "base",
-        });
+        return left.document.title.localeCompare(
+          right.document.title,
+          undefined,
+          {
+            sensitivity: "base",
+          },
+        );
       }),
     })),
     undatedDocuments,
@@ -11687,8 +11863,7 @@ function DocumentVisualizationCard({
         selected
           ? "border-primary/50 ring-1 ring-primary/30"
           : "border-border hover:border-border/80",
-        needsFilesystemReview &&
-          "border-destructive/35 bg-destructive/5",
+        needsFilesystemReview && "border-destructive/35 bg-destructive/5",
         dimmed && "opacity-60",
       )}
     >
@@ -11717,7 +11892,10 @@ function DocumentVisualizationCard({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />
+          <DocumentProgressBadge
+            status={document.status}
+            lifecycle={lifecycle}
+          />
           {document.isOverdue ? (
             <Badge variant="destructive">Overdue review</Badge>
           ) : null}
@@ -11794,8 +11972,7 @@ function DocumentsKanbanBoard({
               data-kanban-column={column.status ?? "not-started"}
               className={cn(
                 "flex h-[32rem] min-h-0 min-w-[260px] max-h-full flex-col overflow-hidden rounded-2xl border bg-card",
-                isDropTarget &&
-                  "border-primary/50 bg-primary/5",
+                isDropTarget && "border-primary/50 bg-primary/5",
               )}
               onDragOver={
                 column.status
@@ -11876,10 +12053,7 @@ function DocumentsTimeline({
   selectedDocumentId?: number;
   onSelectDocument: (documentRecordId: number) => void;
 }) {
-  if (
-    groups.monthGroups.length === 0 &&
-    groups.undatedDocuments.length === 0
-  ) {
+  if (groups.monthGroups.length === 0 && groups.undatedDocuments.length === 0) {
     return (
       <DocumentsVisualizationEmptyState
         title="No documents on the timeline"
@@ -12033,7 +12207,10 @@ function DocumentsCalendar({
 
           <div className="space-y-2">
             {month.weeks.map((week, weekIndex) => (
-              <div key={`${month.monthKey}-${weekIndex}`} className="grid grid-cols-7 gap-2">
+              <div
+                key={`${month.monthKey}-${weekIndex}`}
+                className="grid grid-cols-7 gap-2"
+              >
                 {week.map((day) => (
                   <div
                     key={day.dateKey}
@@ -12233,7 +12410,10 @@ function DocumentDetailSurface({
                 {documentDetail?.documentId ?? "Document detail"}
               </Badge>
               {latestVersion ? (
-                <StatusBadge status={latestVersion.status} lifecycle={lifecycle} />
+                <StatusBadge
+                  status={latestVersion.status}
+                  lifecycle={lifecycle}
+                />
               ) : null}
               {documentDetail ? (
                 <Badge variant="outline">
@@ -12339,7 +12519,10 @@ function DocumentDetailSurface({
                     </div>
                   </div>
                   {latestVersion ? (
-                    <DocumentProgressBadge status={latestVersion.status} lifecycle={lifecycle} />
+                    <DocumentProgressBadge
+                      status={latestVersion.status}
+                      lifecycle={lifecycle}
+                    />
                   ) : null}
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -12385,7 +12568,10 @@ function DocumentDetailSurface({
                               <div className="text-sm font-semibold">
                                 Version {version.versionLabel}
                               </div>
-                              <StatusBadge status={version.status} lifecycle={lifecycle} />
+                              <StatusBadge
+                                status={version.status}
+                                lifecycle={lifecycle}
+                              />
                               <Badge variant="outline">
                                 {version.files.length} files
                               </Badge>
@@ -12496,7 +12682,10 @@ function DocumentDetailSurface({
                   <div className="mt-4 space-y-3">
                     <div className="rounded-xl bg-card p-4">
                       <div className="flex items-center gap-2">
-                        <StatusBadge status={latestVersion.status} lifecycle={lifecycle} />
+                        <StatusBadge
+                          status={latestVersion.status}
+                          lifecycle={lifecycle}
+                        />
                         <div className="font-semibold">
                           Version {latestVersion.versionLabel}
                         </div>
@@ -12710,12 +12899,7 @@ function ProjectsView({
           sensitivity: "base",
         }),
       );
-  }, [
-    assignmentFilter,
-    deferredSearch,
-    projectFilter,
-    workspace.documents,
-  ]);
+  }, [assignmentFilter, deferredSearch, projectFilter, workspace.documents]);
 
   return (
     <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[0.9fr_1.1fr]">
@@ -12980,15 +13164,17 @@ function TemplatesView({
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Total Template Files
           </div>
-          <div className="mt-2 text-2xl font-semibold">{totalTemplateFiles}</div>
+          <div className="mt-2 text-2xl font-semibold">
+            {totalTemplateFiles}
+          </div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {workspace.templates.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-            No templates yet. Create one, add files, and use it when
-            creating a new document.
+            No templates yet. Create one, add files, and use it when creating a
+            new document.
           </div>
         ) : (
           workspace.templates.map((template) => {
@@ -13997,7 +14183,10 @@ function WorkspaceLifecycleSettingsFields({
   onStatusRemapsChange?: (statusRemaps: Record<string, string>) => void;
 }) {
   const orderedStatuses = getWorkspaceLifecycleStatuses(lifecycle);
-  const removedStatuses = getRemovedLifecycleStatuses(originalLifecycle, lifecycle);
+  const removedStatuses = getRemovedLifecycleStatuses(
+    originalLifecycle,
+    lifecycle,
+  );
 
   return (
     <Field label="Document Lifecycle" error={validationErrors.lifecycle}>
@@ -14028,7 +14217,10 @@ function WorkspaceLifecycleSettingsFields({
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {orderedStatuses.map((status) => (
-                <Badge key={status.key} variant={getLifecycleBadgeVariant(status.role)}>
+                <Badge
+                  key={status.key}
+                  variant={getLifecycleBadgeVariant(status.role)}
+                >
                   {status.name}
                 </Badge>
               ))}
@@ -14041,8 +14233,8 @@ function WorkspaceLifecycleSettingsFields({
                 <div>
                   <div className="font-medium">Statuses</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Define the status names, semantic roles, order, and
-                    metadata requirements for this workspace.
+                    Define the status names, semantic roles, order, and metadata
+                    requirements for this workspace.
                   </div>
                 </div>
                 <Button
@@ -14317,7 +14509,9 @@ function WorkspaceLifecycleSettingsFields({
                                 className="rounded-lg border border-border bg-background px-3 py-2"
                               >
                                 {fromStatus.key === toStatus.key ? (
-                                  <span className="text-muted-foreground">—</span>
+                                  <span className="text-muted-foreground">
+                                    —
+                                  </span>
                                 ) : (
                                   <label className="flex items-center gap-2">
                                     <input
@@ -15103,9 +15297,14 @@ function WorkspaceUsersDialog({
                           >
                             <div>
                               <div className="flex items-center gap-2">
-                                <div className="text-sm font-semibold">{user.displayName}</div>
+                                <div className="text-sm font-semibold">
+                                  {user.displayName}
+                                </div>
                                 {isCurrentUser ? (
-                                  <Badge variant="outline" className="px-1.5 py-0.5 text-[10px]">
+                                  <Badge
+                                    variant="outline"
+                                    className="px-1.5 py-0.5 text-[10px]"
+                                  >
                                     You
                                   </Badge>
                                 ) : null}
@@ -15115,7 +15314,9 @@ function WorkspaceUsersDialog({
                               </div>
                             </div>
                             <Badge
-                              variant={user.signInEnabled ? "success" : "destructive"}
+                              variant={
+                                user.signInEnabled ? "success" : "destructive"
+                              }
                             >
                               {user.signInEnabled ? "Active" : "Inactive"}
                             </Badge>
@@ -15159,9 +15360,12 @@ function WorkspaceUsersDialog({
                               onClick={() => onSelectUser(user.id)}
                             >
                               <div>
-                                <div className="text-sm font-semibold">{user.displayName}</div>
+                                <div className="text-sm font-semibold">
+                                  {user.displayName}
+                                </div>
                                 <div className="text-xs text-muted-foreground">
-                                  @{user.username} • {user.role} • {user.linkedRecordCount} linked
+                                  @{user.username} • {user.role} •{" "}
+                                  {user.linkedRecordCount} linked
                                 </div>
                               </div>
                               <Badge variant="muted">Archived</Badge>
@@ -15179,10 +15383,16 @@ function WorkspaceUsersDialog({
           <div className="min-h-0 overflow-y-auto rounded-2xl border border-border bg-background p-4">
             <div className="grid gap-4">
               {state.formMessage ? (
-                <InlineAlert tone={state.formTone} message={state.formMessage} />
+                <InlineAlert
+                  tone={state.formTone}
+                  message={state.formMessage}
+                />
               ) : null}
 
-              <Field label="Display Name" error={state.validationErrors.displayName}>
+              <Field
+                label="Display Name"
+                error={state.validationErrors.displayName}
+              >
                 <Input
                   disabled={isSelectedArchivedUser}
                   value={state.displayName}
@@ -15230,7 +15440,10 @@ function WorkspaceUsersDialog({
                 </Field>
               </div>
 
-              <Field label="Password / PIN" error={state.validationErrors.password}>
+              <Field
+                label="Password / PIN"
+                error={state.validationErrors.password}
+              >
                 <Input
                   disabled={isSelectedArchivedUser}
                   type="password"
@@ -15244,7 +15457,8 @@ function WorkspaceUsersDialog({
                   }
                 />
                 <div className="text-xs text-muted-foreground">
-                  Required for new users. For existing users, enter a new value only when resetting.
+                  Required for new users. For existing users, enter a new value
+                  only when resetting.
                 </div>
               </Field>
 
@@ -15277,7 +15491,9 @@ function WorkspaceUsersDialog({
                       onClick={() => onDelete(selectedUser)}
                     >
                       <Trash2 className="h-4 w-4" />
-                      {selectedUser.linkedRecordCount > 0 ? "Archive User" : "Delete User"}
+                      {selectedUser.linkedRecordCount > 0
+                        ? "Archive User"
+                        : "Delete User"}
                     </Button>
                   ) : null}
                 </div>
@@ -15297,8 +15513,9 @@ function WorkspaceUsersDialog({
 
               {selectedUser?.archived ? (
                 <div className="text-xs text-muted-foreground">
-                  Archived users are preserved because they are linked to existing records. Restore the account first
-                  if you want to edit it or allow sign-in again.
+                  Archived users are preserved because they are linked to
+                  existing records. Restore the account first if you want to
+                  edit it or allow sign-in again.
                 </div>
               ) : null}
 
@@ -15812,9 +16029,7 @@ function LatestVersionDialog({
     "revisionDescription",
   );
   const detailFieldCount =
-    Number(showReleasedDate) +
-    Number(showReviewedBy) +
-    Number(showApprovedBy);
+    Number(showReleasedDate) + Number(showReviewedBy) + Number(showApprovedBy);
   const title =
     state.mode === "latest"
       ? "Edit Latest Version"
@@ -16017,10 +16232,7 @@ function LatestVersionDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            disabled={state.isSubmitting}
-            onClick={() => void onSubmit()}
-          >
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -16216,10 +16428,7 @@ function TemplateDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            disabled={state.isSubmitting}
-            onClick={() => void onSubmit()}
-          >
+          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -16247,9 +16456,7 @@ function TemplateFilesDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: TemplateFilesDialogState;
-  onStateChange: React.Dispatch<
-    React.SetStateAction<TemplateFilesDialogState>
-  >;
+  onStateChange: React.Dispatch<React.SetStateAction<TemplateFilesDialogState>>;
   onPickFiles: () => Promise<void>;
   onDropFiles: (files: FileList | File[]) => Promise<void>;
   onRemoveFile: (filePath: string) => void;
@@ -16601,7 +16808,9 @@ function VersionFilesDialog({
   const [isDropTargetActive, setIsDropTargetActive] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const currentVersionNeedsReview = version
-    ? affectedVersions.some((affectedVersion) => affectedVersion.id === version.id)
+    ? affectedVersions.some(
+        (affectedVersion) => affectedVersion.id === version.id,
+      )
     : false;
   const showAffectedVersionSwitcher =
     affectedVersions.length > 1 ||
@@ -16650,527 +16859,536 @@ function VersionFilesDialog({
         {version ? (
           <div className="min-h-0 overflow-y-auto pr-1">
             <div className="grid gap-4">
-            <div className="rounded-xl border border-border bg-background p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-base font-semibold">
-                    Version {version.versionLabel}
-                  </div>
-                  <div className="mt-1 text-[13px] text-muted-foreground">
-                    {version.files.length} files tracked in this version
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {groupedFiles.map((group) => (
-                      <Badge key={group.role} variant="outline">
-                        {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}{" "}
-                        {group.files.length}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <DocumentProgressBadge status={version.status} lifecycle={lifecycle} />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!version.files.length}
-                    onClick={() => void onCompareVersion(version.id)}
-                  >
-                    <ArrowUpDown className="h-4 w-4" />
-                    Compare
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void onRefresh(version.id)}
-                  >
-                    <RefreshCcw className="h-4 w-4" />
-                    Refresh
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onOpenFolder(version.id)}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    Open Folder
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {affectedVersions.length > 0 ? (
-              <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-destructive">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="rounded-xl border border-border bg-background p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <AlertTriangle className="h-4 w-4" />
-                      {affectedVersions.length === 1
-                        ? "This version needs review"
-                        : `${affectedVersions.length} versions need review`}
+                    <div className="text-base font-semibold">
+                      Version {version.versionLabel}
                     </div>
-                    <div className="mt-1 text-[13px] text-destructive/90">
-                      Use the version buttons below to move through each affected
-                      version and apply decisions from this dialog.
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      {version.files.length} files tracked in this version
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {groupedFiles.map((group) => (
+                        <Badge key={group.role} variant="outline">
+                          {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}{" "}
+                          {group.files.length}
+                        </Badge>
+                      ))}
                     </div>
                   </div>
-                  <Badge variant="destructive">
-                    {affectedVersions.length} affected version
-                    {affectedVersions.length === 1 ? "" : "s"}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <DocumentProgressBadge
+                      status={version.status}
+                      lifecycle={lifecycle}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!version.files.length}
+                      onClick={() => void onCompareVersion(version.id)}
+                    >
+                      <ArrowUpDown className="h-4 w-4" />
+                      Compare
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void onRefresh(version.id)}
+                    >
+                      <RefreshCcw className="h-4 w-4" />
+                      Refresh
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onOpenFolder(version.id)}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      Open Folder
+                    </Button>
+                  </div>
                 </div>
-                {showAffectedVersionSwitcher ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {affectedVersions.map((affectedVersion) => (
-                      <Button
-                        key={affectedVersion.id}
-                        size="sm"
-                        variant={
-                          affectedVersion.id === version.id
-                            ? "destructive"
-                            : "outline"
-                        }
-                        className={
-                          affectedVersion.id === version.id
-                            ? ""
-                            : "border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        }
-                        onClick={() => onSelectVersion(affectedVersion.id)}
-                      >
-                        Review Version {affectedVersion.versionLabel}
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
               </div>
-            ) : null}
 
-            <div className="rounded-xl border border-border bg-background p-3">
-              <div
-                className={cn(
-                  "rounded-xl border border-dashed border-transparent p-1 transition",
-                  isDropTargetActive && "border-primary bg-primary/5",
-                )}
-                onDragOver={(event) => {
-                  if (!canEdit) {
-                    return;
-                  }
+              {affectedVersions.length > 0 ? (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-destructive">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <AlertTriangle className="h-4 w-4" />
+                        {affectedVersions.length === 1
+                          ? "This version needs review"
+                          : `${affectedVersions.length} versions need review`}
+                      </div>
+                      <div className="mt-1 text-[13px] text-destructive/90">
+                        Use the version buttons below to move through each
+                        affected version and apply decisions from this dialog.
+                      </div>
+                    </div>
+                    <Badge variant="destructive">
+                      {affectedVersions.length} affected version
+                      {affectedVersions.length === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                  {showAffectedVersionSwitcher ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {affectedVersions.map((affectedVersion) => (
+                        <Button
+                          key={affectedVersion.id}
+                          size="sm"
+                          variant={
+                            affectedVersion.id === version.id
+                              ? "destructive"
+                              : "outline"
+                          }
+                          className={
+                            affectedVersion.id === version.id
+                              ? ""
+                              : "border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          }
+                          onClick={() => onSelectVersion(affectedVersion.id)}
+                        >
+                          Review Version {affectedVersion.versionLabel}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = "copy";
-                  setIsDropTargetActive(true);
-                }}
-                onDragLeave={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setIsDropTargetActive(false);
-                }}
-                onDrop={(event) => {
-                  if (!canEdit) {
-                    return;
-                  }
+              <div className="rounded-xl border border-border bg-background p-3">
+                <div
+                  className={cn(
+                    "rounded-xl border border-dashed border-transparent p-1 transition",
+                    isDropTargetActive && "border-primary bg-primary/5",
+                  )}
+                  onDragOver={(event) => {
+                    if (!canEdit) {
+                      return;
+                    }
 
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setIsDropTargetActive(false);
-                  void (async () => {
-                    try {
-                      onStateChange((current) => ({
-                        ...current,
-                        isSubmitting: true,
-                        submitLabel: "Reading dropped files...",
-                      }));
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.dataTransfer.dropEffect = "copy";
+                    setIsDropTargetActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsDropTargetActive(false);
+                  }}
+                  onDrop={(event) => {
+                    if (!canEdit) {
+                      return;
+                    }
 
-                      const sourceFilePaths = await resolveDroppedFilePaths(
-                        event.dataTransfer.files,
-                      );
-                      if (sourceFilePaths.length === 0) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsDropTargetActive(false);
+                    void (async () => {
+                      try {
+                        onStateChange((current) => ({
+                          ...current,
+                          isSubmitting: true,
+                          submitLabel: "Reading dropped files...",
+                        }));
+
+                        const sourceFilePaths = await resolveDroppedFilePaths(
+                          event.dataTransfer.files,
+                        );
+                        if (sourceFilePaths.length === 0) {
+                          onStateChange((current) => ({
+                            ...current,
+                            isSubmitting: false,
+                            submitLabel: "",
+                          }));
+                          return;
+                        }
+
+                        await onDropFiles(version.id, sourceFilePaths);
+                      } catch {
                         onStateChange((current) => ({
                           ...current,
                           isSubmitting: false,
                           submitLabel: "",
                         }));
-                        return;
                       }
-
-                      await onDropFiles(version.id, sourceFilePaths);
-                    } catch {
-                      onStateChange((current) => ({
-                        ...current,
-                        isSubmitting: false,
-                        submitLabel: "",
-                      }));
-                    }
-                  })();
-                }}
-              >
-                <div className="flex flex-wrap items-end gap-3">
-                  <Field label="New File Role">
-                    <Select
-                      value={state.addRole}
-                      onChange={(event) =>
+                    })();
+                  }}
+                >
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label="New File Role">
+                      <Select
+                        value={state.addRole}
+                        onChange={(event) =>
+                          onStateChange((current) => ({
+                            ...current,
+                            addRole: event.target
+                              .value as DocumentVersionFileRole,
+                          }))
+                        }
+                      >
+                        {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Button
+                      variant="outline"
+                      disabled={!canEdit || state.isSubmitting}
+                      onClick={() => void onAddFiles(version.id)}
+                    >
+                      {state.isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      Select Files
+                    </Button>
+                    <Button
+                      disabled={
+                        !canEdit ||
+                        state.isSubmitting ||
+                        state.pendingSourceFilePaths.length === 0
+                      }
+                      onClick={() => void onUploadStagedFiles(version.id)}
+                    >
+                      {state.isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      Upload Files
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        !canEdit || state.pendingSourceFilePaths.length === 0
+                      }
+                      onClick={() =>
                         onStateChange((current) => ({
                           ...current,
-                          addRole: event.target.value as DocumentVersionFileRole,
+                          pendingSourceFilePaths: [],
+                          pendingDuplicateWarnings: [],
                         }))
                       }
                     >
-                      {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
-                        <option key={role} value={role}>
-                          {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Button
-                    variant="outline"
-                    disabled={!canEdit || state.isSubmitting}
-                    onClick={() => void onAddFiles(version.id)}
-                  >
-                    {state.isSubmitting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4" />
-                    )}
-                    Select Files
-                  </Button>
-                  <Button
-                    disabled={
-                      !canEdit ||
-                      state.isSubmitting ||
-                      state.pendingSourceFilePaths.length === 0
-                    }
-                    onClick={() => void onUploadStagedFiles(version.id)}
-                  >
-                    {state.isSubmitting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4" />
-                    )}
-                    Upload Files
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={!canEdit || state.pendingSourceFilePaths.length === 0}
-                    onClick={() =>
-                      onStateChange((current) => ({
-                        ...current,
-                        pendingSourceFilePaths: [],
-                        pendingDuplicateWarnings: [],
-                      }))
-                    }
-                  >
-                    Clear
-                  </Button>
-                </div>
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Drag files into this panel or use Select Files to stage them.
-                  DocTrack will show the pending list first, then upload only
-                  after you confirm.
-                </div>
-              </div>
-              {state.isSubmitting ? (
-                <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {state.submitLabel || "Working..."}
+                      Clear
+                    </Button>
+                  </div>
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    Drag files into this panel or use Select Files to stage
+                    them. DocTrack will show the pending list first, then upload
+                    only after you confirm.
                   </div>
                 </div>
-              ) : null}
-              {state.pendingSourceFilePaths.length > 0 ? (
-                <div className="mt-3 rounded-xl border border-border bg-card p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Staged Files
+                {state.isSubmitting ? (
+                  <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {state.submitLabel || "Working..."}
+                    </div>
+                  </div>
+                ) : null}
+                {state.pendingSourceFilePaths.length > 0 ? (
+                  <div className="mt-3 rounded-xl border border-border bg-card p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Staged Files
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {state.pendingSourceFilePaths.map((filePath) => (
+                        <div
+                          key={filePath}
+                          className="rounded-lg border border-border bg-background px-3 py-2"
+                        >
+                          <div className="break-all text-xs text-primary">
+                            {filePath}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {state.pendingDuplicateWarnings.length > 0 ? (
+                  <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                    <div className="font-semibold">Upload blocked</div>
+                    <div className="mt-2 space-y-1">
+                      {state.pendingDuplicateWarnings.map((warning) => (
+                        <div key={warning}>{warning}</div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {version.filesystemChanges.length > 0 ? (
+                <div
+                  className={cn(
+                    "rounded-xl border p-3",
+                    version.filesystemState === "ambiguous"
+                      ? "border-destructive/60 bg-destructive/10"
+                      : "border-destructive/40 bg-destructive/5",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="rounded-full bg-destructive/15 p-2 text-destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-destructive">
+                          Action Required
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-destructive">
+                          Files were changed outside DocTrack
+                        </div>
+                        <div className="mt-1 text-xs text-destructive/90">
+                          {canEdit
+                            ? "Review and resolve each item below before relying on this version."
+                            : "Review the filesystem drift before relying on this version."}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="destructive">
+                        {version.filesystemChanges.length} change
+                        {version.filesystemChanges.length === 1 ? "" : "s"}
+                      </Badge>
+                      <Badge
+                        variant={
+                          version.filesystemState === "ambiguous"
+                            ? "destructive"
+                            : "warning"
+                        }
+                      >
+                        {version.filesystemState === "ambiguous"
+                          ? "Unsafe to auto-match"
+                          : "Review pending"}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="mt-3 space-y-2">
-                    {state.pendingSourceFilePaths.map((filePath) => (
-                      <div
-                        key={filePath}
-                        className="rounded-lg border border-border bg-background px-3 py-2"
-                      >
-                        <div className="break-all text-xs text-primary">
-                          {filePath}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {state.pendingDuplicateWarnings.length > 0 ? (
-                <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
-                  <div className="font-semibold">Upload blocked</div>
-                  <div className="mt-2 space-y-1">
-                    {state.pendingDuplicateWarnings.map((warning) => (
-                      <div key={warning}>{warning}</div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
+                    {version.filesystemChanges.map((change, changeIndex) => {
+                      const pathLabel =
+                        change.discoveredPath ??
+                        change.trackedPath ??
+                        "Unknown path";
+                      const discoveredPath = change.discoveredPath;
+                      const requiresManualAttention =
+                        change.kind === "collision" ||
+                        change.kind === "missingTracked" ||
+                        change.kind === "nestedUnmanaged";
+                      const canApply =
+                        canEdit &&
+                        change.kind !== "collision" &&
+                        change.kind !== "nestedUnmanaged" &&
+                        change.kind !== "newUnmanaged";
+                      const canImportUnmanaged =
+                        canEdit &&
+                        (change.kind === "newUnmanaged" ||
+                          change.kind === "nestedUnmanaged");
 
-            {version.filesystemChanges.length > 0 ? (
-              <div
-                className={cn(
-                  "rounded-xl border p-3",
-                  version.filesystemState === "ambiguous"
-                    ? "border-destructive/60 bg-destructive/10"
-                    : "border-destructive/40 bg-destructive/5",
-                )}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="rounded-full bg-destructive/15 p-2 text-destructive">
-                      <AlertTriangle className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-destructive">
-                        Action Required
-                      </div>
-                      <div className="mt-1 text-sm font-semibold text-destructive">
-                        Files were changed outside DocTrack
-                      </div>
-                      <div className="mt-1 text-xs text-destructive/90">
-                        {canEdit
-                          ? "Review and resolve each item below before relying on this version."
-                          : "Review the filesystem drift before relying on this version."}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="destructive">
-                      {version.filesystemChanges.length} change
-                      {version.filesystemChanges.length === 1 ? "" : "s"}
-                    </Badge>
-                    <Badge
-                      variant={
-                        version.filesystemState === "ambiguous"
-                          ? "destructive"
-                          : "warning"
-                      }
-                    >
-                      {version.filesystemState === "ambiguous"
-                        ? "Unsafe to auto-match"
-                        : "Review pending"}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {version.filesystemChanges.map((change, changeIndex) => {
-                    const pathLabel =
-                      change.discoveredPath ?? change.trackedPath ?? "Unknown path";
-                    const discoveredPath = change.discoveredPath;
-                    const requiresManualAttention =
-                      change.kind === "collision" ||
-                      change.kind === "missingTracked" ||
-                      change.kind === "nestedUnmanaged";
-                    const canApply =
-                      canEdit &&
-                      change.kind !== "collision" &&
-                      change.kind !== "nestedUnmanaged" &&
-                      change.kind !== "newUnmanaged";
-                    const canImportUnmanaged =
-                      canEdit &&
-                      (change.kind === "newUnmanaged" ||
-                        change.kind === "nestedUnmanaged");
-
-                    return (
-                    <div
-                      key={`${change.kind}-${changeIndex}-${pathLabel}`}
-                      className={cn(
-                        "rounded-xl border p-3",
-                        requiresManualAttention
-                          ? "border-destructive/35 bg-background"
-                          : "border-destructive/20 bg-background",
-                      )}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="outline">{change.kind}</Badge>
-                            <Badge
-                              variant={
-                                requiresManualAttention
-                                  ? "destructive"
-                                  : "warning"
-                              }
-                            >
-                              {requiresManualAttention
-                                ? "Needs decision"
-                                : "Review"}
-                            </Badge>
-                          </div>
-                          <div className="mt-2 text-sm text-foreground">
-                            {change.message}
-                          </div>
-                          <div className="mt-2 copyable-text font-mono text-xs text-primary">
-                            {pathLabel}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onOpenStoredPath(pathLabel)}
+                      return (
+                        <div
+                          key={`${change.kind}-${changeIndex}-${pathLabel}`}
+                          className={cn(
+                            "rounded-xl border p-3",
+                            requiresManualAttention
+                              ? "border-destructive/35 bg-background"
+                              : "border-destructive/20 bg-background",
+                          )}
                         >
-                          <FolderOpen className="h-4 w-4" />
-                          Open Path
-                        </Button>
-                        {discoveredPath && canImportUnmanaged ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              void onReconcileUnmanagedPath(
-                                version.id,
-                                discoveredPath,
-                              )
-                            }
-                          >
-                            <Upload className="h-4 w-4" />
-                            Import Into Managed Files
-                          </Button>
-                        ) : null}
-                        {discoveredPath && canImportUnmanaged ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              void onIgnoreUnmanagedPath(
-                                version.id,
-                                discoveredPath,
-                              )
-                            }
-                          >
-                            Ignore
-                          </Button>
-                        ) : null}
-                        {canApply ? (
-                          <Button
-                            variant={
-                              change.kind === "missingTracked"
-                                ? "destructive"
-                                : "default"
-                            }
-                            size="sm"
-                            onClick={() =>
-                              void onApplyFilesystemChange(
-                                version.id,
-                                changeIndex,
-                                change,
-                              )
-                            }
-                          >
-                            Apply
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl border border-border bg-background p-3">
-              {version.files.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
-                  No files in this version yet.
-                </div>
-              ) : (
-                groupedFiles.map((group) => (
-                  <section key={group.role} className="space-y-2">
-                    <div className="sticky top-0 z-10 rounded-lg border border-border bg-card px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold">
-                          {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}
-                        </div>
-                        <Badge variant="outline">{group.files.length}</Badge>
-                      </div>
-                    </div>
-                    {group.files.map((file) => (
-                      <div
-                        key={file.id}
-                        className="rounded-xl border border-border bg-card p-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-semibold">
-                              {file.fileName}
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {formatFileSize(file.fileSize)} • Modified{" "}
-                              {formatDateTime(file.modifiedDate)}
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">{change.kind}</Badge>
+                                <Badge
+                                  variant={
+                                    requiresManualAttention
+                                      ? "destructive"
+                                      : "warning"
+                                  }
+                                >
+                                  {requiresManualAttention
+                                    ? "Needs decision"
+                                    : "Review"}
+                                </Badge>
+                              </div>
+                              <div className="mt-2 text-sm text-foreground">
+                                {change.message}
+                              </div>
+                              <div className="mt-2 copyable-text font-mono text-xs text-primary">
+                                {pathLabel}
+                              </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {canEdit ? (
-                              <Select
-                                value={file.role}
-                                onChange={(event) =>
-                                  void onChangeRole(
-                                    file,
-                                    event.target.value as DocumentVersionFileRole,
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onOpenStoredPath(pathLabel)}
+                            >
+                              <FolderOpen className="h-4 w-4" />
+                              Open Path
+                            </Button>
+                            {discoveredPath && canImportUnmanaged ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  void onReconcileUnmanagedPath(
+                                    version.id,
+                                    discoveredPath,
                                   )
                                 }
                               >
-                                {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
-                                  <option key={role} value={role}>
-                                    {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
-                                  </option>
-                                ))}
-                              </Select>
-                            ) : (
-                              <Badge variant="outline">
-                                {DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}
-                              </Badge>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onOpenFile(file.id)}
-                            >
-                              Open
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => void onPreviewFile(file.id)}
-                            >
-                              <Search className="h-4 w-4" />
-                              Preview
-                            </Button>
-                            {canEdit ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => void onRenameFile(file)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                                Rename
+                                <Upload className="h-4 w-4" />
+                                Import Into Managed Files
                               </Button>
                             ) : null}
-                            {canEdit ? (
+                            {discoveredPath && canImportUnmanaged ? (
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => void onDeleteFile(file)}
+                                onClick={() =>
+                                  void onIgnoreUnmanagedPath(
+                                    version.id,
+                                    discoveredPath,
+                                  )
+                                }
                               >
-                                Delete
+                                Ignore
+                              </Button>
+                            ) : null}
+                            {canApply ? (
+                              <Button
+                                variant={
+                                  change.kind === "missingTracked"
+                                    ? "destructive"
+                                    : "default"
+                                }
+                                size="sm"
+                                onClick={() =>
+                                  void onApplyFilesystemChange(
+                                    version.id,
+                                    changeIndex,
+                                    change,
+                                  )
+                                }
+                              >
+                                Apply
                               </Button>
                             ) : null}
                           </div>
                         </div>
-                        <div className="mt-3 rounded-lg bg-background px-2.5 py-2 text-xs text-primary">
-                          {file.filePath}
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl border border-border bg-background p-3">
+                {version.files.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-[13px] text-muted-foreground">
+                    No files in this version yet.
+                  </div>
+                ) : (
+                  groupedFiles.map((group) => (
+                    <section key={group.role} className="space-y-2">
+                      <div className="sticky top-0 z-10 rounded-lg border border-border bg-card px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold">
+                            {DOCUMENT_VERSION_FILE_ROLE_LABELS[group.role]}
+                          </div>
+                          <Badge variant="outline">{group.files.length}</Badge>
                         </div>
                       </div>
-                    ))}
-                  </section>
-                ))
-              )}
-            </div>
+                      {group.files.map((file) => (
+                        <div
+                          key={file.id}
+                          className="rounded-xl border border-border bg-card p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold">
+                                {file.fileName}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {formatFileSize(file.fileSize)} • Modified{" "}
+                                {formatDateTime(file.modifiedDate)}
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {canEdit ? (
+                                <Select
+                                  value={file.role}
+                                  onChange={(event) =>
+                                    void onChangeRole(
+                                      file,
+                                      event.target
+                                        .value as DocumentVersionFileRole,
+                                    )
+                                  }
+                                >
+                                  {DOCUMENT_VERSION_FILE_ROLES.map((role) => (
+                                    <option key={role} value={role}>
+                                      {DOCUMENT_VERSION_FILE_ROLE_LABELS[role]}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <Badge variant="outline">
+                                  {DOCUMENT_VERSION_FILE_ROLE_LABELS[file.role]}
+                                </Badge>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onOpenFile(file.id)}
+                              >
+                                Open
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void onPreviewFile(file.id)}
+                              >
+                                <Search className="h-4 w-4" />
+                                Preview
+                              </Button>
+                              {canEdit ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void onRenameFile(file)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  Rename
+                                </Button>
+                              ) : null}
+                              {canEdit ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void onDeleteFile(file)}
+                                >
+                                  Delete
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-lg bg-background px-2.5 py-2 text-xs text-primary">
+                            {file.filePath}
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -17442,7 +17660,9 @@ function RenameFileDialog({
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 Current File
               </div>
-              <div className="mt-2 text-sm font-medium">{state.file.fileName}</div>
+              <div className="mt-2 text-sm font-medium">
+                {state.file.fileName}
+              </div>
               <div className="mt-2 break-all text-xs text-primary">
                 {state.file.filePath}
               </div>
@@ -17464,7 +17684,11 @@ function RenameFileDialog({
                   )
                 }
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !state.isSubmitting && nextFileName) {
+                  if (
+                    event.key === "Enter" &&
+                    !state.isSubmitting &&
+                    nextFileName
+                  ) {
                     event.preventDefault();
                     void onSubmit();
                   }
@@ -17517,9 +17741,11 @@ const getRestoreDiffCellClasses = (
 ): string =>
   cn(
     "rounded-md border px-3 py-2 text-[12px] leading-5",
-    side === "live" && changeType === "removed" &&
+    side === "live" &&
+      changeType === "removed" &&
       "border-rose-200 bg-rose-50/80 dark:border-rose-400/20 dark:bg-rose-500/10",
-    side === "backup" && changeType === "added" &&
+    side === "backup" &&
+      changeType === "added" &&
       "border-emerald-200 bg-emerald-50/80 dark:border-emerald-400/20 dark:bg-emerald-500/10",
     changeType === "changed" &&
       "border-amber-200 bg-amber-50/70 dark:border-amber-400/20 dark:bg-amber-500/10",
@@ -17530,16 +17756,15 @@ const getRestoreDiffCellClasses = (
     ) && "border-border bg-background",
   );
 
-function RestoreDiffFileCard({
-  item,
-}: {
-  item: RestoreBackupDiffItem;
-}) {
+function RestoreDiffFileCard({ item }: { item: RestoreBackupDiffItem }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
         <div className="text-sm font-semibold">{item.label}</div>
-        <Badge variant="outline" className={getRestoreDiffBadgeClasses(item.changeType)}>
+        <Badge
+          variant="outline"
+          className={getRestoreDiffBadgeClasses(item.changeType)}
+        >
           {item.changeType}
         </Badge>
       </div>
@@ -17560,14 +17785,18 @@ function RestoreDiffFileCard({
               {field.label}
             </div>
             <div className="border-l border-border pl-4">
-              <div className={getRestoreDiffCellClasses(item.changeType, "live")}>
+              <div
+                className={getRestoreDiffCellClasses(item.changeType, "live")}
+              >
                 <div className="whitespace-pre-wrap break-words font-mono">
                   {field.liveValue ?? "Not present"}
                 </div>
               </div>
             </div>
             <div className="border-l border-border pl-4">
-              <div className={getRestoreDiffCellClasses(item.changeType, "backup")}>
+              <div
+                className={getRestoreDiffCellClasses(item.changeType, "backup")}
+              >
                 <div className="whitespace-pre-wrap break-words font-mono">
                   {field.backupValue ?? "Not present"}
                 </div>
@@ -17598,7 +17827,8 @@ function BackupDialog({
   onRefresh: () => void;
 }) {
   const selectedBackup =
-    state.backups.find((backup) => backup.id === state.selectedBackupId) ?? null;
+    state.backups.find((backup) => backup.id === state.selectedBackupId) ??
+    null;
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
@@ -17669,8 +17899,8 @@ function BackupDialog({
                               : "Safety snapshot"}
                           </div>
                           <div className="mt-2 text-xs text-muted-foreground">
-                            {backup.documentCount} docs • {backup.versionCount} versions •{" "}
-                            {formatFileSize(backup.sizeBytes)}
+                            {backup.documentCount} docs • {backup.versionCount}{" "}
+                            versions • {formatFileSize(backup.sizeBytes)}
                           </div>
                         </div>
                         <Button
@@ -17781,7 +18011,8 @@ function BackupDialog({
                                 {section.label}
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
-                                {section.addedCount} added, {section.changedCount} changed,{" "}
+                                {section.addedCount} added,{" "}
+                                {section.changedCount} changed,{" "}
                                 {section.removedCount} removed
                               </div>
                             </div>
@@ -17948,7 +18179,11 @@ function ActivityLogDialog({
         return true;
       }
 
-      return [item.message, item.eventType, formatActivityEventTypeLabel(item.eventType)]
+      return [
+        item.message,
+        item.eventType,
+        formatActivityEventTypeLabel(item.eventType),
+      ]
         .join(" ")
         .toLowerCase()
         .includes(query);
@@ -18022,7 +18257,8 @@ function ActivityLogDialog({
                   key={item.id}
                   className="w-full rounded-xl border border-border bg-background px-4 py-3 text-left transition hover:bg-accent"
                   onClick={() =>
-                    item.documentRecordId && onOpenDocument(item.documentRecordId)
+                    item.documentRecordId &&
+                    onOpenDocument(item.documentRecordId)
                   }
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -18078,10 +18314,12 @@ function VersionComparisonDialog({
             <div className="space-y-3">
               <div className="rounded-xl border border-border bg-card p-3">
                 <div className="text-sm font-semibold">
-                  {state.result.previousVersionLabel} → {state.result.currentVersionLabel}
+                  {state.result.previousVersionLabel} →{" "}
+                  {state.result.currentVersionLabel}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {state.result.deltas.length} changes • {state.result.unchangedCount} unchanged
+                  {state.result.deltas.length} changes •{" "}
+                  {state.result.unchangedCount} unchanged
                 </div>
               </div>
 
@@ -18172,7 +18410,9 @@ function DocumentStatusSelect({
   ) => void;
 }) {
   if (!document.status || !document.latestVersionLabel) {
-    return <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />;
+    return (
+      <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />
+    );
   }
 
   const statuses = [
@@ -18184,7 +18424,9 @@ function DocumentStatusSelect({
   const currentVariant = getStatusVariant(document.status, lifecycle);
 
   if (statuses.length === 0) {
-    return <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />;
+    return (
+      <DocumentProgressBadge status={document.status} lifecycle={lifecycle} />
+    );
   }
 
   return (
