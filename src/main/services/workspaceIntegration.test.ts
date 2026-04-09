@@ -349,22 +349,16 @@ describe('workspace integration', () => {
       name: 'Delete Workspace User',
       parentPath: tempRoot,
       settings: {
-        ...DEFAULT_WORKSPACE_SETTINGS
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        userSystemEnabled: false
       },
-      includeExampleData: false,
-      initialAdmin: {
-        username: 'admin',
-        displayName: 'Workspace Admin',
-        password: 'admin1234'
-      }
+      includeExampleData: false
     });
     const workspaceRootPath = result.workspace.rootPath;
-    const createdUser = workspaceUserService.create(workspaceRootPath, {
-      username: 'taylor',
-      displayName: 'Taylor Reed',
-      password: '2468',
-      role: 'editor'
-    });
+    const createdUser = workspaceUserService.ensureImportedUser(
+      workspaceManager.getContext(workspaceRootPath).db,
+      'Taylor Reed'
+    );
 
     const removal = workspaceUserService.remove(workspaceRootPath, createdUser.id);
     const remainingUserIds = workspaceUserService.list(workspaceRootPath).map((user) => user.id);
@@ -381,22 +375,16 @@ describe('workspace integration', () => {
       name: 'Archive Workspace User',
       parentPath: tempRoot,
       settings: {
-        ...DEFAULT_WORKSPACE_SETTINGS
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        userSystemEnabled: false
       },
-      includeExampleData: false,
-      initialAdmin: {
-        username: 'admin',
-        displayName: 'Workspace Admin',
-        password: 'admin1234'
-      }
+      includeExampleData: false
     });
     const workspaceRootPath = result.workspace.rootPath;
-    const createdUser = workspaceUserService.create(workspaceRootPath, {
-      username: 'taylor',
-      displayName: 'Taylor Reed',
-      password: '2468',
-      role: 'editor'
-    });
+    const createdUser = workspaceUserService.ensureImportedUser(
+      workspaceManager.getContext(workspaceRootPath).db,
+      'Taylor Reed'
+    );
     const db = workspaceManager.getContext(workspaceRootPath).db;
 
     db.prepare(
@@ -436,22 +424,16 @@ describe('workspace integration', () => {
       name: 'Restore Archived Workspace User',
       parentPath: tempRoot,
       settings: {
-        ...DEFAULT_WORKSPACE_SETTINGS
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        userSystemEnabled: false
       },
-      includeExampleData: false,
-      initialAdmin: {
-        username: 'admin',
-        displayName: 'Workspace Admin',
-        password: 'admin1234'
-      }
+      includeExampleData: false
     });
     const workspaceRootPath = result.workspace.rootPath;
-    const createdUser = workspaceUserService.create(workspaceRootPath, {
-      username: 'taylor',
-      displayName: 'Taylor Reed',
-      password: '2468',
-      role: 'editor'
-    });
+    const createdUser = workspaceUserService.ensureImportedUser(
+      workspaceManager.getContext(workspaceRootPath).db,
+      'Taylor Reed'
+    );
     const db = workspaceManager.getContext(workspaceRootPath).db;
 
     db.prepare(
