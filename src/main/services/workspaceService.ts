@@ -12,6 +12,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import type { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
+import { WorkspaceRoleService } from '@main/services/workspaceRoleService';
 import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { nowIso } from '@main/utils/date';
 import {
@@ -81,6 +82,7 @@ export interface WorkspaceSummaryResult {
 
 export class WorkspaceService {
   private readonly workspaceUserService: WorkspaceUserService;
+  private readonly workspaceRoleService: WorkspaceRoleService;
 
   constructor(
     private readonly workspaceManager: WorkspaceManager,
@@ -93,14 +95,18 @@ export class WorkspaceService {
     private readonly documentIdGenerator: DocumentIdGeneratorService,
     private readonly activityLogService: ActivityLogService,
     private readonly workspaceBackupService: WorkspaceBackupService,
+    workspaceRoleService?: WorkspaceRoleService,
     workspaceUserService?: WorkspaceUserService,
     private readonly workspaceFilesystemWatcherService?: Pick<
       WorkspaceFilesystemWatcherService,
       'ensureWatching' | 'closeWatching'
     >
   ) {
+    this.workspaceRoleService =
+      workspaceRoleService ?? new WorkspaceRoleService(workspaceManager);
     this.workspaceUserService =
-      workspaceUserService ?? new WorkspaceUserService(workspaceManager);
+      workspaceUserService ??
+      new WorkspaceUserService(workspaceManager, this.workspaceRoleService);
   }
 
   create(input: WorkspaceCreateInput): WorkspaceSummaryResult {
@@ -185,6 +191,7 @@ export class WorkspaceService {
         workspace: context.workspace,
         settings: context.settings,
         lifecycle: context.lifecycle,
+        roleSettings: this.workspaceRoleService.list(rootPath),
         users,
         documents,
         dashboard: this.buildDashboardSummary(context, documents),

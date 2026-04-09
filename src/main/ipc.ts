@@ -7,6 +7,7 @@ import type { DocumentService } from '@main/services/documentService';
 import type { DocumentTypeService } from '@main/services/documentTypeService';
 import type { SavedViewService } from '@main/services/savedViewService';
 import type { TemplateService } from '@main/services/templateService';
+import { WorkspaceRoleService } from '@main/services/workspaceRoleService';
 import { WorkspaceSessionService } from '@main/services/workspaceSessionService';
 import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import type { WorkspaceService, WorkspaceSummaryResult } from '@main/services/workspaceService';
@@ -20,13 +21,21 @@ import type {
   WorkspaceUserCredentialsInput
 } from '@shared/types';
 
-type WorkspaceAccessLevel = 'viewer' | 'editor' | 'admin';
+type WorkspaceAccessRequirement =
+  | 'viewer'
+  | 'editDocuments'
+  | 'manageUsers'
+  | 'manageRoles'
+  | 'manageWorkspaceSettings'
+  | 'manageWorkspaceMaintenance'
+  | 'manageSharedViews';
 
 const BYPASS_WORKSPACE_USER: WorkspaceUser = {
   id: 0,
   username: 'workspace',
   displayName: 'Workspace Access',
   role: 'admin',
+  roleName: 'Admin',
   signInEnabled: false,
   archived: false,
   linkedRecordCount: 0,
@@ -40,7 +49,14 @@ const buildBypassSession = (): WorkspaceSession => ({
   permissions: {
     canReadWorkspace: true,
     canEditWorkspace: true,
-    canManageWorkspace: true
+    canManageWorkspace: true,
+    canViewWorkspace: true,
+    canEditDocuments: true,
+    canManageSharedViews: true,
+    canManageUsers: true,
+    canManageRoles: true,
+    canManageWorkspaceSettings: true,
+    canManageWorkspaceMaintenance: true
   },
   signedInAt: new Date().toISOString()
 });
@@ -53,6 +69,7 @@ interface ServiceContainer {
   workspaceCatalogService: WorkspaceCatalogService;
   templateService: TemplateService;
   savedViewService: SavedViewService;
+  workspaceRoleService?: WorkspaceRoleService;
   workspaceUserService?: WorkspaceUserService;
   catalogService: AppCatalogService;
   appUpdaterService: AppUpdaterService;
@@ -77,6 +94,8 @@ type RuntimeWorkspaceUserService = Pick<
   | 'resetPassword'
 >;
 
+type RuntimeWorkspaceRoleService = Pick<WorkspaceRoleService, 'list' | 'save'>;
+
 type RuntimeWorkspaceSessionService = Pick<
   WorkspaceSessionService,
   | 'getSession'
@@ -91,8 +110,9 @@ type RuntimeActorContextService = Pick<ActorContextService, 'runWithActor'>;
 
 type RuntimeServiceContainer = Omit<
   ServiceContainer,
-  'workspaceUserService' | 'workspaceSessionService' | 'actorContextService'
+  'workspaceRoleService' | 'workspaceUserService' | 'workspaceSessionService' | 'actorContextService'
 > & {
+  workspaceRoleService: RuntimeWorkspaceRoleService;
   workspaceUserService: RuntimeWorkspaceUserService;
   workspaceSessionService: RuntimeWorkspaceSessionService;
   actorContextService: RuntimeActorContextService;
@@ -102,7 +122,7 @@ const assertWorkspaceAccess = (
   services: RuntimeServiceContainer,
   event: IpcMainInvokeEvent,
   rootPath: string,
-  level: WorkspaceAccessLevel
+  requirement: WorkspaceAccessRequirement
 ): WorkspaceSession => {
   if (!services.workspaceService.isUserSystemEnabled(rootPath)) {
     return buildBypassSession();
@@ -113,12 +133,33 @@ const assertWorkspaceAccess = (
     throw new Error('Sign in to continue.');
   }
 
-  if (level === 'admin' && !session.permissions.canManageWorkspace) {
-    throw new Error('Administrator access is required for this action.');
-  }
-
-  if (level === 'editor' && !session.permissions.canEditWorkspace) {
-    throw new Error('Editor access is required for this action.');
+  if (
+    (requirement === 'viewer' && !session.permissions.canViewWorkspace) ||
+    (requirement === 'editDocuments' && !session.permissions.canEditDocuments) ||
+    (requirement === 'manageUsers' && !session.permissions.canManageUsers) ||
+    (requirement === 'manageRoles' && !session.permissions.canManageRoles) ||
+    (requirement === 'manageWorkspaceSettings' &&
+      !session.permissions.canManageWorkspaceSettings) ||
+    (requirement === 'manageWorkspaceMaintenance' &&
+      !session.permissions.canManageWorkspaceMaintenance) ||
+    (requirement === 'manageSharedViews' && !session.permissions.canManageSharedViews)
+  ) {
+    switch (requirement) {
+      case 'editDocuments':
+        throw new Error('Document editing access is required for this action.');
+      case 'manageUsers':
+        throw new Error('Workspace user management access is required for this action.');
+      case 'manageRoles':
+        throw new Error('Workspace role management access is required for this action.');
+      case 'manageWorkspaceSettings':
+        throw new Error('Workspace settings access is required for this action.');
+      case 'manageWorkspaceMaintenance':
+        throw new Error('Workspace maintenance access is required for this action.');
+      case 'manageSharedViews':
+        throw new Error('Shared view management access is required for this action.');
+      default:
+        throw new Error('Workspace access is required for this action.');
+    }
   }
 
   return session;
@@ -193,6 +234,16 @@ const toLockedWorkspaceResult = (
 export const registerIpcHandlers = (services: ServiceContainer): void => {
   const runtimeServices: RuntimeServiceContainer = {
     ...services,
+    workspaceRoleService:
+      services.workspaceRoleService ??
+      ({
+        list: () => {
+          throw new Error('Workspace role service is unavailable.');
+        },
+        save: () => {
+          throw new Error('Workspace role service is unavailable.');
+        }
+      } as RuntimeWorkspaceRoleService),
     workspaceUserService:
       services.workspaceUserService ??
       ({
@@ -332,7 +383,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     return runAsActor(runtimeServices, session.user.id, () => runtimeServices.workspaceUserService.create(rootPath, input));
   });
 
@@ -341,7 +392,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     const user = runAsActor(runtimeServices, session.user.id, () =>
       runtimeServices.workspaceUserService.update(rootPath, userId, input)
     );
@@ -354,7 +405,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     return runAsActor(runtimeServices, session.user.id, () => runtimeServices.workspaceUserService.activate(rootPath, userId));
   });
 
@@ -363,7 +414,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     if (session.user.id === userId) {
       throw new Error('You cannot deactivate the account that is currently signed in.');
     }
@@ -380,7 +431,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     if (session.user.id === userId) {
       throw new Error('You cannot delete the account that is currently signed in.');
     }
@@ -397,7 +448,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     return runAsActor(runtimeServices, session.user.id, () =>
       runtimeServices.workspaceUserService.unarchive(rootPath, userId)
     );
@@ -408,10 +459,34 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
       throw new Error('The user system is disabled for this workspace.');
     }
 
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageUsers');
     return runAsActor(runtimeServices, session.user.id, () =>
       runtimeServices.workspaceUserService.resetPassword(rootPath, input.userId, input.password)
     );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.workspaceListRoles, (event, rootPath: string) => {
+    if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
+      return runtimeServices.workspaceRoleService.list(rootPath);
+    }
+
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'viewer');
+    return runtimeServices.workspaceRoleService.list(rootPath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.workspaceSaveRoleSettings, (event, rootPath: string, input) => {
+    if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
+      throw new Error('The user system is disabled for this workspace.');
+    }
+
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageRoles');
+    const roleSettings = runAsActor(runtimeServices, session.user.id, () =>
+      runtimeServices.workspaceRoleService.save(rootPath, input)
+    );
+    for (const user of runtimeServices.workspaceUserService.list(rootPath)) {
+      runtimeServices.workspaceSessionService.replaceSessionsForUser(rootPath, user);
+    }
+    return roleSettings;
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceGetSummary, (event, rootPath: string) => {
@@ -440,7 +515,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceUpdateSettings, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceSettings');
     const result = runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceService.updateSettings(rootPath, input)
     );
@@ -448,26 +523,26 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceUpdateDashboardLayout, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceSettings');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceService.updateDashboardLayout(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceListBackups, (event, rootPath: string) => {
-    assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
     return services.workspaceService.listBackups(rootPath);
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceCreateBackup, (event, rootPath: string) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceService.createBackup(rootPath));
   });
 
   ipcMain.handle(
     IPC_CHANNELS.workspaceGetRestorePreview,
     (event, rootPath: string, backupId: string, destinationParentPath: string, destinationFolderName?: string) => {
-      assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+      assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
       return services.workspaceService.getRestorePreview(
         rootPath,
         backupId,
@@ -478,12 +553,12 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
 
   ipcMain.handle(IPC_CHANNELS.workspaceGetRestoreDiff, (event, rootPath: string, backupId: string) => {
-    assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
     return services.workspaceService.getRestoreDiff(rootPath, backupId);
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceRestoreBackup, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
     const result = runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceService.restoreBackup(rootPath, input)
     );
@@ -491,7 +566,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceIntegrityCheck, (event, rootPath: string) => {
-    assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
     return services.workspaceService.integrityCheck(rootPath);
   });
 
@@ -548,65 +623,65 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.create(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsUpdate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.updateDocument(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsCreateVersion, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.createVersion(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsDelete, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.deleteDocument(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsDeleteVersion, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.deleteVersion(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsUpdateLatestVersion, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.updateLatestVersion(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsUpdateVersion, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.updateVersion(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsAddVersionFiles, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentService.addVersionFiles(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsRenameVersionFile, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.renameVersionFile(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsDeleteVersionFile, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.deleteVersionFile(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsChangeVersionFileRole, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.changeVersionFileRole(rootPath, input)
     );
@@ -625,7 +700,7 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(
     IPC_CHANNELS.documentsApplyVersionFilesystemReconciliation,
     (event, rootPath: string, documentVersionId: number, input) => {
-      const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+      const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
       return runAsActor(runtimeServices, session.user.id, () =>
         services.documentService.applyVersionFilesystemReconciliation(rootPath, documentVersionId, input)
       );
@@ -679,14 +754,14 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   );
 
   ipcMain.handle(IPC_CHANNELS.documentsReconcileUnmanagedPath, (event, rootPath: string, documentVersionId: number, relativePath: string) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.reconcileUnmanagedPath(rootPath, documentVersionId, relativePath)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.documentsIgnoreUnmanagedPath, (event, rootPath: string, documentVersionId: number, relativePath: string) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.documentService.ignoreUnmanagedPath(rootPath, documentVersionId, relativePath)
     );
@@ -698,29 +773,49 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.savedViewsCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, input.scope === 'shared' ? 'editor' : 'viewer');
+    const session = assertWorkspaceAccess(
+      runtimeServices,
+      event,
+      rootPath,
+      input.scope === 'shared' ? 'manageSharedViews' : 'viewer'
+    );
     return runAsActor(runtimeServices, session.user.id, () => services.savedViewService.create(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.savedViewsUpdate, (event, rootPath: string, savedViewId: string, scope, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, scope === 'shared' ? 'editor' : 'viewer');
+    const session = assertWorkspaceAccess(
+      runtimeServices,
+      event,
+      rootPath,
+      scope === 'shared' ? 'manageSharedViews' : 'viewer'
+    );
     return runAsActor(runtimeServices, session.user.id, () =>
       services.savedViewService.update(rootPath, savedViewId, scope, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.savedViewsDelete, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, input.scope === 'shared' ? 'editor' : 'viewer');
+    const session = assertWorkspaceAccess(
+      runtimeServices,
+      event,
+      rootPath,
+      input.scope === 'shared' ? 'manageSharedViews' : 'viewer'
+    );
     return runAsActor(runtimeServices, session.user.id, () => services.savedViewService.delete(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.savedViewsDuplicate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, input.scope === 'shared' ? 'editor' : 'viewer');
+    const session = assertWorkspaceAccess(
+      runtimeServices,
+      event,
+      rootPath,
+      input.scope === 'shared' ? 'manageSharedViews' : 'viewer'
+    );
     return runAsActor(runtimeServices, session.user.id, () => services.savedViewService.duplicate(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.savedViewsPromoteToShared, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageSharedViews');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.savedViewService.promoteToShared(rootPath, input)
     );
@@ -732,17 +827,17 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.documentTypesCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentTypeService.create(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentTypesUpdate, (event, rootPath: string, id: number, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentTypeService.update(rootPath, id, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.documentTypesDelete, (event, rootPath: string, id: number) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.documentTypeService.delete(rootPath, id));
   });
 
@@ -752,19 +847,19 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.projectsCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.createProject(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.projectsUpdate, (event, rootPath: string, id: number, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceCatalogService.updateProject(rootPath, id, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.projectsDelete, (event, rootPath: string, id: number) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.deleteProject(rootPath, id));
   });
 
@@ -774,17 +869,17 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.templatesCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.templateService.create(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.templatesAddFiles, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.templateService.addFiles(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.templatesDelete, (event, rootPath: string, templateId: string) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.templateService.delete(rootPath, templateId));
   });
 
@@ -794,21 +889,21 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.confidentialityClassesCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceCatalogService.createConfidentialityClass(rootPath, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.confidentialityClassesUpdate, (event, rootPath: string, id: number, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceCatalogService.updateConfidentialityClass(rootPath, id, input)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.confidentialityClassesDelete, (event, rootPath: string, id: number) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () =>
       services.workspaceCatalogService.deleteConfidentialityClass(rootPath, id)
     );
@@ -820,17 +915,17 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.languagesCreate, (event, rootPath: string, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.createLanguage(rootPath, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.languagesUpdate, (event, rootPath: string, id: number, input) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.updateLanguage(rootPath, id, input));
   });
 
   ipcMain.handle(IPC_CHANNELS.languagesDelete, (event, rootPath: string, id: number) => {
-    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editor');
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
     return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.deleteLanguage(rootPath, id));
   });
 

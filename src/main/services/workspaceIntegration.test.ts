@@ -132,6 +132,7 @@ describe('workspace integration', () => {
       documentIdGenerator,
       activityLogService,
       workspaceBackupService,
+      undefined,
       workspaceUserService
     );
   });

@@ -16,6 +16,7 @@ import { TemplateService } from '@main/services/templateService';
 import { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceCatalogService } from '@main/services/workspaceCatalogService';
 import { WorkspaceFilesystemWatcherService } from '@main/services/workspaceFilesystemWatcherService';
+import { WorkspaceRoleService } from '@main/services/workspaceRoleService';
 import { WorkspaceSessionService } from '@main/services/workspaceSessionService';
 import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { WorkspaceService } from '@main/services/workspaceService';
@@ -59,7 +60,8 @@ app.whenReady().then(async () => {
   const appUpdaterService = new AppUpdaterService();
   const workspaceManager = new WorkspaceManager();
   const actorContextService = new ActorContextService();
-  const workspaceSessionService = new WorkspaceSessionService();
+  const workspaceRoleService = new WorkspaceRoleService(workspaceManager);
+  const workspaceSessionService = new WorkspaceSessionService(workspaceRoleService);
   const workspaceFilesystemWatcherService = new WorkspaceFilesystemWatcherService((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.workspaceFilesystemDrift, event);
@@ -69,7 +71,7 @@ app.whenReady().then(async () => {
   const templateService = new TemplateService(fileStorageService, workspaceManager);
   const documentIdGenerator = new DocumentIdGeneratorService();
   const activityLogService = new ActivityLogService(actorContextService);
-  const workspaceUserService = new WorkspaceUserService(workspaceManager);
+  const workspaceUserService = new WorkspaceUserService(workspaceManager, workspaceRoleService);
   const workspaceBackupService = new WorkspaceBackupService(workspaceManager);
   const documentExportService = new DocumentExportService();
   const documentService = new DocumentService(
@@ -95,6 +97,7 @@ app.whenReady().then(async () => {
     documentIdGenerator,
     activityLogService,
     workspaceBackupService,
+    workspaceRoleService,
     workspaceUserService,
     workspaceFilesystemWatcherService
   );
@@ -124,6 +127,7 @@ app.whenReady().then(async () => {
     workspaceCatalogService,
     templateService,
     savedViewService,
+    workspaceRoleService,
     workspaceUserService,
     catalogService,
     appUpdaterService,

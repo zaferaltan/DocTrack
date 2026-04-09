@@ -10,6 +10,7 @@ import type { AppUpdateState } from '@shared/appUpdates';
 import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import type { DocTrackApi } from '@shared/ipc';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_DOCUMENT_VIEW_STATE } from '@shared/savedViews';
+import { createDefaultWorkspaceRoleSettings } from '@shared/workspaceRoles';
 import type {
   DocumentDetail,
   OpenWorkspaceResult,
@@ -48,6 +49,7 @@ const workspaceUsers: WorkspaceUser[] = [
     username: 'jordan',
     displayName: 'Jordan Singh',
     role: 'admin',
+    roleName: 'Admin',
     signInEnabled: true,
     archived: false,
     linkedRecordCount: 0,
@@ -62,7 +64,14 @@ const workspaceSession: WorkspaceSession = {
   permissions: {
     canReadWorkspace: true,
     canEditWorkspace: true,
-    canManageWorkspace: true
+    canManageWorkspace: true,
+    canViewWorkspace: true,
+    canEditDocuments: true,
+    canManageSharedViews: true,
+    canManageUsers: true,
+    canManageRoles: true,
+    canManageWorkspaceSettings: true,
+    canManageWorkspaceMaintenance: true
   },
   signedInAt: '2026-03-31T12:00:00.000Z'
 };
@@ -74,6 +83,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
     lifecycle: createDefaultWorkspaceLifecycle(),
+    roleSettings: createDefaultWorkspaceRoleSettings(),
     users: workspaceUsers,
     documents: [
       {
@@ -310,6 +320,7 @@ const buildDocTrackMock = (
       signOut: vi.fn().mockResolvedValue(undefined),
       getSession: vi.fn().mockResolvedValue(workspaceSession),
       listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      listRoles: vi.fn().mockResolvedValue(createDefaultWorkspaceRoleSettings()),
       recoverAccess: vi.fn().mockResolvedValue(workspaceResult),
       createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
@@ -318,6 +329,7 @@ const buildDocTrackMock = (
       deleteUser: vi.fn().mockResolvedValue({ action: 'deleted', userId: workspaceUsers[0].id }),
       unarchiveUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      saveRoleSettings: vi.fn().mockResolvedValue(createDefaultWorkspaceRoleSettings()),
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
       ,
       getDashboard: vi.fn().mockResolvedValue(workspaceResult.summary.dashboard),
@@ -1478,6 +1490,87 @@ describe('App', () => {
         })
       })
     );
+
+    await view.unmount();
+  });
+
+  it('shows the permissions and authentication section in workspace settings and removes the old role link from workspace users', async () => {
+    buildDocTrackMock();
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    const settingsDialog = getDialog();
+
+    expect(normalizeText(settingsDialog.textContent)).toContain('Permissions & Authentication');
+    expect(normalizeText(settingsDialog.textContent)).toContain('Enable local user sign-in');
+    expect(getButton('Default', settingsDialog)).toBeInstanceOf(HTMLButtonElement);
+    expect(getButton('Custom', settingsDialog)).toBeInstanceOf(HTMLButtonElement);
+    expect(getButton('Role Designer', settingsDialog)).toBeInstanceOf(HTMLButtonElement);
+
+    await click(getButton('Cancel', settingsDialog));
+    await click(getButton('Workspace Users'));
+
+    const usersDialog = getDialog();
+    expect(normalizeText(usersDialog.textContent)).not.toContain('Role Settings');
+    expect(normalizeText(usersDialog.textContent)).not.toContain('Role Designer');
+
+    await view.unmount();
+  });
+
+  it('opens the role designer from workspace settings and saves custom workspace roles', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.workspace.saveRoleSettings.mockResolvedValue(
+      createDefaultWorkspaceRoleSettings('custom')
+    );
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    await click(getButton('Custom', getDialog()));
+
+    const roleDialog = getLastDialog();
+    expect(normalizeText(roleDialog.textContent)).toContain('Role Designer');
+
+    await click(getButton('Save Role Settings', roleDialog));
+
+    expect(docTrack.workspace.saveRoleSettings).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      expect.objectContaining({
+        mode: 'custom'
+      })
+    );
+
+    await view.unmount();
+  });
+
+  it('lets role managers open workspace settings even without workspace settings permission', async () => {
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.session = {
+      ...workspaceSession,
+      permissions: {
+        ...workspaceSession.permissions,
+        canManageUsers: false,
+        canManageRoles: true,
+        canManageWorkspaceSettings: false
+      }
+    };
+
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    const view = await renderApp();
+
+    const settingsButton = getButton('Workspace Settings');
+    expect(settingsButton.disabled).toBe(false);
+
+    await click(settingsButton);
+
+    const settingsDialog = getDialog();
+    expect(getButton('Save Settings', settingsDialog).disabled).toBe(true);
+    expect(getButton('Role Designer', settingsDialog).disabled).toBe(false);
 
     await view.unmount();
   });

@@ -1,16 +1,19 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { WorkspaceManager } from '@main/database/workspaceManager';
+import { WorkspaceRoleService } from '@main/services/workspaceRoleService';
 import { nowIso } from '@main/utils/date';
 import type {
   WorkspaceAccessRecoveryInput,
   WorkspaceInitialAdminInput,
+  WorkspaceRoleSettings,
   WorkspaceRole,
   WorkspaceUser,
   WorkspaceUserRemovalResult,
   WorkspaceUserCreateInput,
   WorkspaceUserUpdateInput
 } from '@shared/types';
+import { getWorkspaceRoleName } from '@shared/workspaceRoles';
 
 interface WorkspaceUserRow {
   Id: number;
@@ -76,10 +79,17 @@ const WORKSPACE_USER_SELECT_COLUMNS = `
 `;
 
 export class WorkspaceUserService {
-  constructor(private readonly workspaceManager: WorkspaceManager) {}
+  constructor(
+    private readonly workspaceManager: WorkspaceManager,
+    private readonly workspaceRoleService = new WorkspaceRoleService(workspaceManager)
+  ) {}
 
   list(rootPath: string): WorkspaceUser[] {
     const context = this.workspaceManager.getContext(rootPath);
+    const roleSettings = this.workspaceRoleService.list(rootPath);
+    const roleSortOrder = new Map(
+      roleSettings.roles.map((role) => [role.key, role.sortOrder])
+    );
     const rows = context.db
       .prepare(
         `
@@ -88,18 +98,36 @@ export class WorkspaceUserService {
           FROM WorkspaceUsers
           ORDER BY
             Archived ASC,
-            CASE Role
-              WHEN 'admin' THEN 0
-              WHEN 'editor' THEN 1
-              ELSE 2
-            END,
             DisplayName COLLATE NOCASE ASC,
             Username COLLATE NOCASE ASC
         `
       )
       .all() as WorkspaceUserRow[];
 
-    return rows.map((row) => this.mapRow(row));
+    return rows
+      .map((row) => this.mapRow(row, roleSettings))
+      .sort((left, right) => {
+        if (left.archived !== right.archived) {
+          return left.archived ? 1 : -1;
+        }
+
+        const leftOrder = roleSortOrder.get(left.role) ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = roleSortOrder.get(right.role) ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        const displayNameCompare = left.displayName.localeCompare(right.displayName, undefined, {
+          sensitivity: 'base'
+        });
+        if (displayNameCompare !== 0) {
+          return displayNameCompare;
+        }
+
+        return left.username.localeCompare(right.username, undefined, {
+          sensitivity: 'base'
+        });
+      });
   }
 
   listSignInUsers(rootPath: string): WorkspaceUser[] {
@@ -135,7 +163,7 @@ export class WorkspaceUserService {
       .get({ displayName: normalizedDisplayName }) as WorkspaceUserRow | undefined;
 
     if (existing) {
-      return this.mapRow(existing);
+      return this.mapRow(existing, this.workspaceRoleService.getRoleSettingsForDb(db));
     }
 
     const timestamp = nowIso();
@@ -193,6 +221,7 @@ export class WorkspaceUserService {
 
     this.ensureUsernameIsAvailable(context.db, username, userId);
     this.ensureDisplayNameIsAvailable(context.db, displayName, userId);
+    this.ensureRoleExists(context.db, input.role);
 
     context.db
       .prepare(
@@ -350,12 +379,12 @@ export class WorkspaceUserService {
 
   getUser(rootPath: string, userId: number): WorkspaceUser {
     const context = this.workspaceManager.getContext(rootPath);
-    return this.mapRow(this.getUserRowById(context.db, userId));
+    return this.mapRow(this.getUserRowById(context.db, userId), this.workspaceRoleService.list(rootPath));
   }
 
   getUserById(db: Database.Database, userId: number, errorMessage = 'The selected user could not be found.'): WorkspaceUser {
     const row = this.getUserRowById(db, userId, errorMessage);
-    return this.mapRow(row);
+    return this.mapRow(row, this.workspaceRoleService.getRoleSettingsForDb(db));
   }
 
   requireUserById(
@@ -400,6 +429,7 @@ export class WorkspaceUserService {
 
     this.ensureUsernameIsAvailable(db, username);
     this.ensureDisplayNameIsAvailable(db, displayName);
+    this.ensureRoleExists(db, input.role);
 
     const result = db
       .prepare(
@@ -487,12 +517,13 @@ export class WorkspaceUserService {
     return row;
   }
 
-  private mapRow(row: WorkspaceUserRow): WorkspaceUser {
+  private mapRow(row: WorkspaceUserRow, roleSettings: WorkspaceRoleSettings): WorkspaceUser {
     return {
       id: row.Id,
       username: row.Username,
       displayName: row.DisplayName,
       role: row.Role,
+      roleName: getWorkspaceRoleName(roleSettings, row.Role),
       signInEnabled: Boolean(row.SignInEnabled),
       archived: Boolean(row.Archived),
       linkedRecordCount: row.LinkedRecordCount,
@@ -500,6 +531,15 @@ export class WorkspaceUserService {
       createdDate: row.CreatedDate,
       modifiedDate: row.ModifiedDate
     };
+  }
+
+  private ensureRoleExists(db: Database.Database, role: WorkspaceRole): void {
+    const roleExists = this.workspaceRoleService
+      .getRoleSettingsForDb(db)
+      .roles.some((candidate) => candidate.key === role);
+    if (!roleExists) {
+      throw new Error('Select a valid workspace role.');
+    }
   }
 
   private normalizeAndValidateUsername(value: string): string {

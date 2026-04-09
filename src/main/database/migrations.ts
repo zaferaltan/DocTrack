@@ -13,6 +13,7 @@ import alphaVersionSchemeMigration from '../../../migrations/011_alpha_version_s
 import savedViewsAndDashboardMigration from '../../../migrations/012_saved_views_and_dashboard.sql?raw';
 import workspaceLifecycleMigration from '../../../migrations/013_workspace_lifecycle.sql?raw';
 import { nowIso } from '@main/utils/date';
+import { DEFAULT_WORKSPACE_ROLE_DEFINITIONS } from '@shared/workspaceRoles';
 
 interface Migration {
   id: string;
@@ -24,6 +25,13 @@ const columnExists = (db: Database.Database, tableName: string, columnName: stri
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
   return columns.some((column) => column.name === columnName);
 };
+
+const tableExists = (db: Database.Database, tableName: string): boolean =>
+  Boolean(
+    db
+      .prepare("SELECT 1 AS Present FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName) as { Present: number } | undefined
+  );
 
 const normalizeImportedUsernameBase = (value: string): string => {
   const normalized = value
@@ -198,6 +206,142 @@ const migrateWorkspaceUserArchiveState = (db: Database.Database): void => {
   }
 };
 
+const createWorkspaceRolesTable = (db: Database.Database): void => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS WorkspaceRoles (
+      RoleKey TEXT PRIMARY KEY,
+      Name TEXT NOT NULL,
+      SortOrder INTEGER NOT NULL,
+      CanViewWorkspace INTEGER NOT NULL DEFAULT 1 CHECK (CanViewWorkspace IN (0, 1)),
+      CanEditDocuments INTEGER NOT NULL DEFAULT 0 CHECK (CanEditDocuments IN (0, 1)),
+      CanManageSharedViews INTEGER NOT NULL DEFAULT 0 CHECK (CanManageSharedViews IN (0, 1)),
+      CanManageUsers INTEGER NOT NULL DEFAULT 0 CHECK (CanManageUsers IN (0, 1)),
+      CanManageRoles INTEGER NOT NULL DEFAULT 0 CHECK (CanManageRoles IN (0, 1)),
+      CanManageWorkspaceSettings INTEGER NOT NULL DEFAULT 0 CHECK (CanManageWorkspaceSettings IN (0, 1)),
+      CanManageWorkspaceMaintenance INTEGER NOT NULL DEFAULT 0 CHECK (CanManageWorkspaceMaintenance IN (0, 1))
+    );
+  `);
+};
+
+const seedDefaultWorkspaceRoles = (db: Database.Database): void => {
+  createWorkspaceRolesTable(db);
+  const totalRoles = (
+    db.prepare('SELECT COUNT(*) AS Total FROM WorkspaceRoles').get() as { Total: number } | undefined
+  )?.Total ?? 0;
+  if (totalRoles > 0) {
+    return;
+  }
+
+  const insertRole = db.prepare(
+    `
+      INSERT INTO WorkspaceRoles (
+        RoleKey,
+        Name,
+        SortOrder,
+        CanViewWorkspace,
+        CanEditDocuments,
+        CanManageSharedViews,
+        CanManageUsers,
+        CanManageRoles,
+        CanManageWorkspaceSettings,
+        CanManageWorkspaceMaintenance
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+  );
+
+  for (const role of DEFAULT_WORKSPACE_ROLE_DEFINITIONS) {
+    insertRole.run(
+      role.key,
+      role.name,
+      role.sortOrder,
+      role.permissions.canViewWorkspace ? 1 : 0,
+      role.permissions.canEditDocuments ? 1 : 0,
+      role.permissions.canManageSharedViews ? 1 : 0,
+      role.permissions.canManageUsers ? 1 : 0,
+      role.permissions.canManageRoles ? 1 : 0,
+      role.permissions.canManageWorkspaceSettings ? 1 : 0,
+      role.permissions.canManageWorkspaceMaintenance ? 1 : 0
+    );
+  }
+};
+
+const migrateWorkspaceRoleMode = (db: Database.Database): void => {
+  if (!columnExists(db, 'Workspaces', 'RoleMode')) {
+    db.exec(
+      "ALTER TABLE Workspaces ADD COLUMN RoleMode TEXT NOT NULL DEFAULT 'default' CHECK (RoleMode IN ('default', 'custom'));"
+    );
+  }
+};
+
+const rebuildWorkspaceUsersForCustomRoles = (db: Database.Database): void => {
+  if (!tableExists(db, 'WorkspaceUsers')) {
+    return;
+  }
+
+  const createStatement = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'WorkspaceUsers'")
+    .get() as { sql: string | null } | undefined;
+
+  if (!createStatement?.sql?.includes("CHECK (Role IN ('admin', 'editor', 'viewer'))")) {
+    return;
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF;');
+  db.exec(`
+    CREATE TABLE WorkspaceUsersNext (
+      Id INTEGER PRIMARY KEY AUTOINCREMENT,
+      Username TEXT NOT NULL UNIQUE,
+      DisplayName TEXT NOT NULL,
+      Role TEXT NOT NULL,
+      SignInEnabled INTEGER NOT NULL DEFAULT 0 CHECK (SignInEnabled IN (0, 1)),
+      Archived INTEGER NOT NULL DEFAULT 0 CHECK (Archived IN (0, 1)),
+      PasswordSalt TEXT,
+      PasswordHash TEXT,
+      LastSignedInDate TEXT,
+      CreatedDate TEXT NOT NULL,
+      ModifiedDate TEXT NOT NULL
+    );
+
+    INSERT INTO WorkspaceUsersNext (
+      Id,
+      Username,
+      DisplayName,
+      Role,
+      SignInEnabled,
+      Archived,
+      PasswordSalt,
+      PasswordHash,
+      LastSignedInDate,
+      CreatedDate,
+      ModifiedDate
+    )
+    SELECT
+      Id,
+      Username,
+      DisplayName,
+      Role,
+      SignInEnabled,
+      Archived,
+      PasswordSalt,
+      PasswordHash,
+      LastSignedInDate,
+      CreatedDate,
+      ModifiedDate
+    FROM WorkspaceUsers;
+
+    DROP TABLE WorkspaceUsers;
+    ALTER TABLE WorkspaceUsersNext RENAME TO WorkspaceUsers;
+  `);
+  db.exec('PRAGMA foreign_keys = ON;');
+};
+
+const migrateWorkspaceRoles = (db: Database.Database): void => {
+  migrateWorkspaceRoleMode(db);
+  createWorkspaceRolesTable(db);
+  rebuildWorkspaceUsersForCustomRoles(db);
+  seedDefaultWorkspaceRoles(db);
+};
+
 const MIGRATIONS: readonly Migration[] = [
   {
     id: '001_initial',
@@ -262,6 +406,10 @@ const MIGRATIONS: readonly Migration[] = [
   {
     id: '016_workspace_user_archive_state',
     run: migrateWorkspaceUserArchiveState
+  },
+  {
+    id: '017_workspace_roles',
+    run: migrateWorkspaceRoles
   }
 ] as const;
 

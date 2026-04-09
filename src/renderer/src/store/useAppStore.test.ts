@@ -10,6 +10,7 @@ import {
   type SavedView
 } from '@shared/savedViews';
 import { createDefaultWorkspaceLifecycle } from '@shared/documentLifecycle';
+import { createDefaultWorkspaceRoleSettings } from '@shared/workspaceRoles';
 import type {
   OpenWorkspaceResult,
   WorkspaceInfo,
@@ -44,6 +45,7 @@ const workspaceUsers: WorkspaceUser[] = [
     username: 'jordan',
     displayName: 'Jordan Singh',
     role: 'admin',
+    roleName: 'Admin',
     signInEnabled: true,
     archived: false,
     linkedRecordCount: 0,
@@ -58,7 +60,14 @@ const workspaceSession: WorkspaceSession = {
   permissions: {
     canReadWorkspace: true,
     canEditWorkspace: true,
-    canManageWorkspace: true
+    canManageWorkspace: true,
+    canViewWorkspace: true,
+    canEditDocuments: true,
+    canManageSharedViews: true,
+    canManageUsers: true,
+    canManageRoles: true,
+    canManageWorkspaceSettings: true,
+    canManageWorkspaceMaintenance: true
   },
   signedInAt: '2026-03-31T12:00:00.000Z'
 };
@@ -70,6 +79,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
     workspace: workspaceInfo,
     settings: DEFAULT_WORKSPACE_SETTINGS,
     lifecycle: createDefaultWorkspaceLifecycle(),
+    roleSettings: createDefaultWorkspaceRoleSettings(),
     users: workspaceUsers,
     documents: [],
     dashboard: defaultDashboard,
@@ -105,6 +115,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       signOut: vi.fn().mockResolvedValue(undefined),
       getSession: vi.fn().mockResolvedValue(workspaceSession),
       listUsers: vi.fn().mockResolvedValue(workspaceUsers),
+      listRoles: vi.fn().mockResolvedValue(createDefaultWorkspaceRoleSettings()),
       recoverAccess: vi.fn().mockResolvedValue(openWorkspaceResult),
       createUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
@@ -113,6 +124,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       deleteUser: vi.fn().mockResolvedValue({ action: 'deleted', userId: workspaceUsers[0].id }),
       unarchiveUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      saveRoleSettings: vi.fn().mockResolvedValue(createDefaultWorkspaceRoleSettings()),
       getDashboard: vi.fn().mockResolvedValue(defaultDashboard),
       getDashboardLayout: vi.fn().mockResolvedValue(DEFAULT_DASHBOARD_LAYOUT),
       listActivity: vi.fn().mockResolvedValue([]),

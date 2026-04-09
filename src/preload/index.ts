@@ -33,6 +33,9 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUnarchiveUser, rootPath, userId),
     resetUserPassword: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceResetUserPassword, rootPath, input),
+    listRoles: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceListRoles, rootPath),
+    saveRoleSettings: (rootPath, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceSaveRoleSettings, rootPath, input),
     updateSettings: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceUpdateSettings, rootPath, input),
     updateDashboardLayout: (rootPath, input) =>
