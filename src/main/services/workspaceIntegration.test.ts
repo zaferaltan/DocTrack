@@ -41,6 +41,7 @@ describe('workspace integration', () => {
   let workspaceManager: WorkspaceManager;
   let workspaceService: WorkspaceService;
   let documentService: DocumentService;
+  let documentTypeService: DocumentTypeService;
   let templateService: TemplateService;
   let savedViewService: SavedViewService;
   let catalogService: AppCatalogService;
@@ -118,7 +119,7 @@ describe('workspace integration', () => {
       activityLogService,
       workspaceUserService
     );
-    new DocumentTypeService(workspaceManager, fileStorageService);
+    documentTypeService = new DocumentTypeService(workspaceManager, fileStorageService);
     const workspaceCatalogService = new WorkspaceCatalogService(workspaceManager);
     savedViewService = new SavedViewService(workspaceManager, catalogService);
     workspaceService = new WorkspaceService(
@@ -185,6 +186,28 @@ describe('workspace integration', () => {
     expect(result.summary.templates).toEqual([]);
     expect(result.summary.dashboardLayout).toEqual(DEFAULT_DASHBOARD_LAYOUT);
     expect(result.summary.savedViews).toEqual([]);
+  });
+
+  it('deletes the empty document type folder when an unused type is removed', () => {
+    const result = workspaceService.create({
+      name: 'Quality',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'flat'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const procedureType = result.summary.documentTypes.find((item) => item.name === 'Procedure');
+
+    expect(procedureType).toBeDefined();
+    expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(true);
+
+    documentTypeService.delete(workspaceRootPath, procedureType!.id);
+
+    expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(false);
   });
 
   it('can create a workspace with the user system disabled', () => {

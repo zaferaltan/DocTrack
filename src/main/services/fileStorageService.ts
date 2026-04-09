@@ -109,6 +109,32 @@ export class FileStorageService {
     }
   }
 
+  deleteDocumentTypeDirectory(
+    rootPath: string,
+    documentTypeName: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
+    const directoryPath = this.getDocumentTypeDirectory(rootPath, documentTypeName, settings);
+
+    if (!existsSync(directoryPath) || !lstatSync(directoryPath).isDirectory()) {
+      return;
+    }
+
+    if (readdirSync(directoryPath).length > 0) {
+      return;
+    }
+
+    this.withFilesystemWatchPaused(rootPath, () => {
+      this.suppressFilesystemEvents(rootPath, 1500);
+      this.removeDirectoryWithRetries(directoryPath, true);
+    });
+
+    this.cleanupEmptyDirectories(
+      path.dirname(directoryPath),
+      this.getWorkspaceDocumentsDirectory(rootPath, settings)
+    );
+  }
+
   getTemplateFolderRelativePath(
     templateId: string,
     settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS

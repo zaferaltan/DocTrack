@@ -7942,16 +7942,6 @@ function ApplicationSettingsDialog({
                   </div>
                 ) : null}
 
-                {appUpdateState?.release?.releaseNotes ? (
-                  <div className="mt-3 rounded-lg border border-border/80 bg-background px-3 py-2">
-                    <div className="text-xs font-medium text-foreground">
-                      Release notes
-                    </div>
-                    <div className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                      {appUpdateState.release.releaseNotes}
-                    </div>
-                  </div>
-                ) : null}
               </div>
             </SettingsSection>
           </div>

@@ -89,9 +89,23 @@ export class DocumentTypeService {
       throw new Error('This document type is already used by documents and cannot be deleted.');
     }
 
+    const existingType = context.db
+      .prepare('SELECT Name FROM DocumentTypes WHERE Id = ?')
+      .get(id) as { Name: string } | undefined;
+
+    if (!existingType) {
+      throw new Error('Document type could not be found.');
+    }
+
     const result = context.db.prepare('DELETE FROM DocumentTypes WHERE Id = ?').run(id);
     if (result.changes === 0) {
       throw new Error('Document type could not be found.');
     }
+
+    this.fileStorageService.deleteDocumentTypeDirectory(
+      context.rootPath,
+      existingType.Name,
+      context.settings
+    );
   }
 }

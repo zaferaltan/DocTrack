@@ -1193,6 +1193,35 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('does not show release notes in the settings dialog update section', async () => {
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'available',
+        message: 'DocTrack 0.2.0 is available to download.',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        }
+      }
+    );
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+
+    expect(normalizeText(getDialog().textContent)).not.toContain('Release notes');
+    expect(normalizeText(getDialog().textContent)).not.toContain('A new build is ready.');
+
+    await view.unmount();
+  });
+
   it('prompts to download an update discovered during the launch check', async () => {
     const docTrack = buildDocTrackMock(
       {
