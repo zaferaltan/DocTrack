@@ -8,6 +8,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import {
+  Fragment,
   startTransition,
   useDeferredValue,
   useEffect,
@@ -778,6 +779,7 @@ interface BackupDialogState {
 interface WorkspaceUsersDialogState {
   open: boolean;
   users: WorkspaceUser[];
+  showArchivedUsers: boolean;
   selectedUserId?: number;
   username: string;
   displayName: string;
@@ -1064,6 +1066,7 @@ const defaultBackupDialogState: BackupDialogState = {
 const defaultWorkspaceUsersDialogState: WorkspaceUsersDialogState = {
   open: false,
   users: [],
+  showArchivedUsers: false,
   selectedUserId: undefined,
   username: "",
   displayName: "",
@@ -4762,7 +4765,10 @@ function App() {
     void refreshBackupDialog(activeWorkspacePath);
   };
 
-  const openWorkspaceUsersDialog = () => {
+  const openWorkspaceUsersDialog = (options?: {
+    selectedUserId?: number;
+    showArchivedUsers?: boolean;
+  }) => {
     if (!activeWorkspacePath) {
       return;
     }
@@ -4771,26 +4777,36 @@ function App() {
       ...state,
       open: true,
       isLoading: true,
+      isSubmitting: false,
+      showArchivedUsers: options?.showArchivedUsers ?? state.showArchivedUsers,
       validationErrors: {},
     }));
     void window.docTrack.workspace
       .listUsers(activeWorkspacePath)
-      .then((users) =>
+      .then((users) => {
+        const initialSelectedUser =
+          users.find((user) => user.id === options?.selectedUserId) ??
+          users.find((user) => user.id === activeWorkspaceSession?.user.id) ??
+          users.find((user) => !user.archived) ??
+          users[0];
+
         setWorkspaceUsersDialog((state) => ({
           ...state,
           open: true,
           users,
+          showArchivedUsers: options?.showArchivedUsers ?? state.showArchivedUsers,
           isLoading: false,
-          selectedUserId: users[0]?.id,
-          username: users[0]?.username ?? "",
-          displayName: users[0]?.displayName ?? "",
-          role: users[0]?.role ?? "viewer",
+          isSubmitting: false,
+          selectedUserId: initialSelectedUser?.id,
+          username: initialSelectedUser?.username ?? "",
+          displayName: initialSelectedUser?.displayName ?? "",
+          role: initialSelectedUser?.role ?? "viewer",
           password: "",
           formMessage: "",
           formTone: "warning",
           validationErrors: {},
-        })),
-      )
+        }));
+      })
       .catch((error: Error) => {
         notifyError(error, "Unable to load workspace users.");
         setWorkspaceUsersDialog(defaultWorkspaceUsersDialogState);
@@ -4912,6 +4928,97 @@ function App() {
         ...state,
         isSubmitting: false,
         formMessage: getErrorMessage(error, "Unable to update the selected user."),
+        formTone: "error",
+      }));
+    }
+  };
+
+  const handleDeleteWorkspaceUser = (user: WorkspaceUser) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    if (activeWorkspaceSession?.user.id === user.id) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        formMessage: "You cannot delete the account that is currently signed in.",
+        formTone: "warning",
+      }));
+      return;
+    }
+
+    const willDeletePermanently = user.linkedRecordCount === 0;
+    openConfirmationDialog({
+      title: willDeletePermanently ? "Delete Workspace User" : "Archive Workspace User",
+      description: willDeletePermanently
+        ? `Permanently remove ${user.displayName} from this workspace?`
+        : `${user.displayName} is linked to existing records, so this action will archive the account instead of deleting it.`,
+      confirmLabel: willDeletePermanently ? "Delete User" : "Archive User",
+      tone: "destructive",
+      detailLines: willDeletePermanently
+        ? [
+            `Display Name: ${user.displayName}`,
+            `Username: @${user.username}`,
+            "Linked records: none",
+          ]
+        : [
+            `Display Name: ${user.displayName}`,
+            `Username: @${user.username}`,
+            `Linked records: ${user.linkedRecordCount}`,
+          ],
+      onConfirm: async () => {
+        const result = await window.docTrack.workspace.deleteUser(
+          activeWorkspacePath,
+          user.id,
+        );
+        await refreshWorkspace(activeWorkspacePath);
+        openWorkspaceUsersDialog({
+          selectedUserId: result.user?.id,
+          showArchivedUsers:
+            result.action === "archived"
+              ? true
+              : workspaceUsersDialog.showArchivedUsers,
+        });
+        setNotification({
+          tone: "success",
+          message:
+            result.action === "deleted"
+              ? `${user.displayName} was deleted.`
+              : `${user.displayName} was archived.`,
+        });
+      },
+    });
+  };
+
+  const handleUnarchiveWorkspaceUser = async (user: WorkspaceUser) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    try {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: true,
+        formMessage: "",
+      }));
+      const restoredUser = await window.docTrack.workspace.unarchiveUser(
+        activeWorkspacePath,
+        user.id,
+      );
+      await refreshWorkspace(activeWorkspacePath);
+      openWorkspaceUsersDialog({
+        selectedUserId: restoredUser.id,
+        showArchivedUsers: workspaceUsersDialog.showArchivedUsers,
+      });
+      setNotification({
+        tone: "success",
+        message: `${user.displayName} was restored from the archive.`,
+      });
+    } catch (error) {
+      setWorkspaceUsersDialog((state) => ({
+        ...state,
+        isSubmitting: false,
+        formMessage: getErrorMessage(error, "Unable to restore the selected user."),
         formTone: "error",
       }));
     }
@@ -6479,6 +6586,8 @@ function App() {
         onSave={handleSaveWorkspaceUser}
         onResetPassword={handleResetWorkspaceUserPassword}
         onToggleAccess={handleToggleWorkspaceUserAccess}
+        onDelete={handleDeleteWorkspaceUser}
+        onUnarchive={handleUnarchiveWorkspaceUser}
       />
 
       <ApplicationSettingsDialog
@@ -6514,7 +6623,7 @@ function App() {
         onSubmit={handleSaveDocument}
         documentTypes={activeWorkspace?.documentTypes ?? []}
         userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
-        workspaceUsers={activeWorkspace?.users ?? []}
+        workspaceUsers={(activeWorkspace?.users ?? []).filter((user) => !user.archived)}
         templates={activeWorkspace?.templates ?? []}
         projects={activeWorkspace?.projects ?? []}
         confidentialityClasses={activeWorkspace?.confidentialityClasses ?? []}
@@ -6549,7 +6658,7 @@ function App() {
         onSubmit={handleSaveLatestVersion}
         documentDetail={selectedDocumentDetail}
         userSystemEnabled={activeWorkspace?.settings.userSystemEnabled ?? true}
-        workspaceUsers={activeWorkspace?.users ?? []}
+        workspaceUsers={(activeWorkspace?.users ?? []).filter((user) => !user.archived)}
         lifecycle={activeWorkspace?.lifecycle ?? DEFAULT_WORKSPACE_LIFECYCLE_STATE}
         availableColumns={activeWorkspaceAvailableColumns}
       />
@@ -14891,6 +15000,8 @@ function WorkspaceUsersDialog({
   onSave,
   onResetPassword,
   onToggleAccess,
+  onDelete,
+  onUnarchive,
 }: {
   state: WorkspaceUsersDialogState;
   currentUserId?: number;
@@ -14902,10 +15013,21 @@ function WorkspaceUsersDialog({
   onSave: () => Promise<void>;
   onResetPassword: () => Promise<void>;
   onToggleAccess: (user: WorkspaceUser) => Promise<void>;
+  onDelete: (user: WorkspaceUser) => void;
+  onUnarchive: (user: WorkspaceUser) => Promise<void>;
 }) {
   const selectedUser =
     state.users.find((user) => user.id === state.selectedUserId) ?? null;
   const isCurrentSignedInUser = selectedUser?.id === currentUserId;
+  const activeUsers = state.users.filter((user) => !user.archived);
+  const archivedUsers = state.users.filter((user) => user.archived);
+  const currentSignedInUser =
+    activeUsers.find((user) => user.id === currentUserId) ?? null;
+  const otherUsers = activeUsers.filter((user) => user.id !== currentUserId);
+  const visibleUsers = currentSignedInUser
+    ? [currentSignedInUser, ...otherUsers]
+    : activeUsers;
+  const isSelectedArchivedUser = Boolean(selectedUser?.archived);
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
@@ -14949,30 +15071,108 @@ function WorkspaceUsersDialog({
                 <div className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
                   Loading users...
                 </div>
-              ) : state.users.map((user) => (
-                <button
-                  key={user.id}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left",
-                    state.selectedUserId === user.id
-                      ? "border-primary/40 bg-accent"
-                      : "border-border bg-card",
-                  )}
-                  onClick={() => onSelectUser(user.id)}
-                >
-                  <div>
-                    <div className="text-sm font-semibold">{user.displayName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      @{user.username} • {user.role}
+              ) : (
+                <>
+                  {visibleUsers.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                      No active users.
                     </div>
-                  </div>
-                  <Badge
-                    variant={user.signInEnabled ? "success" : "destructive"}
-                  >
-                    {user.signInEnabled ? "Active" : "Inactive"}
-                  </Badge>
-                </button>
-              ))}
+                  ) : (
+                    visibleUsers.map((user, index) => {
+                      const isCurrentUser = user.id === currentUserId;
+                      const showOtherUsersDivider =
+                        Boolean(currentSignedInUser) &&
+                        otherUsers.length > 0 &&
+                        index === 1;
+
+                      return (
+                        <Fragment key={user.id}>
+                          {showOtherUsersDivider ? (
+                            <div className="border-t border-border px-1 pt-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                              Other users
+                            </div>
+                          ) : null}
+                          <button
+                            className={cn(
+                              "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left",
+                              state.selectedUserId === user.id
+                                ? "border-primary/40 bg-accent"
+                                : "border-border bg-card",
+                            )}
+                            onClick={() => onSelectUser(user.id)}
+                          >
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm font-semibold">{user.displayName}</div>
+                                {isCurrentUser ? (
+                                  <Badge variant="outline" className="px-1.5 py-0.5 text-[10px]">
+                                    You
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                @{user.username} • {user.role}
+                              </div>
+                            </div>
+                            <Badge
+                              variant={user.signInEnabled ? "success" : "destructive"}
+                            >
+                              {user.signInEnabled ? "Active" : "Inactive"}
+                            </Badge>
+                          </button>
+                        </Fragment>
+                      );
+                    })
+                  )}
+                  {archivedUsers.length > 0 ? (
+                    <div className="border-t border-border pt-2">
+                      <button
+                        className="flex w-full items-center justify-between rounded-xl px-1 py-2 text-left"
+                        onClick={() =>
+                          onStateChange((current) => ({
+                            ...current,
+                            showArchivedUsers: !current.showArchivedUsers,
+                          }))
+                        }
+                      >
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                          {state.showArchivedUsers ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          Archived users
+                        </div>
+                        <Badge variant="muted">{archivedUsers.length}</Badge>
+                      </button>
+                      {state.showArchivedUsers ? (
+                        <div className="mt-2 space-y-2">
+                          {archivedUsers.map((user) => (
+                            <button
+                              key={user.id}
+                              className={cn(
+                                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left",
+                                state.selectedUserId === user.id
+                                  ? "border-primary/40 bg-accent"
+                                  : "border-border bg-card",
+                              )}
+                              onClick={() => onSelectUser(user.id)}
+                            >
+                              <div>
+                                <div className="text-sm font-semibold">{user.displayName}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  @{user.username} • {user.role} • {user.linkedRecordCount} linked
+                                </div>
+                              </div>
+                              <Badge variant="muted">Archived</Badge>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
 
@@ -14984,6 +15184,7 @@ function WorkspaceUsersDialog({
 
               <Field label="Display Name" error={state.validationErrors.displayName}>
                 <Input
+                  disabled={isSelectedArchivedUser}
                   value={state.displayName}
                   onChange={(event) =>
                     onStateChange((current) =>
@@ -14998,6 +15199,7 @@ function WorkspaceUsersDialog({
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Username" error={state.validationErrors.username}>
                   <Input
+                    disabled={isSelectedArchivedUser}
                     value={state.username}
                     onChange={(event) =>
                       onStateChange((current) =>
@@ -15011,6 +15213,7 @@ function WorkspaceUsersDialog({
 
                 <Field label="Role">
                   <Select
+                    disabled={isSelectedArchivedUser}
                     value={state.role}
                     onChange={(event) =>
                       onStateChange((current) => ({
@@ -15029,6 +15232,7 @@ function WorkspaceUsersDialog({
 
               <Field label="Password / PIN" error={state.validationErrors.password}>
                 <Input
+                  disabled={isSelectedArchivedUser}
                   type="password"
                   value={state.password}
                   onChange={(event) =>
@@ -15044,7 +15248,7 @@ function WorkspaceUsersDialog({
                 </div>
               </Field>
 
-              {state.selectedUserId ? (
+              {state.selectedUserId && !isSelectedArchivedUser ? (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
@@ -15066,6 +15270,35 @@ function WorkspaceUsersDialog({
                       {selectedUser.signInEnabled ? "Deactivate" : "Activate"}
                     </Button>
                   ) : null}
+                  {selectedUser ? (
+                    <Button
+                      variant="outline"
+                      disabled={state.isSubmitting || isCurrentSignedInUser}
+                      onClick={() => onDelete(selectedUser)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {selectedUser.linkedRecordCount > 0 ? "Archive User" : "Delete User"}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {selectedUser?.archived ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={state.isSubmitting}
+                    onClick={() => void onUnarchive(selectedUser)}
+                  >
+                    Restore User
+                  </Button>
+                </div>
+              ) : null}
+
+              {selectedUser?.archived ? (
+                <div className="text-xs text-muted-foreground">
+                  Archived users are preserved because they are linked to existing records. Restore the account first
+                  if you want to edit it or allow sign-in again.
                 </div>
               ) : null}
 
@@ -15083,7 +15316,10 @@ function WorkspaceUsersDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSave()}>
+          <Button
+            disabled={state.isSubmitting || isSelectedArchivedUser}
+            onClick={() => void onSave()}
+          >
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

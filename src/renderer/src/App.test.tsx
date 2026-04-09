@@ -49,6 +49,8 @@ const workspaceUsers: WorkspaceUser[] = [
     displayName: 'Jordan Singh',
     role: 'admin',
     signInEnabled: true,
+    archived: false,
+    linkedRecordCount: 0,
     lastSignedInDate: '2026-03-31T12:00:00.000Z',
     createdDate: '2026-03-28T09:00:00.000Z',
     modifiedDate: '2026-03-31T12:00:00.000Z'
@@ -313,6 +315,8 @@ const buildDocTrackMock = (
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       deactivateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      deleteUser: vi.fn().mockResolvedValue({ action: 'deleted', userId: workspaceUsers[0].id }),
+      unarchiveUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
       updateSettings: vi.fn().mockResolvedValue(workspaceResult)
       ,
@@ -2999,6 +3003,133 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('pins the signed-in workspace user to the top of the list and labels it clearly', async () => {
+    const currentUser = workspaceUsers[0];
+    const otherUser: WorkspaceUser = {
+      ...currentUser,
+      id: 2,
+      username: 'casey',
+      displayName: 'Casey Holt',
+      role: 'viewer',
+      signInEnabled: false
+    };
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.users = [currentUser, otherUser];
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.workspace.listUsers.mockResolvedValue([otherUser, currentUser]);
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Users'));
+    const dialog = getDialog();
+    const userButtons = [...dialog.querySelectorAll('button')].filter((element) =>
+      normalizeText(element.textContent).includes('@')
+    );
+
+    expect(userButtons).toHaveLength(2);
+    expect(normalizeText(userButtons[0]?.textContent)).toContain('Jordan Singh');
+    expect(normalizeText(userButtons[0]?.textContent)).toContain('You');
+    expect(normalizeText(userButtons[1]?.textContent)).toContain('Casey Holt');
+    expect(normalizeText(dialog.textContent)).toContain('Other users');
+
+    await view.unmount();
+  });
+
+  it('keeps archived workspace users in a collapsible section', async () => {
+    const currentUser = workspaceUsers[0];
+    const archivedUser: WorkspaceUser = {
+      ...currentUser,
+      id: 2,
+      username: 'casey',
+      displayName: 'Casey Holt',
+      role: 'viewer',
+      signInEnabled: false,
+      archived: true,
+      linkedRecordCount: 3
+    };
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.users = [currentUser, archivedUser];
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.workspace.listUsers.mockResolvedValue([currentUser, archivedUser]);
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Users'));
+    const dialog = getDialog();
+
+    expect(normalizeText(dialog.textContent)).toContain('Archived users');
+    expect(normalizeText(dialog.textContent)).not.toContain('Casey Holt');
+
+    await click(getButton('Archived users', dialog));
+
+    expect(normalizeText(dialog.textContent)).toContain('Casey Holt');
+    expect(normalizeText(dialog.textContent)).toContain('Archived');
+
+    await view.unmount();
+  });
+
+  it('restores archived workspace users from the archive section', async () => {
+    const currentUser = workspaceUsers[0];
+    const archivedUser: WorkspaceUser = {
+      ...currentUser,
+      id: 2,
+      username: 'casey',
+      displayName: 'Casey Holt',
+      role: 'viewer',
+      signInEnabled: false,
+      archived: true,
+      linkedRecordCount: 3
+    };
+    const restoredUser: WorkspaceUser = {
+      ...archivedUser,
+      archived: false
+    };
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.users = [currentUser, archivedUser];
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.workspace.listUsers = vi
+      .fn()
+      .mockResolvedValueOnce([currentUser, archivedUser])
+      .mockResolvedValueOnce([currentUser, restoredUser]);
+    docTrack.workspace.unarchiveUser.mockResolvedValue(restoredUser);
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Users'));
+    let dialog = getDialog();
+    await click(getButton('Archived users', dialog));
+    await click(getButton('Casey Holt', dialog));
+    await click(getButton('Restore User', getDialog()));
+
+    dialog = getDialog();
+    expect(docTrack.workspace.unarchiveUser).toHaveBeenCalledWith(
+      workspaceInfo.rootPath,
+      2
+    );
+    expect(normalizeText(dialog.textContent)).toContain('Casey Holt');
+    expect(normalizeText(dialog.textContent)).not.toContain('Restore User');
+
+    await view.unmount();
+  });
+
   it('offers recovery when a locked workspace has no active users left', async () => {
     const lockedWorkspaceResult: OpenWorkspaceResult = {
       kind: 'unauthenticated',
@@ -3049,6 +3180,104 @@ describe('App', () => {
         password: 'rescue123'
       }
     );
+
+    await view.unmount();
+  });
+
+  it('shows a friendly recovery error when the admin username already exists', async () => {
+    const lockedWorkspaceResult: OpenWorkspaceResult = {
+      kind: 'unauthenticated',
+      workspace: workspaceInfo,
+      summary: {
+        ...cloneWorkspaceResult().summary,
+        workspace: workspaceInfo,
+        users: workspaceUsers
+      },
+      users: [],
+      canRecoverAccess: true,
+      session: null
+    };
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      lockedWorkspaceResult
+    );
+    docTrack.workspace.recoverAccess.mockRejectedValue(
+      new Error('A workspace user with the username "admin" already exists.')
+    );
+
+    const view = await renderApp();
+
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Admin Display Name', 'input') as HTMLInputElement,
+      'Recovery Admin'
+    );
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Admin Username', 'input') as HTMLInputElement,
+      'admin'
+    );
+    await changeInput(
+      getLabeledControl(document.body, 'Recovery Password or PIN', 'input') as HTMLInputElement,
+      'rescue123'
+    );
+    await click(getButton('Recover Access'));
+
+    expect(normalizeText(document.body.textContent)).toContain(
+      'A workspace user with the username "admin" already exists.'
+    );
+    expect(normalizeText(document.body.textContent)).not.toContain(
+      'SqliteError: UNIQUE constraint failed: WorkspaceUsers.Username'
+    );
+
+    await view.unmount();
+  });
+
+  it('resets the workspace user dialog submit state after activating a user', async () => {
+    const inactiveUser: WorkspaceUser = {
+      ...workspaceUsers[0],
+      id: 2,
+      username: 'casey',
+      displayName: 'Casey Holt',
+      role: 'viewer',
+      signInEnabled: false
+    };
+    const activatedUser: WorkspaceUser = {
+      ...inactiveUser,
+      signInEnabled: true
+    };
+    const workspaceResult = cloneWorkspaceResult();
+    workspaceResult.summary.users = [workspaceUsers[0], inactiveUser];
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      workspaceResult
+    );
+    docTrack.workspace.listUsers = vi
+      .fn()
+      .mockResolvedValueOnce([workspaceUsers[0], inactiveUser])
+      .mockResolvedValueOnce([workspaceUsers[0], activatedUser]);
+
+    const view = await renderApp();
+
+    await click(getButton('Workspace Users'));
+    const initialDialog = getDialog();
+    const inactiveUserButton = [...initialDialog.querySelectorAll('button')].find((element) =>
+      normalizeText(element.textContent).includes('Casey Holt')
+    );
+    if (!(inactiveUserButton instanceof HTMLButtonElement)) {
+      throw new Error('Unable to find the inactive workspace user.');
+    }
+
+    await click(inactiveUserButton);
+    await click(getButton('Activate', getDialog()));
+
+    const refreshedDialog = getDialog();
+    expect(docTrack.workspace.activateUser).toHaveBeenCalledWith(workspaceInfo.rootPath, 2);
+    expect(getButton('Save User', refreshedDialog).disabled).toBe(false);
 
     await view.unmount();
   });

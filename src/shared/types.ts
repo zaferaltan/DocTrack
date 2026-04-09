@@ -49,6 +49,8 @@ export interface WorkspaceUser {
   displayName: string;
   role: WorkspaceRole;
   signInEnabled: boolean;
+  archived: boolean;
+  linkedRecordCount: number;
   lastSignedInDate: string | null;
   createdDate: string;
   modifiedDate: string;
@@ -85,6 +87,12 @@ export interface WorkspaceUserUpdateInput {
 export interface WorkspaceUserPasswordResetInput {
   userId: number;
   password: string;
+}
+
+export interface WorkspaceUserRemovalResult {
+  action: 'deleted' | 'archived';
+  userId: number;
+  user?: WorkspaceUser;
 }
 
 export interface DocumentType {

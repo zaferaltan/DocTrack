@@ -56,6 +56,7 @@ const migrateWorkspaceUsers = (db: Database.Database): void => {
       DisplayName TEXT NOT NULL,
       Role TEXT NOT NULL CHECK (Role IN ('admin', 'editor', 'viewer')),
       SignInEnabled INTEGER NOT NULL DEFAULT 0 CHECK (SignInEnabled IN (0, 1)),
+      Archived INTEGER NOT NULL DEFAULT 0 CHECK (Archived IN (0, 1)),
       PasswordSalt TEXT,
       PasswordHash TEXT,
       LastSignedInDate TEXT,
@@ -189,6 +190,14 @@ const migrateWorkspaceUserSystemSetting = (db: Database.Database): void => {
   }
 };
 
+const migrateWorkspaceUserArchiveState = (db: Database.Database): void => {
+  if (!columnExists(db, 'WorkspaceUsers', 'Archived')) {
+    db.exec(
+      'ALTER TABLE WorkspaceUsers ADD COLUMN Archived INTEGER NOT NULL DEFAULT 0 CHECK (Archived IN (0, 1));'
+    );
+  }
+};
+
 const MIGRATIONS: readonly Migration[] = [
   {
     id: '001_initial',
@@ -249,6 +258,10 @@ const MIGRATIONS: readonly Migration[] = [
   {
     id: '015_workspace_user_system_setting',
     run: migrateWorkspaceUserSystemSetting
+  },
+  {
+    id: '016_workspace_user_archive_state',
+    run: migrateWorkspaceUserArchiveState
   }
 ] as const;
 

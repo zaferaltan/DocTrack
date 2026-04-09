@@ -27,6 +27,10 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.workspaceActivateUser, rootPath, userId),
     deactivateUser: (rootPath, userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceDeactivateUser, rootPath, userId),
+    deleteUser: (rootPath, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceDeleteUser, rootPath, userId),
+    unarchiveUser: (rootPath, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceUnarchiveUser, rootPath, userId),
     resetUserPassword: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceResetUserPassword, rootPath, input),
     updateSettings: (rootPath, input) =>

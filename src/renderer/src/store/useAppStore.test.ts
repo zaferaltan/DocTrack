@@ -45,6 +45,8 @@ const workspaceUsers: WorkspaceUser[] = [
     displayName: 'Jordan Singh',
     role: 'admin',
     signInEnabled: true,
+    archived: false,
+    linkedRecordCount: 0,
     lastSignedInDate: '2026-03-31T12:00:00.000Z',
     createdDate: '2026-03-28T09:00:00.000Z',
     modifiedDate: '2026-03-31T12:00:00.000Z'
@@ -108,6 +110,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       updateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       activateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       deactivateUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
+      deleteUser: vi.fn().mockResolvedValue({ action: 'deleted', userId: workspaceUsers[0].id }),
+      unarchiveUser: vi.fn().mockResolvedValue(workspaceUsers[0]),
       resetUserPassword: vi.fn().mockResolvedValue(workspaceUsers[0]),
       getDashboard: vi.fn().mockResolvedValue(defaultDashboard),
       getDashboardLayout: vi.fn().mockResolvedValue(DEFAULT_DASHBOARD_LAYOUT),

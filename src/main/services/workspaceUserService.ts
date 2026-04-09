@@ -7,6 +7,7 @@ import type {
   WorkspaceInitialAdminInput,
   WorkspaceRole,
   WorkspaceUser,
+  WorkspaceUserRemovalResult,
   WorkspaceUserCreateInput,
   WorkspaceUserUpdateInput
 } from '@shared/types';
@@ -17,8 +18,10 @@ interface WorkspaceUserRow {
   DisplayName: string;
   Role: WorkspaceRole;
   SignInEnabled: number;
+  Archived: number;
   PasswordSalt: string | null;
   PasswordHash: string | null;
+  LinkedRecordCount: number;
   LastSignedInDate: string | null;
   CreatedDate: string;
   ModifiedDate: string;
@@ -52,6 +55,26 @@ const verifyPassword = (password: string, salt: string, hash: string): boolean =
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 };
 
+const WORKSPACE_USER_SELECT_COLUMNS = `
+  Id,
+  Username,
+  DisplayName,
+  Role,
+  SignInEnabled,
+  Archived,
+  PasswordSalt,
+  PasswordHash,
+  LastSignedInDate,
+  CreatedDate,
+  ModifiedDate,
+  (
+    (SELECT COUNT(*) FROM Documents WHERE AuthorUserId = WorkspaceUsers.Id) +
+    (SELECT COUNT(*) FROM DocumentVersions WHERE ReviewedByUserId = WorkspaceUsers.Id) +
+    (SELECT COUNT(*) FROM DocumentVersions WHERE ApprovedByUserId = WorkspaceUsers.Id) +
+    (SELECT COUNT(*) FROM ActivityLog WHERE ActorUserId = WorkspaceUsers.Id)
+  ) AS LinkedRecordCount
+`;
+
 export class WorkspaceUserService {
   constructor(private readonly workspaceManager: WorkspaceManager) {}
 
@@ -61,18 +84,10 @@ export class WorkspaceUserService {
       .prepare(
         `
           SELECT
-            Id,
-            Username,
-            DisplayName,
-            Role,
-            SignInEnabled,
-            PasswordSalt,
-            PasswordHash,
-            LastSignedInDate,
-            CreatedDate,
-            ModifiedDate
+            ${WORKSPACE_USER_SELECT_COLUMNS}
           FROM WorkspaceUsers
           ORDER BY
+            Archived ASC,
             CASE Role
               WHEN 'admin' THEN 0
               WHEN 'editor' THEN 1
@@ -88,7 +103,7 @@ export class WorkspaceUserService {
   }
 
   listSignInUsers(rootPath: string): WorkspaceUser[] {
-    return this.list(rootPath).filter((user) => user.signInEnabled);
+    return this.list(rootPath).filter((user) => user.signInEnabled && !user.archived);
   }
 
   canRecoverAccess(rootPath: string): boolean {
@@ -112,18 +127,9 @@ export class WorkspaceUserService {
       .prepare(
         `
           SELECT
-            Id,
-            Username,
-            DisplayName,
-            Role,
-            SignInEnabled,
-            PasswordSalt,
-            PasswordHash,
-            LastSignedInDate,
-            CreatedDate,
-            ModifiedDate
+            ${WORKSPACE_USER_SELECT_COLUMNS}
           FROM WorkspaceUsers
-          WHERE DisplayName = @displayName
+          WHERE DisplayName = @displayName COLLATE NOCASE
         `
       )
       .get({ displayName: normalizedDisplayName }) as WorkspaceUserRow | undefined;
@@ -183,6 +189,10 @@ export class WorkspaceUserService {
     const username = this.normalizeAndValidateUsername(input.username);
     const displayName = this.normalizeAndValidateDisplayName(input.displayName);
     const modifiedDate = nowIso();
+    this.assertUserIsNotArchived(existing, 'Archived users cannot be edited.');
+
+    this.ensureUsernameIsAvailable(context.db, username, userId);
+    this.ensureDisplayNameIsAvailable(context.db, displayName, userId);
 
     context.db
       .prepare(
@@ -201,6 +211,7 @@ export class WorkspaceUserService {
   activate(rootPath: string, userId: number): WorkspaceUser {
     const context = this.workspaceManager.getContext(rootPath);
     const user = this.getUserRowById(context.db, userId);
+    this.assertUserIsNotArchived(user, 'Archived users cannot be activated.');
     if (!user.PasswordSalt || !user.PasswordHash) {
       throw new Error('Set a password before activating this user.');
     }
@@ -214,6 +225,7 @@ export class WorkspaceUserService {
   deactivate(rootPath: string, userId: number): WorkspaceUser {
     const context = this.workspaceManager.getContext(rootPath);
     const user = this.getUserRowById(context.db, userId);
+    this.assertUserIsNotArchived(user, 'Archived users cannot be updated.');
 
     if (Boolean(user.SignInEnabled) && this.countActiveUsers(context.db) <= 1) {
       throw new Error('At least one active workspace user must remain.');
@@ -240,9 +252,50 @@ export class WorkspaceUserService {
     });
   }
 
+  remove(rootPath: string, userId: number): WorkspaceUserRemovalResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const user = this.getUserRowById(context.db, userId);
+    this.assertUserIsNotArchived(user, 'Archived users cannot be deleted.');
+
+    if (Boolean(user.SignInEnabled) && this.countActiveUsers(context.db) <= 1) {
+      throw new Error('At least one active workspace user must remain.');
+    }
+
+    if (user.LinkedRecordCount > 0) {
+      context.db
+        .prepare('UPDATE WorkspaceUsers SET Archived = 1, SignInEnabled = 0, ModifiedDate = ? WHERE Id = ?')
+        .run(nowIso(), userId);
+      return {
+        action: 'archived',
+        userId,
+        user: this.getUser(rootPath, userId)
+      };
+    }
+
+    context.db.prepare('DELETE FROM WorkspaceUsers WHERE Id = ?').run(userId);
+    return {
+      action: 'deleted',
+      userId
+    };
+  }
+
+  unarchive(rootPath: string, userId: number): WorkspaceUser {
+    const context = this.workspaceManager.getContext(rootPath);
+    const user = this.getUserRowById(context.db, userId);
+    if (!Boolean(user.Archived)) {
+      throw new Error('This user is not archived.');
+    }
+
+    context.db
+      .prepare('UPDATE WorkspaceUsers SET Archived = 0, ModifiedDate = ? WHERE Id = ?')
+      .run(nowIso(), userId);
+    return this.getUser(rootPath, userId);
+  }
+
   resetPassword(rootPath: string, userId: number, password: string): WorkspaceUser {
     const context = this.workspaceManager.getContext(rootPath);
-    this.getUserRowById(context.db, userId);
+    const user = this.getUserRowById(context.db, userId);
+    this.assertUserIsNotArchived(user, 'Archived users cannot be updated.');
     const normalizedPassword = ensurePassword(password);
     const hashed = hashPassword(normalizedPassword);
 
@@ -265,16 +318,7 @@ export class WorkspaceUserService {
       .prepare(
         `
           SELECT
-            Id,
-            Username,
-            DisplayName,
-            Role,
-            SignInEnabled,
-            PasswordSalt,
-            PasswordHash,
-            LastSignedInDate,
-            CreatedDate,
-            ModifiedDate
+            ${WORKSPACE_USER_SELECT_COLUMNS}
           FROM WorkspaceUsers
           WHERE Username = @username
         `
@@ -283,6 +327,10 @@ export class WorkspaceUserService {
 
     if (!user || !user.PasswordSalt || !user.PasswordHash) {
       throw new Error('Incorrect username or password.');
+    }
+
+    if (Boolean(user.Archived)) {
+      throw new Error('This user has been archived.');
     }
 
     if (!Boolean(user.SignInEnabled)) {
@@ -349,6 +397,10 @@ export class WorkspaceUserService {
     const normalizedPassword = ensurePassword(input.password);
     const hashed = hashPassword(normalizedPassword);
     const timestamp = nowIso();
+
+    this.ensureUsernameIsAvailable(db, username);
+    this.ensureDisplayNameIsAvailable(db, displayName);
+
     const result = db
       .prepare(
         `
@@ -421,16 +473,7 @@ export class WorkspaceUserService {
       .prepare(
         `
           SELECT
-            Id,
-            Username,
-            DisplayName,
-            Role,
-            SignInEnabled,
-            PasswordSalt,
-            PasswordHash,
-            LastSignedInDate,
-            CreatedDate,
-            ModifiedDate
+            ${WORKSPACE_USER_SELECT_COLUMNS}
           FROM WorkspaceUsers
           WHERE Id = @userId
         `
@@ -451,6 +494,8 @@ export class WorkspaceUserService {
       displayName: row.DisplayName,
       role: row.Role,
       signInEnabled: Boolean(row.SignInEnabled),
+      archived: Boolean(row.Archived),
+      linkedRecordCount: row.LinkedRecordCount,
       lastSignedInDate: row.LastSignedInDate,
       createdDate: row.CreatedDate,
       modifiedDate: row.ModifiedDate
@@ -475,11 +520,45 @@ export class WorkspaceUserService {
     return displayName;
   }
 
+  private assertUserIsNotArchived(row: Pick<WorkspaceUserRow, 'Archived'>, errorMessage: string): void {
+    if (Boolean(row.Archived)) {
+      throw new Error(errorMessage);
+    }
+  }
+
+  private ensureUsernameIsAvailable(
+    db: Database.Database,
+    username: string,
+    currentUserId?: number
+  ): void {
+    const existing = db
+      .prepare('SELECT Id FROM WorkspaceUsers WHERE Username = @username')
+      .get({ username }) as { Id: number } | undefined;
+
+    if (existing && existing.Id !== currentUserId) {
+      throw new Error(`A workspace user with the username "${username}" already exists.`);
+    }
+  }
+
+  private ensureDisplayNameIsAvailable(
+    db: Database.Database,
+    displayName: string,
+    currentUserId?: number
+  ): void {
+    const existing = db
+      .prepare('SELECT Id FROM WorkspaceUsers WHERE DisplayName = @displayName COLLATE NOCASE')
+      .get({ displayName }) as { Id: number } | undefined;
+
+    if (existing && existing.Id !== currentUserId) {
+      throw new Error(`A workspace user with the display name "${displayName}" already exists.`);
+    }
+  }
+
   private countActiveUsers(db: Database.Database): number {
     return (
       (
         db
-          .prepare('SELECT COUNT(*) AS total FROM WorkspaceUsers WHERE SignInEnabled = 1')
+          .prepare('SELECT COUNT(*) AS total FROM WorkspaceUsers WHERE SignInEnabled = 1 AND Archived = 0')
           .get() as { total: number } | undefined
       )?.total ?? 0
     );

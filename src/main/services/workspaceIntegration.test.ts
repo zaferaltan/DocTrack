@@ -274,6 +274,213 @@ describe('workspace integration', () => {
     );
   });
 
+  it('rejects duplicate usernames during access recovery with a friendly error', () => {
+    const result = workspaceService.create({
+      name: 'Recovery Workspace Duplicate User',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+
+    workspaceManager
+      .getContext(result.workspace.rootPath)
+      .db.prepare('UPDATE WorkspaceUsers SET SignInEnabled = 0')
+      .run();
+
+    expect(() =>
+      workspaceUserService.recoverAccess(result.workspace.rootPath, {
+        username: 'admin',
+        displayName: 'Recovery Admin',
+        password: 'rescue123'
+      })
+    ).toThrow('A workspace user with the username "admin" already exists.');
+  });
+
+  it('rejects duplicate display names when creating and updating workspace users', () => {
+    const result = workspaceService.create({
+      name: 'Unique Display Names',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+
+    const createdUser = workspaceUserService.create(workspaceRootPath, {
+      username: 'taylor',
+      displayName: 'Taylor Reed',
+      password: '2468',
+      role: 'editor'
+    });
+
+    expect(() =>
+      workspaceUserService.create(workspaceRootPath, {
+        username: 'taylor-2',
+        displayName: 'Taylor Reed',
+        password: '2468',
+        role: 'viewer'
+      })
+    ).toThrow('A workspace user with the display name "Taylor Reed" already exists.');
+
+    expect(() =>
+      workspaceUserService.update(workspaceRootPath, createdUser.id, {
+        username: 'taylor',
+        displayName: 'Workspace Admin',
+        role: 'editor'
+      })
+    ).toThrow('A workspace user with the display name "Workspace Admin" already exists.');
+  });
+
+  it('deletes workspace users that are not linked anywhere else', () => {
+    const result = workspaceService.create({
+      name: 'Delete Workspace User',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const createdUser = workspaceUserService.create(workspaceRootPath, {
+      username: 'taylor',
+      displayName: 'Taylor Reed',
+      password: '2468',
+      role: 'editor'
+    });
+
+    const removal = workspaceUserService.remove(workspaceRootPath, createdUser.id);
+    const remainingUserIds = workspaceUserService.list(workspaceRootPath).map((user) => user.id);
+
+    expect(removal).toEqual({
+      action: 'deleted',
+      userId: createdUser.id
+    });
+    expect(remainingUserIds).not.toContain(createdUser.id);
+  });
+
+  it('archives linked workspace users instead of deleting them', () => {
+    const result = workspaceService.create({
+      name: 'Archive Workspace User',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const createdUser = workspaceUserService.create(workspaceRootPath, {
+      username: 'taylor',
+      displayName: 'Taylor Reed',
+      password: '2468',
+      role: 'editor'
+    });
+    const db = workspaceManager.getContext(workspaceRootPath).db;
+
+    db.prepare(
+      `
+        INSERT INTO ActivityLog (
+          EventType,
+          Message,
+          DocumentRecordId,
+          DocumentVersionId,
+          ActorUserId,
+          CreatedDate
+        ) VALUES (?, ?, NULL, NULL, ?, ?)
+      `
+    ).run('user.test', 'Linked user activity', createdUser.id, '2026-04-09T09:00:00.000Z');
+
+    const removal = workspaceUserService.remove(workspaceRootPath, createdUser.id);
+    const archivedUser = workspaceUserService.getUser(workspaceRootPath, createdUser.id);
+
+    expect(removal.action).toBe('archived');
+    expect(removal.user).toEqual(
+      expect.objectContaining({
+        id: createdUser.id,
+        archived: true,
+        signInEnabled: false
+      })
+    );
+    expect(archivedUser.archived).toBe(true);
+    expect(archivedUser.signInEnabled).toBe(false);
+    expect(archivedUser.linkedRecordCount).toBeGreaterThan(0);
+    expect(workspaceUserService.listSignInUsers(workspaceRootPath)).not.toContainEqual(
+      expect.objectContaining({ id: createdUser.id })
+    );
+  });
+
+  it('can restore archived workspace users as inactive accounts', () => {
+    const result = workspaceService.create({
+      name: 'Restore Archived Workspace User',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS
+      },
+      includeExampleData: false,
+      initialAdmin: {
+        username: 'admin',
+        displayName: 'Workspace Admin',
+        password: 'admin1234'
+      }
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const createdUser = workspaceUserService.create(workspaceRootPath, {
+      username: 'taylor',
+      displayName: 'Taylor Reed',
+      password: '2468',
+      role: 'editor'
+    });
+    const db = workspaceManager.getContext(workspaceRootPath).db;
+
+    db.prepare(
+      `
+        INSERT INTO ActivityLog (
+          EventType,
+          Message,
+          DocumentRecordId,
+          DocumentVersionId,
+          ActorUserId,
+          CreatedDate
+        ) VALUES (?, ?, NULL, NULL, ?, ?)
+      `
+    ).run('user.test', 'Linked user activity', createdUser.id, '2026-04-09T09:00:00.000Z');
+
+    workspaceUserService.remove(workspaceRootPath, createdUser.id);
+    const restoredUser = workspaceUserService.unarchive(workspaceRootPath, createdUser.id);
+
+    expect(restoredUser.archived).toBe(false);
+    expect(restoredUser.signInEnabled).toBe(false);
+    expect(workspaceUserService.list(workspaceRootPath)).toContainEqual(
+      expect.objectContaining({
+        id: createdUser.id,
+        archived: false,
+        signInEnabled: false
+      })
+    );
+  });
+
   it('persists shared saved views and includes them in workspace summaries', () => {
     const created = workspaceService.create({
       name: 'Quality',

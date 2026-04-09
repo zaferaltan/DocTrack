@@ -762,6 +762,7 @@ export class WorkspaceBackupService {
             DisplayName,
             Role,
             SignInEnabled,
+            Archived,
             LastSignedInDate
           FROM WorkspaceUsers
           ORDER BY Id ASC
@@ -772,6 +773,7 @@ export class WorkspaceBackupService {
         DisplayName: string;
         Role: string;
         SignInEnabled: number;
+        Archived: number;
         LastSignedInDate: string | null;
       }>
     ).map((row) => ({
@@ -782,6 +784,7 @@ export class WorkspaceBackupService {
         'Display Name': formatFieldValue(row.DisplayName),
         Role: formatFieldValue(row.Role),
         'Sign-In Enabled': formatFieldValue(Boolean(row.SignInEnabled)),
+        Archived: formatFieldValue(Boolean(row.Archived)),
         'Last Signed In': formatFieldValue(row.LastSignedInDate)
       }
     }));

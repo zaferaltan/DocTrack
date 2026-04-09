@@ -28,6 +28,8 @@ const BYPASS_WORKSPACE_USER: WorkspaceUser = {
   displayName: 'Workspace Access',
   role: 'admin',
   signInEnabled: false,
+  archived: false,
+  linkedRecordCount: 0,
   lastSignedInDate: null,
   createdDate: '',
   modifiedDate: ''
@@ -70,6 +72,8 @@ type RuntimeWorkspaceUserService = Pick<
   | 'update'
   | 'activate'
   | 'deactivate'
+  | 'remove'
+  | 'unarchive'
   | 'resetPassword'
 >;
 
@@ -211,6 +215,12 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
           throw new Error('Workspace user service is unavailable.');
         },
         deactivate: () => {
+          throw new Error('Workspace user service is unavailable.');
+        },
+        remove: () => {
+          throw new Error('Workspace user service is unavailable.');
+        },
+        unarchive: () => {
           throw new Error('Workspace user service is unavailable.');
         },
         resetPassword: () => {
@@ -363,6 +373,34 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     );
     runtimeServices.workspaceSessionService.clearSessionsForUser(rootPath, userId);
     return user;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.workspaceDeleteUser, (event, rootPath: string, userId: number) => {
+    if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
+      throw new Error('The user system is disabled for this workspace.');
+    }
+
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    if (session.user.id === userId) {
+      throw new Error('You cannot delete the account that is currently signed in.');
+    }
+
+    const result = runAsActor(runtimeServices, session.user.id, () =>
+      runtimeServices.workspaceUserService.remove(rootPath, userId)
+    );
+    runtimeServices.workspaceSessionService.clearSessionsForUser(rootPath, userId);
+    return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.workspaceUnarchiveUser, (event, rootPath: string, userId: number) => {
+    if (!runtimeServices.workspaceService.isUserSystemEnabled(rootPath)) {
+      throw new Error('The user system is disabled for this workspace.');
+    }
+
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'admin');
+    return runAsActor(runtimeServices, session.user.id, () =>
+      runtimeServices.workspaceUserService.unarchive(rootPath, userId)
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.workspaceResetUserPassword, (event, rootPath: string, input) => {

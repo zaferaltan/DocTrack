@@ -74,11 +74,13 @@ export const IPC_CHANNELS = {
   workspaceGetSession: 'workspace:getSession',
   workspaceListUsers: 'workspace:listUsers',
   workspaceRecoverAccess: 'workspace:recoverAccess',
-  workspaceCreateUser: 'workspace:createUser',
-  workspaceUpdateUser: 'workspace:updateUser',
-  workspaceActivateUser: 'workspace:activateUser',
-  workspaceDeactivateUser: 'workspace:deactivateUser',
-  workspaceResetUserPassword: 'workspace:resetUserPassword',
+    workspaceCreateUser: 'workspace:createUser',
+    workspaceUpdateUser: 'workspace:updateUser',
+    workspaceActivateUser: 'workspace:activateUser',
+    workspaceDeactivateUser: 'workspace:deactivateUser',
+    workspaceDeleteUser: 'workspace:deleteUser',
+    workspaceUnarchiveUser: 'workspace:unarchiveUser',
+    workspaceResetUserPassword: 'workspace:resetUserPassword',
   workspaceUpdateSettings: 'workspace:updateSettings',
   workspaceUpdateDashboardLayout: 'workspace:updateDashboardLayout',
   workspaceListBackups: 'workspace:listBackups',
@@ -187,6 +189,11 @@ export interface DocTrackApi {
     ) => Promise<import('@shared/types').WorkspaceUser>;
     activateUser: (rootPath: string, userId: number) => Promise<import('@shared/types').WorkspaceUser>;
     deactivateUser: (rootPath: string, userId: number) => Promise<import('@shared/types').WorkspaceUser>;
+    deleteUser: (
+      rootPath: string,
+      userId: number
+    ) => Promise<import('@shared/types').WorkspaceUserRemovalResult>;
+    unarchiveUser: (rootPath: string, userId: number) => Promise<import('@shared/types').WorkspaceUser>;
     resetUserPassword: (
       rootPath: string,
       input: import('@shared/types').WorkspaceUserPasswordResetInput
