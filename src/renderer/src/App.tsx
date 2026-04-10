@@ -7875,122 +7875,121 @@ function ApplicationSettingsDialog({
                 }
               />
 
-              <div className="rounded-xl border border-border bg-card p-3 text-[13px]">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        Packaged app updates
-                      </div>
-                      <div
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                          appUpdateStatusMeta.className,
-                        )}
-                      >
-                        <AppUpdateStatusIcon
-                          className={cn(
-                            "h-3.5 w-3.5",
-                            appUpdateStatusMeta.iconClassName,
-                          )}
-                        />
-                        {appUpdateStatusMeta.label}
-                      </div>
+              <div className="rounded-xl border border-border bg-card p-4 text-[13px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Packaged app updates
+                  </div>
+                  <div
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                      appUpdateStatusMeta.className,
+                    )}
+                  >
+                    <AppUpdateStatusIcon
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        appUpdateStatusMeta.iconClassName,
+                      )}
+                    />
+                    {appUpdateStatusMeta.label}
+                  </div>
+                </div>
+
+                <div className="mt-3 text-sm text-muted-foreground">
+                  {appUpdateState?.message ??
+                    "Loading the application update status."}
+                </div>
+
+                <div className="mt-4 grid gap-2 md:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-background px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Installed
                     </div>
-
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                      <div className="rounded-lg border border-border bg-background px-3 py-2">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                          Installed
-                        </div>
-                        <div className="mt-1 font-mono text-sm text-foreground">
-                          {appUpdateState?.currentVersion ?? "Loading..."}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-border bg-background px-3 py-2">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                          Latest release
-                        </div>
-                        <div className="mt-1 text-sm text-foreground">
-                          {appUpdateState?.release
-                            ? appUpdateState.release.releaseName ??
-                              appUpdateState.release.version
-                            : "No release selected"}
-                        </div>
-                        {appUpdateState?.release?.releaseDate ? (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {formatDateTime(appUpdateState.release.releaseDate)}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="rounded-lg border border-border bg-background px-3 py-2">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                          Last checked
-                        </div>
-                        <div className="mt-1 text-sm text-foreground">
-                          {appUpdateState?.lastCheckedAt
-                            ? formatDateTime(appUpdateState.lastCheckedAt)
-                            : "Not checked yet"}
-                        </div>
-                        {appUpdateState?.lastCheckSource ? (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            Source:{" "}
-                            {appUpdateState.lastCheckSource === "launch"
-                              ? "Launch check"
-                              : "Manual check"}
-                          </div>
-                        ) : null}
-                      </div>
+                    <div className="mt-1 font-mono text-sm text-foreground">
+                      {appUpdateState?.currentVersion ?? "Loading..."}
                     </div>
+                  </div>
 
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      {appUpdateState?.message ??
-                        "Loading the application update status."}
+                  <div className="rounded-lg border border-border bg-background px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Latest release
                     </div>
-
-                    {showDownloadProgress ? (
-                      <AppUpdateDownloadProgress
-                        className="mt-4"
-                        progress={appUpdateState?.progress ?? null}
-                      />
+                    <div className="mt-1 text-sm text-foreground">
+                      {appUpdateState?.release
+                        ? appUpdateState.release.releaseName ??
+                          appUpdateState.release.version
+                        : "No release selected"}
+                    </div>
+                    {appUpdateState?.release?.releaseDate ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {formatDateTime(appUpdateState.release.releaseDate)}
+                      </div>
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={!canCheckForUpdates}
-                      onClick={() => void onCheckForUpdates()}
-                    >
-                      {appUpdateState?.status === "checking" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCcw className="h-4 w-4" />
-                      )}
-                      {checkForUpdatesLabel}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!canDownloadUpdate}
-                      onClick={() => void onDownloadUpdate()}
-                    >
-                      {appUpdateState?.status === "downloading" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4" />
-                      )}
-                      {downloadUpdateLabel}
-                    </Button>
-                    <Button
-                      disabled={!canInstallUpdate}
-                      onClick={() => onInstallUpdate()}
-                    >
-                      <RefreshCcw className="h-4 w-4" />
-                      Install and Restart
-                    </Button>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Last checked
+                    </div>
+                    <div className="mt-1 text-sm text-foreground">
+                      {appUpdateState?.lastCheckedAt
+                        ? formatDateTime(appUpdateState.lastCheckedAt)
+                        : "Not checked yet"}
+                    </div>
+                    {appUpdateState?.lastCheckSource ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Source:{" "}
+                        {appUpdateState.lastCheckSource === "launch"
+                          ? "Launch check"
+                          : "Manual check"}
+                      </div>
+                    ) : null}
                   </div>
+                </div>
+
+                {showDownloadProgress ? (
+                  <AppUpdateDownloadProgress
+                    className="mt-4"
+                    progress={appUpdateState?.progress ?? null}
+                  />
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    disabled={!canCheckForUpdates}
+                    onClick={() => void onCheckForUpdates()}
+                  >
+                    {appUpdateState?.status === "checking" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="h-4 w-4" />
+                    )}
+                    {checkForUpdatesLabel}
+                  </Button>
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    disabled={!canDownloadUpdate}
+                    onClick={() => void onDownloadUpdate()}
+                  >
+                    {appUpdateState?.status === "downloading" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {downloadUpdateLabel}
+                  </Button>
+                  <Button
+                    className="w-full sm:w-auto"
+                    disabled={!canInstallUpdate}
+                    onClick={() => onInstallUpdate()}
+                  >
+                    <RefreshCcw className="h-4 w-4" />
+                    Install and Restart
+                  </Button>
                 </div>
 
                 {!persistedSettings.autoUpdateEnabled ? (
