@@ -116,7 +116,7 @@ import {
   type ThemeMode,
   type WorkspaceView,
 } from "@shared/applicationSettings";
-import type { AppUpdateState } from "@shared/appUpdates";
+import type { AppUpdateProgress, AppUpdateState } from "@shared/appUpdates";
 import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
@@ -1046,6 +1046,7 @@ interface ConfirmationDialogState {
   tone: "default" | "destructive";
   detailLines: string[];
   isSubmitting: boolean;
+  kind?: "app-update-download" | "app-update-install";
   onConfirm?: () => Promise<void>;
 }
 
@@ -1319,6 +1320,7 @@ const defaultConfirmationDialogState: ConfirmationDialogState = {
   tone: "destructive",
   detailLines: [],
   isSubmitting: false,
+  kind: undefined,
   onConfirm: undefined,
 };
 
@@ -2797,6 +2799,7 @@ function App() {
 
     launchUpdatePromptKeyRef.current = promptKey;
     openConfirmationDialog({
+      kind: "app-update-download",
       title: "Update Available",
       description: `DocTrack ${appUpdateState.release?.version ?? ""} is available. Download it now?`,
       confirmLabel: "Download Update",
@@ -2830,6 +2833,7 @@ function App() {
 
     downloadedLaunchUpdatePromptKeyRef.current = promptKey;
     openConfirmationDialog({
+      kind: "app-update-install",
       title: "Install Update",
       description: `DocTrack ${appUpdateState.release?.version ?? ""} has finished downloading. Restart and install it now?`,
       confirmLabel: "Install and Restart",
@@ -7336,6 +7340,7 @@ function App() {
         onConfirm={handleConfirmDeleteRecords}
       />
       <ConfirmationDialog
+        appUpdateState={appUpdateState}
         state={confirmationDialog}
         onOpenChange={(open) =>
           setConfirmationDialog(
@@ -7561,6 +7566,23 @@ function ApplicationSettingsDialog({
     persistedSettings.autoUpdateEnabled &&
     !hasPendingUpdaterPreferenceChanges &&
     appUpdateState?.status === "downloaded";
+  const appUpdateStatusMeta = getAppUpdateStatusMeta(appUpdateState?.status);
+  const AppUpdateStatusIcon = appUpdateStatusMeta.icon;
+  const checkForUpdatesLabel =
+    appUpdateState?.status === "checking"
+      ? "Checking..."
+      : "Check for Updates";
+  const downloadUpdateLabel =
+    appUpdateState?.status === "downloading"
+      ? appUpdateState.progress
+        ? `Downloading ${Math.round(
+            getAppUpdateProgressPercent(appUpdateState.progress),
+          )}%`
+        : "Preparing Download..."
+      : "Download Update";
+  const showDownloadProgress =
+    appUpdateState?.status === "downloading" ||
+    Boolean(appUpdateState?.progress);
 
   return (
     <Dialog
@@ -7855,42 +7877,84 @@ function ApplicationSettingsDialog({
 
               <div className="rounded-xl border border-border bg-card p-3 text-[13px]">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="font-medium text-foreground">
-                      Current version{" "}
-                      <span className="font-mono">
-                        {appUpdateState?.currentVersion ?? "Loading..."}
-                      </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        Packaged app updates
+                      </div>
+                      <div
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          appUpdateStatusMeta.className,
+                        )}
+                      >
+                        <AppUpdateStatusIcon
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            appUpdateStatusMeta.iconClassName,
+                          )}
+                        />
+                        {appUpdateStatusMeta.label}
+                      </div>
                     </div>
-                    <div className="mt-1 text-muted-foreground">
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-lg border border-border bg-background px-3 py-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Installed
+                        </div>
+                        <div className="mt-1 font-mono text-sm text-foreground">
+                          {appUpdateState?.currentVersion ?? "Loading..."}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border bg-background px-3 py-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Latest release
+                        </div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {appUpdateState?.release
+                            ? appUpdateState.release.releaseName ??
+                              appUpdateState.release.version
+                            : "No release selected"}
+                        </div>
+                        {appUpdateState?.release?.releaseDate ? (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {formatDateTime(appUpdateState.release.releaseDate)}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-lg border border-border bg-background px-3 py-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          Last checked
+                        </div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {appUpdateState?.lastCheckedAt
+                            ? formatDateTime(appUpdateState.lastCheckedAt)
+                            : "Not checked yet"}
+                        </div>
+                        {appUpdateState?.lastCheckSource ? (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Source:{" "}
+                            {appUpdateState.lastCheckSource === "launch"
+                              ? "Launch check"
+                              : "Manual check"}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-sm text-muted-foreground">
                       {appUpdateState?.message ??
                         "Loading the application update status."}
                     </div>
-                    {appUpdateState?.release ? (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Available release{" "}
-                        <span className="font-medium text-foreground">
-                          {appUpdateState.release.releaseName ??
-                            appUpdateState.release.version}
-                        </span>
-                        {appUpdateState.release.releaseDate
-                          ? ` • ${formatDateTime(appUpdateState.release.releaseDate)}`
-                          : ""}
-                      </div>
-                    ) : null}
-                    {appUpdateState?.progress ? (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Download progress{" "}
-                        {Math.round(appUpdateState.progress.percent)}%{" • "}
-                        {appUpdateState.progress.transferred.toLocaleString()} /{" "}
-                        {appUpdateState.progress.total.toLocaleString()} bytes
-                      </div>
-                    ) : null}
-                    {appUpdateState?.lastCheckedAt ? (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Last checked{" "}
-                        {formatDateTime(appUpdateState.lastCheckedAt)}
-                      </div>
+
+                    {showDownloadProgress ? (
+                      <AppUpdateDownloadProgress
+                        className="mt-4"
+                        progress={appUpdateState?.progress ?? null}
+                      />
                     ) : null}
                   </div>
 
@@ -7905,7 +7969,7 @@ function ApplicationSettingsDialog({
                       ) : (
                         <RefreshCcw className="h-4 w-4" />
                       )}
-                      Check for Updates
+                      {checkForUpdatesLabel}
                     </Button>
                     <Button
                       variant="outline"
@@ -7917,7 +7981,7 @@ function ApplicationSettingsDialog({
                       ) : (
                         <Download className="h-4 w-4" />
                       )}
-                      Download Update
+                      {downloadUpdateLabel}
                     </Button>
                     <Button
                       disabled={!canInstallUpdate}
@@ -18427,14 +18491,31 @@ function DeleteRecordsDialog({
 }
 
 function ConfirmationDialog({
+  appUpdateState,
   state,
   onOpenChange,
   onConfirm,
 }: {
+  appUpdateState: AppUpdateState | null;
   state: ConfirmationDialogState;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => Promise<void>;
 }) {
+  const isDownloadingUpdate =
+    state.kind === "app-update-download" &&
+    state.isSubmitting &&
+    appUpdateState?.status === "downloading";
+  const confirmLabel =
+    state.kind === "app-update-download" && state.isSubmitting
+      ? appUpdateState?.progress
+        ? `Downloading ${Math.round(
+            getAppUpdateProgressPercent(appUpdateState.progress),
+          )}%`
+        : "Preparing Download..."
+      : state.kind === "app-update-install" && state.isSubmitting
+        ? "Restarting..."
+        : state.confirmLabel;
+
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[560px]">
@@ -18484,6 +18565,10 @@ function ConfirmationDialog({
               </div>
             </div>
           ) : null}
+
+          {isDownloadingUpdate ? (
+            <AppUpdateDownloadProgress progress={appUpdateState?.progress ?? null} />
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -18506,7 +18591,7 @@ function ConfirmationDialog({
             ) : (
               <CircleDot className="h-4 w-4" />
             )}
-            {state.confirmLabel}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -19582,6 +19667,206 @@ function formatFileSize(fileSize: number): string {
   }
 
   return `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAppUpdateProgressPercent(
+  progress: AppUpdateProgress | null | undefined,
+): number {
+  if (!progress || !Number.isFinite(progress.percent)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, progress.percent));
+}
+
+function formatAppUpdateTransferRate(bytesPerSecond: number): string {
+  return bytesPerSecond > 0
+    ? `${formatFileSize(bytesPerSecond)}/s`
+    : "Calculating speed...";
+}
+
+function formatAppUpdateRemainingTime(
+  progress: AppUpdateProgress | null | undefined,
+): string | null {
+  if (!progress || progress.bytesPerSecond <= 0) {
+    return null;
+  }
+
+  const remainingBytes = Math.max(progress.total - progress.transferred, 0);
+  if (remainingBytes <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.ceil(remainingBytes / progress.bytesPerSecond);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s remaining`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds > 0
+      ? `${minutes}m ${seconds}s remaining`
+      : `${minutes}m remaining`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0
+    ? `${hours}h ${remainingMinutes}m remaining`
+    : `${hours}h remaining`;
+}
+
+function getAppUpdateStatusMeta(
+  status: AppUpdateState["status"] | undefined,
+): {
+  label: string;
+  icon: typeof RefreshCcw;
+  className: string;
+  iconClassName?: string;
+} {
+  switch (status) {
+    case "checking":
+      return {
+        label: "Checking",
+        icon: RefreshCcw,
+        className:
+          "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200",
+        iconClassName: "animate-spin",
+      };
+    case "available":
+      return {
+        label: "Ready to Download",
+        icon: Download,
+        className:
+          "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200",
+      };
+    case "downloading":
+      return {
+        label: "Downloading",
+        icon: Download,
+        className:
+          "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200",
+      };
+    case "downloaded":
+      return {
+        label: "Ready to Install",
+        icon: Sparkles,
+        className:
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
+      };
+    case "not-available":
+      return {
+        label: "Up to Date",
+        icon: Sparkles,
+        className:
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
+      };
+    case "error":
+      return {
+        label: "Attention Needed",
+        icon: AlertTriangle,
+        className:
+          "border-[#F0D5D3] bg-[#FFF7F6] text-[#C4554D] dark:border-[#5A2D2F] dark:bg-[#3B1F21]/60 dark:text-[#FFB7B2]",
+      };
+    case "unsupported":
+      return {
+        label: "Unavailable",
+        icon: AlertTriangle,
+        className:
+          "border-border bg-muted text-muted-foreground dark:border-border dark:bg-muted/60 dark:text-muted-foreground",
+      };
+    case "idle":
+    case "disabled":
+    default:
+      return {
+        label: "Ready",
+        icon: RefreshCcw,
+        className:
+          "border-border bg-muted text-muted-foreground dark:border-border dark:bg-muted/60 dark:text-muted-foreground",
+      };
+  }
+}
+
+function AppUpdateProgressBar({
+  progress,
+  label = "Update download progress",
+}: {
+  progress: AppUpdateProgress | null;
+  label?: string;
+}) {
+  const percent = getAppUpdateProgressPercent(progress);
+  const isDeterminate = Boolean(progress && progress.total > 0);
+
+  return (
+    <div
+      aria-label={label}
+      aria-valuemax={isDeterminate ? 100 : undefined}
+      aria-valuemin={isDeterminate ? 0 : undefined}
+      aria-valuenow={isDeterminate ? Math.round(percent) : undefined}
+      aria-valuetext={
+        isDeterminate ? `${Math.round(percent)} percent` : "Preparing download"
+      }
+      className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted"
+      role="progressbar"
+    >
+      <div
+        className={cn(
+          "h-full rounded-full bg-primary transition-[width] duration-300 ease-out",
+          isDeterminate ? "w-0" : "w-1/3 animate-pulse",
+        )}
+        style={isDeterminate ? { width: `${percent}%` } : undefined}
+      />
+    </div>
+  );
+}
+
+function AppUpdateDownloadProgress({
+  progress,
+  className,
+}: {
+  progress: AppUpdateProgress | null;
+  className?: string;
+}) {
+  const percent = getAppUpdateProgressPercent(progress);
+  const remainingTime = formatAppUpdateRemainingTime(progress);
+
+  return (
+    <div
+      aria-live="polite"
+      className={cn(
+        "rounded-xl border border-border bg-background/80 p-3",
+        className,
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Download progress
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+            {progress ? `${Math.round(percent)}%` : "Starting..."}
+          </div>
+        </div>
+
+        <div className="text-right text-xs text-muted-foreground">
+          <div>
+            {progress && progress.total > 0
+              ? `${formatFileSize(progress.transferred)} of ${formatFileSize(progress.total)}`
+              : "Waiting for the first progress update"}
+          </div>
+          <div className="mt-1">
+            {progress
+              ? formatAppUpdateTransferRate(progress.bytesPerSecond)
+              : "Preparing files..."}
+            {remainingTime ? ` - ${remainingTime}` : ""}
+          </div>
+        </div>
+      </div>
+
+      <AppUpdateProgressBar progress={progress} />
+    </div>
+  );
 }
 
 function columnHeader(label: string) {

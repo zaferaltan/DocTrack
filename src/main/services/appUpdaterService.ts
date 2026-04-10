@@ -245,6 +245,13 @@ export class AppUpdaterService {
     }
 
     try {
+      this.setState({
+        status: "downloading",
+        message: this.state.release
+          ? `Preparing DocTrack ${this.state.release.version} download...`
+          : "Preparing update download...",
+        progress: null,
+      });
       await this.updater.downloadUpdate();
       return this.getState();
     } catch (error) {

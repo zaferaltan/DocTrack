@@ -128,6 +128,58 @@ describe("AppUpdaterService", () => {
     );
   });
 
+  it("enters a downloading state before the first progress event arrives", async () => {
+    const updater = new FakeAutoUpdater();
+    let finishDownload: (() => void) | undefined;
+    updater.downloadUpdate = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishDownload = () => {
+            updater.emit("download-progress", {
+              bytesPerSecond: 1024,
+              percent: 50,
+              transferred: 512,
+              total: 1024,
+            });
+            updater.emit("update-downloaded", {
+              version: "0.2.0",
+              releaseName: "0.2.0",
+              releaseDate: "2026-04-02T10:00:00.000Z",
+              releaseNotes: "A new build is ready.",
+            });
+            resolve(null);
+          };
+        })
+    );
+    const service = new AppUpdaterService({
+      updater,
+      currentVersion: "0.1.0",
+      isPackaged: true,
+      platform: "darwin",
+      now: () => "2026-04-02T10:00:00.000Z",
+    });
+
+    await service.checkForUpdates();
+    const downloadPromise = service.downloadUpdate();
+
+    expect(service.getState()).toEqual(
+      expect.objectContaining({
+        status: "downloading",
+        message: "Preparing DocTrack 0.2.0 download...",
+        progress: null,
+      })
+    );
+
+    finishDownload?.();
+    await downloadPromise;
+
+    expect(service.getState()).toEqual(
+      expect.objectContaining({
+        status: "downloaded",
+      })
+    );
+  });
+
   it("surfaces not-available events", async () => {
     const updater = new FakeAutoUpdater();
     updater.checkForUpdates.mockImplementationOnce(async () => {
