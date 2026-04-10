@@ -1193,6 +1193,46 @@ describe('App', () => {
     await view.unmount();
   });
 
+  it('shows download progress details and a progress bar in the settings dialog', async () => {
+    buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      {
+        ...defaultAppUpdateState,
+        status: 'downloading',
+        message: 'Downloading DocTrack 0.2.0...',
+        release: {
+          version: '0.2.0',
+          releaseName: '0.2.0',
+          releaseDate: '2026-04-02T10:00:00.000Z',
+          releaseNotes: 'A new build is ready.'
+        },
+        progress: {
+          bytesPerSecond: 1024 * 1024,
+          percent: 42,
+          transferred: 21 * 1024 * 1024,
+          total: 50 * 1024 * 1024
+        }
+      }
+    );
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+
+    const dialog = getDialog();
+    const progressBar = dialog.querySelector('[role=\"progressbar\"]');
+
+    expect(normalizeText(dialog.textContent)).toContain('Downloading 42%');
+    expect(normalizeText(dialog.textContent)).toContain('Download progress');
+    expect(normalizeText(dialog.textContent)).toContain('21.0 MB of 50.0 MB');
+    expect(progressBar?.getAttribute('aria-valuenow')).toBe('42');
+
+    await view.unmount();
+  });
+
   it('does not show release notes in the settings dialog update section', async () => {
     buildDocTrackMock(
       {
