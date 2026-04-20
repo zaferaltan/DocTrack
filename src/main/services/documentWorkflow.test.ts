@@ -28,6 +28,8 @@ vi.mock('electron', () => ({
   }
 }));
 
+const INTEGRATION_HOOK_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 10000;
+
 describe('document workflow integration', () => {
   let tempRoot: string;
   let workspaceManager: WorkspaceManager;
@@ -133,12 +135,12 @@ describe('document workflow integration', () => {
     });
 
     expect(documentTypeService.list(workspaceRootPath)).toHaveLength(3);
-  });
+  }, INTEGRATION_HOOK_TIMEOUT_MS);
 
   afterEach(() => {
     workspaceManager.dispose();
     rmSync(tempRoot, { recursive: true, force: true });
-  });
+  }, INTEGRATION_HOOK_TIMEOUT_MS);
 
   it('creates a metadata-only document shell with a physical document folder', () => {
     const detail = documentService.create(workspaceRootPath, {

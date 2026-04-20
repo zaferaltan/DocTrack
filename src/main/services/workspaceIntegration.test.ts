@@ -36,6 +36,9 @@ vi.mock('electron', () => ({
   }
 }));
 
+const INTEGRATION_HOOK_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 10000;
+const WINDOWS_FILESYSTEM_TEST_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 5000;
+
 describe('workspace integration', () => {
   let tempRoot: string;
   let workspaceManager: WorkspaceManager;
@@ -136,12 +139,12 @@ describe('workspace integration', () => {
       undefined,
       workspaceUserService
     );
-  });
+  }, INTEGRATION_HOOK_TIMEOUT_MS);
 
   afterEach(() => {
     workspaceManager.dispose();
     rmSync(tempRoot, { recursive: true, force: true });
-  });
+  }, INTEGRATION_HOOK_TIMEOUT_MS);
 
   it('creates a workspace folder with starter type folders and both workspace settings', () => {
     const result = workspaceService.create({
@@ -208,7 +211,7 @@ describe('workspace integration', () => {
     documentTypeService.delete(workspaceRootPath, procedureType!.id);
 
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(false);
-  });
+  }, WINDOWS_FILESYSTEM_TEST_TIMEOUT_MS);
 
   it('can create a workspace with the user system disabled', () => {
     const result = workspaceService.create({
