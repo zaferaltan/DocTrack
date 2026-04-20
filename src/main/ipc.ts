@@ -973,7 +973,22 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
   ipcMain.handle(IPC_CHANNELS.appUpdatesGetState, () => services.appUpdaterService.getState());
   ipcMain.handle(IPC_CHANNELS.appUpdatesCheckForUpdates, () => services.appUpdaterService.checkForUpdates());
   ipcMain.handle(IPC_CHANNELS.appUpdatesDownloadUpdate, () => services.appUpdaterService.downloadUpdate());
+  ipcMain.handle(IPC_CHANNELS.appUpdatesGetCompletedUpdate, () =>
+    services.catalogService.getCompletedAppUpdate()
+  );
+  ipcMain.handle(IPC_CHANNELS.appUpdatesClearCompletedUpdate, () => {
+    services.catalogService.clearCompletedAppUpdate();
+  });
   ipcMain.handle(IPC_CHANNELS.appUpdatesQuitAndInstall, () => {
+    const updateState = services.appUpdaterService.getState();
+    if (updateState.status === 'downloaded' && updateState.release) {
+      services.catalogService.setCompletedAppUpdate({
+        previousVersion: updateState.currentVersion,
+        currentVersion: updateState.release.version,
+        completedAt: new Date().toISOString()
+      });
+    }
+
     services.prepareForAppQuit();
     services.appUpdaterService.quitAndInstall();
   });

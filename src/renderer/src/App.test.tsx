@@ -6,7 +6,7 @@ import {
   DEFAULT_APPLICATION_SETTINGS,
   type ApplicationSettings
 } from '@shared/applicationSettings';
-import type { AppUpdateState } from '@shared/appUpdates';
+import type { AppUpdateState, CompletedAppUpdate } from '@shared/appUpdates';
 import { createDefaultWorkspaceLifecycle, type WorkspaceLifecycle } from '@shared/documentLifecycle';
 import type { DocTrackApi } from '@shared/ipc';
 import { DEFAULT_DASHBOARD_LAYOUT, DEFAULT_DOCUMENT_VIEW_STATE } from '@shared/savedViews';
@@ -300,12 +300,16 @@ const buildDocTrackMock = (
     themeMode: 'light'
   },
   workspaceResult: OpenWorkspaceResult = openWorkspaceResult,
-  initialAppUpdateState: AppUpdateState = defaultAppUpdateState
+  initialAppUpdateState: AppUpdateState = defaultAppUpdateState,
+  initialCompletedAppUpdate: CompletedAppUpdate | null = null
 ) => {
   let persistedSettings = { ...initialSettings };
   let persistedAppUpdateState = JSON.parse(
     JSON.stringify(initialAppUpdateState)
   ) as AppUpdateState;
+  let persistedCompletedAppUpdate = initialCompletedAppUpdate
+    ? ({ ...initialCompletedAppUpdate } as CompletedAppUpdate)
+    : null;
 
   const docTrack = {
     workspace: {
@@ -534,6 +538,16 @@ const buildDocTrackMock = (
           JSON.parse(JSON.stringify(persistedAppUpdateState)) as AppUpdateState
       ),
       quitAndInstall: vi.fn().mockResolvedValue(undefined),
+      getCompletedUpdate: vi.fn().mockImplementation(async () =>
+        persistedCompletedAppUpdate
+          ? ({
+              ...persistedCompletedAppUpdate
+            } as CompletedAppUpdate)
+          : null
+      ),
+      clearCompletedUpdate: vi.fn().mockImplementation(async () => {
+        persistedCompletedAppUpdate = null;
+      }),
       onStateChange: vi.fn().mockImplementation(() => () => undefined)
     },
     ui: {
@@ -1434,6 +1448,41 @@ describe('App', () => {
     await click(getButton('Install and Restart', getDialog()));
 
     expect(docTrack.appUpdates.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    await view.unmount();
+  });
+
+  it('shows a completed update modal after restart and dismisses it with Continue', async () => {
+    const completedUpdate: CompletedAppUpdate = {
+      previousVersion: '0.1.0',
+      currentVersion: '0.2.0',
+      completedAt: '2026-04-02T10:05:00.000Z'
+    };
+    const docTrack = buildDocTrackMock(
+      {
+        ...DEFAULT_APPLICATION_SETTINGS,
+        themeMode: 'light'
+      },
+      openWorkspaceResult,
+      defaultAppUpdateState,
+      completedUpdate
+    );
+    const view = await renderApp();
+
+    const dialog = getLastDialog();
+    expect(normalizeText(dialog.textContent)).toContain('Update Complete');
+    expect(normalizeText(dialog.textContent)).toContain(
+      'DocTrack has successfully finished installing the latest update.'
+    );
+    expect(normalizeText(dialog.textContent)).toContain('Previous version');
+    expect(normalizeText(dialog.textContent)).toContain('0.1.0');
+    expect(normalizeText(dialog.textContent)).toContain('Current version');
+    expect(normalizeText(dialog.textContent)).toContain('0.2.0');
+
+    await click(getButton('Continue', dialog));
+
+    expect(docTrack.appUpdates.clearCompletedUpdate).toHaveBeenCalledTimes(1);
+    expect(normalizeText(document.body.textContent)).not.toContain('Update Complete');
 
     await view.unmount();
   });

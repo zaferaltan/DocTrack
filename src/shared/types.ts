@@ -11,6 +11,7 @@ import type {
   SavedViewScope
 } from '@shared/savedViews';
 import type { ApplicationSettings } from '@shared/applicationSettings';
+import type { CompletedAppUpdate } from '@shared/appUpdates';
 import type { DocumentTableColumn, WorkspaceSettings } from '@shared/workspaceLayout';
 
 export const DOCUMENT_STATUSES = [...DEFAULT_DOCUMENT_STATUSES];
@@ -829,4 +830,5 @@ export interface AppCatalogState {
   recentWorkspaces: RecentWorkspace[];
   applicationSettings: ApplicationSettings;
   personalSavedViewsByWorkspace: Record<string, SavedView[]>;
+  completedAppUpdate: CompletedAppUpdate | null;
 }

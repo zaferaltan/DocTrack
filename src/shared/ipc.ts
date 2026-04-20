@@ -1,5 +1,5 @@
 import type { ApplicationSettings } from '@shared/applicationSettings';
-import type { AppUpdateState } from '@shared/appUpdates';
+import type { AppUpdateState, CompletedAppUpdate } from '@shared/appUpdates';
 import type {
   AddTemplateFilesInput,
   AddDocumentVersionFilesInput,
@@ -167,7 +167,9 @@ export const IPC_CHANNELS = {
   appUpdatesCheckForUpdates: 'appUpdates:checkForUpdates',
   appUpdatesDownloadUpdate: 'appUpdates:downloadUpdate',
   appUpdatesQuitAndInstall: 'appUpdates:quitAndInstall',
-  appUpdatesStateChanged: 'appUpdates:stateChanged'
+  appUpdatesStateChanged: 'appUpdates:stateChanged',
+  appUpdatesGetCompletedUpdate: 'appUpdates:getCompletedUpdate',
+  appUpdatesClearCompletedUpdate: 'appUpdates:clearCompletedUpdate'
 } as const;
 
 export interface DocTrackApi {
@@ -375,6 +377,8 @@ export interface DocTrackApi {
     checkForUpdates: () => Promise<AppUpdateState>;
     downloadUpdate: () => Promise<AppUpdateState>;
     quitAndInstall: () => Promise<void>;
+    getCompletedUpdate: () => Promise<CompletedAppUpdate | null>;
+    clearCompletedUpdate: () => Promise<void>;
     onStateChange: (listener: (state: AppUpdateState) => void) => () => void;
   };
 }

@@ -28,6 +28,7 @@ import {
   CircleDot,
   Columns3,
   CalendarDays,
+  CheckCircle2,
   Download,
   FilePlus2,
   FileStack,
@@ -117,7 +118,11 @@ import {
   type ThemeMode,
   type WorkspaceView,
 } from "@shared/applicationSettings";
-import type { AppUpdateProgress, AppUpdateState } from "@shared/appUpdates";
+import type {
+  AppUpdateProgress,
+  AppUpdateState,
+  CompletedAppUpdate,
+} from "@shared/appUpdates";
 import {
   DOCUMENT_VERSION_FILE_ROLE_LABELS,
   DOCUMENT_VERSION_FILE_ROLES,
@@ -1072,6 +1077,12 @@ interface RevisionDescriptionDialogState {
   content: string;
 }
 
+interface CompletedAppUpdateDialogState {
+  open: boolean;
+  update: CompletedAppUpdate | null;
+  isDismissing: boolean;
+}
+
 const defaultWorkspaceDialogState: WorkspaceDialogState = {
   open: false,
   name: "",
@@ -1087,6 +1098,12 @@ const defaultWorkspaceDialogState: WorkspaceDialogState = {
   isSubmitting: false,
   validationErrors: {},
   isAdvancedSettingsOpen: false,
+};
+
+const defaultCompletedAppUpdateDialogState: CompletedAppUpdateDialogState = {
+  open: false,
+  update: null,
+  isDismissing: false,
 };
 
 const defaultWorkspaceSettingsDialogState: WorkspaceSettingsDialogState = {
@@ -2160,6 +2177,9 @@ function App() {
   const [revisionDescriptionDialog, setRevisionDescriptionDialog] = useState(
     defaultRevisionDescriptionDialogState,
   );
+  const [completedAppUpdateDialog, setCompletedAppUpdateDialog] = useState(
+    defaultCompletedAppUpdateDialogState,
+  );
   const [commandPalette, setCommandPalette] = useState(
     defaultCommandPaletteState,
   );
@@ -2264,7 +2284,8 @@ function App() {
     renameFileDialog.open ||
     deleteRecordsDialog.open ||
     confirmationDialog.open ||
-    revisionDescriptionDialog.open;
+    revisionDescriptionDialog.open ||
+    completedAppUpdateDialog.open;
   const notifyError = useEffectEvent(
     (error: unknown, fallbackMessage: string): void => {
       setNotification({
@@ -2574,6 +2595,38 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    void window.docTrack.appUpdates
+      .getCompletedUpdate()
+      .then((completedUpdate) => {
+        if (!isMounted || !completedUpdate) {
+          return;
+        }
+
+        setCompletedAppUpdateDialog({
+          open: true,
+          update: completedUpdate,
+          isDismissing: false,
+        });
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        notifyError(
+          error,
+          "Unable to load the completed application update notice.",
+        );
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     applyTheme(previewThemeMode);
   }, [previewThemeMode]);
 
@@ -2861,6 +2914,29 @@ function App() {
       notifyError(error, "Unable to install the downloaded update.");
     }
   });
+
+  const dismissCompletedAppUpdateDialog = useEffectEvent(
+    async (): Promise<void> => {
+      setCompletedAppUpdateDialog((current) => ({
+        ...current,
+        isDismissing: true,
+      }));
+
+      try {
+        await window.docTrack.appUpdates.clearCompletedUpdate();
+        setCompletedAppUpdateDialog(defaultCompletedAppUpdateDialogState);
+      } catch (error) {
+        setCompletedAppUpdateDialog((current) => ({
+          ...current,
+          isDismissing: false,
+        }));
+        notifyError(
+          error,
+          "Unable to dismiss the completed application update notice.",
+        );
+      }
+    },
+  );
 
   useEffect(() => {
     if (
@@ -7505,6 +7581,11 @@ function App() {
           )
         }
         onConfirm={handleConfirmActionDialog}
+      />
+      <CompletedAppUpdateDialog
+        state={completedAppUpdateDialog}
+        onOpenChange={() => undefined}
+        onContinue={dismissCompletedAppUpdateDialog}
       />
       <RevisionDescriptionDialog
         state={revisionDescriptionDialog}
@@ -18881,6 +18962,84 @@ function DeleteRecordsDialog({
   );
 }
 
+function CompletedAppUpdateDialog({
+  state,
+  onOpenChange,
+  onContinue,
+}: {
+  state: CompletedAppUpdateDialogState;
+  onOpenChange: (open: boolean) => void;
+  onContinue: () => Promise<void>;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[560px]" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Update Complete</DialogTitle>
+          <DialogDescription>
+            DocTrack has successfully finished installing the latest update.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 dark:border-emerald-900/70 dark:bg-emerald-950/40">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  The update was installed successfully.
+                </div>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Review the installed version details below, then continue into
+                  the app.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-background p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Installed Version
+            </div>
+            <div className="mt-3 grid gap-2">
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Previous version
+                </div>
+                <div className="mt-1 font-mono text-sm text-foreground">
+                  {state.update?.previousVersion ?? "Unknown"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Current version
+                </div>
+                <div className="mt-1 font-mono text-sm text-foreground">
+                  {state.update?.currentVersion ?? "Unknown"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={() => void onContinue()}
+            disabled={state.isDismissing}
+          >
+            {state.isDismissing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            Continue
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ConfirmationDialog({
   appUpdateState,
   state,
@@ -20407,6 +20566,3 @@ function RepairWorkspaceDialog({
 }
 
 export default App;
-
-
-

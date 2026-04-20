@@ -217,6 +217,8 @@ const api: DocTrackApi = {
     checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesCheckForUpdates),
     downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesDownloadUpdate),
     quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesQuitAndInstall),
+    getCompletedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesGetCompletedUpdate),
+    clearCompletedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatesClearCompletedUpdate),
     onStateChange: (listener) => {
       const wrappedListener = (
         _event: Electron.IpcRendererEvent,

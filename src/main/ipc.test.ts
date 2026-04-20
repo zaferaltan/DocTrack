@@ -66,6 +66,22 @@ describe("registerIpcHandlers", () => {
     };
 
     catalogService.updateApplicationSettings.mockReturnValue(nextSettings);
+    appUpdaterService.getState.mockReturnValue({
+      status: "downloaded",
+      currentVersion: "0.1.0",
+      isSupported: true,
+      message: "DocTrack 0.2.0 is ready to install.",
+      release: {
+        version: "0.2.0",
+        releaseName: "0.2.0",
+        releaseDate: "2026-04-02T10:00:00.000Z",
+        releaseNotes: "A new build is ready.",
+      },
+      progress: null,
+      lastCheckedAt: "2026-04-02T10:00:00.000Z",
+      lastCheckSource: "manual",
+      lastUpdatedAt: "2026-04-02T10:01:00.000Z",
+    });
 
     registerIpcHandlers({
       workspaceService: createServiceStub() as never,
@@ -86,16 +102,21 @@ describe("registerIpcHandlers", () => {
 
     await handlers.get(IPC_CHANNELS.appSettingsUpdate)?.({}, nextSettings);
     await handlers.get(IPC_CHANNELS.appUpdatesGetState)?.({});
+    await handlers.get(IPC_CHANNELS.appUpdatesGetCompletedUpdate)?.({});
     await handlers.get(IPC_CHANNELS.appUpdatesCheckForUpdates)?.({});
     await handlers.get(IPC_CHANNELS.appUpdatesDownloadUpdate)?.({});
+    await handlers.get(IPC_CHANNELS.appUpdatesClearCompletedUpdate)?.({});
     await handlers.get(IPC_CHANNELS.appUpdatesQuitAndInstall)?.({});
 
     expect(catalogService.updateApplicationSettings).toHaveBeenCalledWith(nextSettings);
     expect(appUpdaterService.syncSettings).toHaveBeenCalledWith(nextSettings);
-    expect(appUpdaterService.getState).toHaveBeenCalledTimes(1);
+    expect(appUpdaterService.getState).toHaveBeenCalledTimes(2);
+    expect(catalogService.getCompletedAppUpdate).toHaveBeenCalledTimes(1);
     expect(appUpdaterService.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(appUpdaterService.downloadUpdate).toHaveBeenCalledTimes(1);
+    expect(catalogService.clearCompletedAppUpdate).toHaveBeenCalledTimes(1);
     expect(prepareForAppQuit).toHaveBeenCalledTimes(1);
+    expect(catalogService.setCompletedAppUpdate).toHaveBeenCalledTimes(1);
     expect(appUpdaterService.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 });

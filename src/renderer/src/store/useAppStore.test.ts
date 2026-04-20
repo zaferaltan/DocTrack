@@ -240,6 +240,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       checkForUpdates: vi.fn(),
       downloadUpdate: vi.fn(),
       quitAndInstall: vi.fn(),
+      getCompletedUpdate: vi.fn().mockResolvedValue(null),
+      clearCompletedUpdate: vi.fn().mockResolvedValue(undefined),
       onStateChange: vi.fn().mockImplementation(() => () => undefined)
     },
     ui: {

@@ -31,6 +31,12 @@ export interface AppUpdateProgress {
   total: number;
 }
 
+export interface CompletedAppUpdate {
+  previousVersion: string;
+  currentVersion: string;
+  completedAt: string;
+}
+
 export interface AppUpdateState {
   status: AppUpdateStatus;
   currentVersion: string;

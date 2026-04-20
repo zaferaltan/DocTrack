@@ -21,12 +21,14 @@ import {
   type SavedViewStatusNameRemap
 } from '@shared/savedViews';
 import type { AppCatalogState, RecentWorkspace } from '@shared/types';
+import type { CompletedAppUpdate } from '@shared/appUpdates';
 import { nowIso } from '@main/utils/date';
 
 const DEFAULT_STATE: AppCatalogState = {
   recentWorkspaces: [],
   applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS },
-  personalSavedViewsByWorkspace: {}
+  personalSavedViewsByWorkspace: {},
+  completedAppUpdate: null
 };
 
 const migrateLegacyDocumentTableVisibleColumns = (
@@ -80,6 +82,24 @@ export class AppCatalogService {
     state.applicationSettings = this.normalizeApplicationSettings(settings);
     this.writeState(state);
     return state.applicationSettings;
+  }
+
+  getCompletedAppUpdate(): CompletedAppUpdate | null {
+    const completedAppUpdate = this.readState().completedAppUpdate;
+    return completedAppUpdate ? { ...completedAppUpdate } : null;
+  }
+
+  setCompletedAppUpdate(update: CompletedAppUpdate): CompletedAppUpdate {
+    const state = this.readState();
+    state.completedAppUpdate = { ...update };
+    this.writeState(state);
+    return state.completedAppUpdate;
+  }
+
+  clearCompletedAppUpdate(): void {
+    const state = this.readState();
+    state.completedAppUpdate = null;
+    this.writeState(state);
   }
 
   listPersonalSavedViews(rootPath: string): SavedView[] {
@@ -188,11 +208,33 @@ export class AppCatalogService {
         }),
         personalSavedViewsByWorkspace: this.normalizePersonalSavedViewsByWorkspace(
           value.personalSavedViewsByWorkspace
-        )
+        ),
+        completedAppUpdate: this.normalizeCompletedAppUpdate(value.completedAppUpdate)
       };
     } catch {
       return { ...DEFAULT_STATE };
     }
+  }
+
+  private normalizeCompletedAppUpdate(value: unknown): CompletedAppUpdate | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const candidate = value as Partial<CompletedAppUpdate>;
+    if (
+      typeof candidate.previousVersion !== 'string' ||
+      typeof candidate.currentVersion !== 'string' ||
+      typeof candidate.completedAt !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      previousVersion: candidate.previousVersion,
+      currentVersion: candidate.currentVersion,
+      completedAt: candidate.completedAt
+    };
   }
 
   private normalizeApplicationSettings(

@@ -30,6 +30,7 @@ describe('app catalog service', () => {
 
     expect(service.listRecentWorkspaces()).toEqual([]);
     expect(service.getApplicationSettings()).toEqual(DEFAULT_APPLICATION_SETTINGS);
+    expect(service.getCompletedAppUpdate()).toBeNull();
   });
 
   it('persists application settings and recent workspaces', () => {
@@ -192,6 +193,28 @@ describe('app catalog service', () => {
       themeMode: 'dark',
       autoDismissSuccessNotifications: false
     });
+  });
+
+  it('persists and clears completed app update notices', () => {
+    const service = createService();
+
+    service.setCompletedAppUpdate({
+      previousVersion: '0.1.0',
+      currentVersion: '0.2.0',
+      completedAt: '2026-04-02T10:05:00.000Z'
+    });
+
+    const reopened = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
+    expect(reopened.getCompletedAppUpdate()).toEqual({
+      previousVersion: '0.1.0',
+      currentVersion: '0.2.0',
+      completedAt: '2026-04-02T10:05:00.000Z'
+    });
+
+    reopened.clearCompletedAppUpdate();
+
+    const cleared = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
+    expect(cleared.getCompletedAppUpdate()).toBeNull();
   });
 
   it('persists personal saved views per workspace', () => {

@@ -43,6 +43,8 @@ describe("preload app updates bridge", () => {
         checkForUpdates: () => Promise<unknown>;
         downloadUpdate: () => Promise<unknown>;
         quitAndInstall: () => Promise<void>;
+        getCompletedUpdate: () => Promise<unknown>;
+        clearCompletedUpdate: () => Promise<void>;
       };
     };
 
@@ -50,11 +52,15 @@ describe("preload app updates bridge", () => {
     await api.appUpdates.checkForUpdates();
     await api.appUpdates.downloadUpdate();
     await api.appUpdates.quitAndInstall();
+    await api.appUpdates.getCompletedUpdate();
+    await api.appUpdates.clearCompletedUpdate();
 
     expect(invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.appUpdatesGetState);
     expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.appUpdatesCheckForUpdates);
     expect(invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.appUpdatesDownloadUpdate);
     expect(invoke).toHaveBeenNthCalledWith(4, IPC_CHANNELS.appUpdatesQuitAndInstall);
+    expect(invoke).toHaveBeenNthCalledWith(5, IPC_CHANNELS.appUpdatesGetCompletedUpdate);
+    expect(invoke).toHaveBeenNthCalledWith(6, IPC_CHANNELS.appUpdatesClearCompletedUpdate);
   });
 
   it("subscribes to updater state changes and cleans up listeners", () => {
