@@ -40,7 +40,7 @@ export class ActivityLogService {
       input.message.trim(),
       input.documentRecordId ?? null,
       input.documentVersionId ?? null,
-      input.actorUserId ?? this.actorContextService?.getActorUserId() ?? null,
+      this.resolveActorUserId(db, input.actorUserId ?? this.actorContextService?.getActorUserId()),
       nowIso()
     );
 
@@ -136,5 +136,27 @@ export class ActivityLogService {
           : DEFAULT_WORKSPACE_SETTINGS.activityLogEnabled,
       maxRows: normalizeWorkspaceActivityLogMaxRows(row?.ActivityLogMaxRows)
     };
+  }
+
+  private resolveActorUserId(db: Database.Database, actorUserId: number | null | undefined): number | null {
+    if (typeof actorUserId !== 'number' || actorUserId <= 0) {
+      return null;
+    }
+
+    const workspaceUsersTableExists = Boolean(
+      db
+        .prepare("SELECT 1 AS Present FROM sqlite_master WHERE type = 'table' AND name = 'WorkspaceUsers'")
+        .get() as { Present: number } | undefined
+    );
+
+    if (!workspaceUsersTableExists) {
+      return null;
+    }
+
+    const actorExists = db
+      .prepare('SELECT Id FROM WorkspaceUsers WHERE Id = ?')
+      .get(actorUserId) as { Id: number } | undefined;
+
+    return actorExists?.Id ?? null;
   }
 }

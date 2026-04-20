@@ -236,6 +236,60 @@ describe('workspace integration', () => {
     expect(userCount).toBe(0);
   });
 
+  it('creates documents with a null activity actor when the current actor is a bypass session', () => {
+    const result = workspaceService.create({
+      name: 'Open Workspace',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        userSystemEnabled: false
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const documentServiceWithBypassActor = new DocumentService(
+      workspaceManager,
+      new DocumentIdGeneratorService(),
+      new FileStorageService(),
+      templateService,
+      new ActivityLogService({
+        getActorUserId: () => 0
+      }),
+      workspaceUserService
+    );
+
+    const createdDocument = documentServiceWithBypassActor.create(workspaceRootPath, {
+      title: 'Open Workspace Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const activityRows = workspaceManager
+      .getContext(workspaceRootPath)
+      .db.prepare(
+        `
+          SELECT EventType, DocumentRecordId, ActorUserId
+          FROM ActivityLog
+          WHERE DocumentRecordId = ?
+          ORDER BY Id ASC
+        `
+      )
+      .all(createdDocument.id) as Array<{
+      EventType: string;
+      DocumentRecordId: number;
+      ActorUserId: number | null;
+    }>;
+
+    expect(createdDocument.title).toBe('Open Workspace Procedure');
+    expect(activityRows).toEqual([
+      {
+        EventType: 'document.created',
+        DocumentRecordId: createdDocument.id,
+        ActorUserId: null
+      }
+    ]);
+  });
+
   it('does not allow the final active workspace user to be deactivated', () => {
     const result = workspaceService.create({
       name: 'Protected Workspace',
