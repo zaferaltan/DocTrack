@@ -687,14 +687,19 @@ export interface PromoteSavedViewToSharedResult {
   savedView: SavedView;
 }
 
-export interface WorkspaceRepairIssue {
-  kind: 'misplacedDocument';
-  documentRecordId: number;
-  documentId: string;
-  title: string;
-  currentPath: string;
-  expectedPath: string;
-}
+export type WorkspaceRepairIssue =
+  | {
+      kind: 'misplacedDocument';
+      documentRecordId: number;
+      documentId: string;
+      title: string;
+      currentPath: string;
+      expectedPath: string;
+    }
+  | {
+      kind: 'orphanedTypeFolder';
+      folderPath: string; // relative path of the orphaned type folder
+    };
 
 export interface WorkspaceScanResult {
   issues: WorkspaceRepairIssue[];

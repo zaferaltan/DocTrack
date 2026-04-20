@@ -1,6 +1,7 @@
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   lstatSync,
   existsSync,
   mkdirSync,
@@ -163,7 +164,7 @@ export class FileStorageService {
     this.withFilesystemWatchPaused(rootPath, () => {
       mkdirSync(path.dirname(newAbsolutePath), { recursive: true });
       this.suppressFilesystemEvents(rootPath, 1500);
-      renameSync(oldAbsolutePath, newAbsolutePath);
+      this.renameWithRetry(oldAbsolutePath, newAbsolutePath);
       this.cleanupEmptyDirectories(
         path.dirname(oldAbsolutePath),
         this.getWorkspaceDocumentsDirectory(rootPath, settings)
@@ -675,7 +676,7 @@ export class FileStorageService {
     this.withFilesystemWatchPaused(rootPath, () => {
       mkdirSync(path.dirname(nextAbsolutePath), { recursive: true });
       this.suppressFilesystemEvents(rootPath, 1500);
-      renameSync(currentAbsolutePath, nextAbsolutePath);
+      this.renameWithRetry(currentAbsolutePath, nextAbsolutePath);
       this.cleanupEmptyDirectories(
         path.dirname(currentAbsolutePath),
         this.getWorkspaceDocumentsDirectory(rootPath, settings)
@@ -727,6 +728,38 @@ export class FileStorageService {
       ...fileInfo,
       inferredRole
     };
+  }
+
+  // On Windows, chokidar's watcher.close() releases its ReadDirectoryChangesW
+  // handle asynchronously. The handle may still be held for a few milliseconds
+  // after pauseWatching() returns, causing renameSync to throw EPERM/EBUSY.
+  // Retry with a short synchronous wait (Atomics.wait blocks the thread without
+  // busy-spinning and is safe in the Electron main process).
+  private renameWithRetry(src: string, dest: string, maxAttempts = 3, delayMs = 150): void {
+    const sharedBuffer = new Int32Array(new SharedArrayBuffer(4));
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        renameSync(src, dest);
+        return;
+      } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException).code;
+        const isLockError = code === 'EPERM' || code === 'EBUSY' || code === 'EACCES';
+        if (isLockError && attempt < maxAttempts) {
+          Atomics.wait(sharedBuffer, 0, 0, delayMs);
+          continue;
+        }
+        // Final fallback: copy-then-delete handles Windows File Explorer locks.
+        // Explorer holds ReadDirectoryChangesW handles indefinitely while a folder
+        // is open; cpSync only needs read access, and rmSync with { force: true }
+        // marks the source for deletion-on-close even with open handles.
+        if (isLockError) {
+          cpSync(src, dest, { recursive: true });
+          rmSync(src, { recursive: true, force: true });
+          return;
+        }
+        throw error;
+      }
+    }
   }
 
   private hashFile(absolutePath: string): string {

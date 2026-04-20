@@ -20320,8 +20320,8 @@ function RepairWorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Repair Workspace</DialogTitle>
           <DialogDescription>
-            Scans for documents stored in the wrong folder due to a document
-            type rename and offers to move them to the correct location.
+            Scans for documents stored in the wrong folder due to a document type rename and
+            removes leftover empty type folders. Offers to apply all fixes in one click.
           </DialogDescription>
         </DialogHeader>
 
@@ -20341,29 +20341,44 @@ function RepairWorkspaceDialog({
             </div>
           ) : (
             <div className="space-y-2">
-              {issues.map((issue) => (
-                <div
-                  key={issue.documentRecordId}
-                  className="rounded-xl border border-border bg-card p-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold">
-                      {issue.documentId} — {issue.title}
+              {issues.map((issue) =>
+                issue.kind === 'misplacedDocument' ? (
+                  <div
+                    key={`misplaced-${issue.documentRecordId}`}
+                    className="rounded-xl border border-border bg-card p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold">
+                        {issue.documentId} — {issue.title}
+                      </div>
+                      <Badge variant="outline">misplaced</Badge>
                     </div>
-                    <Badge variant="outline">misplaced</Badge>
+                    <div className="mt-2 grid gap-1.5 rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
+                      <div className="grid grid-cols-[4rem_1fr] gap-1">
+                        <span className="font-medium text-foreground">Current</span>
+                        <span className="font-mono">{issue.currentPath}</span>
+                      </div>
+                      <div className="grid grid-cols-[4rem_1fr] gap-1">
+                        <span className="font-medium text-foreground">Target</span>
+                        <span className="font-mono">{issue.expectedPath}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-2 grid gap-1.5 rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
-                    <div className="grid grid-cols-[4rem_1fr] gap-1">
-                      <span className="font-medium text-foreground">Current</span>
-                      <span className="font-mono">{issue.currentPath}</span>
+                ) : (
+                  <div
+                    key={`orphan-${issue.folderPath}`}
+                    className="rounded-xl border border-border bg-card p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold font-mono">{issue.folderPath}</div>
+                      <Badge variant="outline">orphaned folder</Badge>
                     </div>
-                    <div className="grid grid-cols-[4rem_1fr] gap-1">
-                      <span className="font-medium text-foreground">Target</span>
-                      <span className="font-mono">{issue.expectedPath}</span>
-                    </div>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      This folder no longer corresponds to any document type and will be deleted.
+                    </p>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </div>
