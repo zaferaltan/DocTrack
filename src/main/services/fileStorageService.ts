@@ -26,6 +26,7 @@ import {
   sanitizeStoragePathSegment,
   type WorkspaceSettings
 } from '@shared/workspaceLayout';
+import { isIgnoredWorkspaceFilesystemEntryName } from '@main/utils/filesystemEntries';
 
 export interface ManagedFileInfo {
   absolutePath: string;
@@ -821,6 +822,6 @@ export class FileStorageService {
   }
 
   private isHiddenFilesystemEntryName(name: string): boolean {
-    return name.startsWith('.') && name !== '.' && name !== '..';
+    return isIgnoredWorkspaceFilesystemEntryName(name);
   }
 }

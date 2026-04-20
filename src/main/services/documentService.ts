@@ -15,6 +15,7 @@ import { TemplateService } from '@main/services/templateService';
 import type { WorkspaceBackupService } from '@main/services/workspaceBackupService';
 import { WorkspaceUserService } from '@main/services/workspaceUserService';
 import { nowIso } from '@main/utils/date';
+import { shouldIgnoreTrackedFileContentDrift } from '@main/utils/filesystemEntries';
 import {
   getMissingLifecycleMetadata,
   getWorkspaceStatusByKey,
@@ -1819,7 +1820,10 @@ export class DocumentService {
 
       matchedExistingIds.add(exactMatch.Id);
       matchedDiscoveredIndices.add(index);
-      if (this.hasFileMetadataChanges(exactMatch, file)) {
+      if (
+        this.hasFileMetadataChanges(exactMatch, file) &&
+        !shouldIgnoreTrackedFileContentDrift(exactMatch.FileName)
+      ) {
         filesystemChanges.push({
           kind: 'modified',
           trackedFileId: exactMatch.Id,

@@ -77,6 +77,21 @@ describe('WorkspaceFilesystemWatcherService', () => {
     expect(emitted).toHaveLength(0);
   });
 
+  it('ignores transient Office lock files', () => {
+    const emitted: WorkspaceFilesystemDriftEvent[] = [];
+    const service = new WorkspaceFilesystemWatcherService((event) => {
+      emitted.push(event);
+    }, 50);
+
+    service.ensureWatching('/workspace');
+    watcherHandlers.get('add')?.('/workspace/Documents/~$maintenance-plan.docx');
+    watcherHandlers.get('change')?.('/workspace/Documents/working-copy.docx');
+    vi.advanceTimersByTime(50);
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.paths).toEqual([path.resolve('/workspace/Documents/working-copy.docx')]);
+  });
+
   it('can pause and resume watching without losing the registration', () => {
     const emitted: WorkspaceFilesystemDriftEvent[] = [];
     const service = new WorkspaceFilesystemWatcherService((event) => {

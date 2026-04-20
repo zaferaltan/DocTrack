@@ -8,6 +8,7 @@ import {
 import type { WorkspaceSettings } from '@shared/workspaceLayout';
 import type { WorkspaceFilesystemDriftEvent } from '@shared/types';
 import { nowIso } from '@main/utils/date';
+import { isIgnoredWorkspaceFilesystemEntryName } from '@main/utils/filesystemEntries';
 
 interface WatchRegistration {
   watcher: FSWatcher | null;
@@ -141,6 +142,10 @@ export class WorkspaceFilesystemWatcherService {
     );
 
     const queue = (changedPath: string): void => {
+      if (isIgnoredWorkspaceFilesystemEntryName(path.basename(changedPath))) {
+        return;
+      }
+
       if (Date.now() < (this.suppressedUntilByRootPath.get(resolvedRootPath) ?? 0)) {
         return;
       }

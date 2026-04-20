@@ -95,7 +95,7 @@ describe('FileStorageService', () => {
     expect(existsSync(path.join(versionPath, 'other'))).toBe(true);
   });
 
-  it('scans root files, role subfolders, and unmanaged deep paths', () => {
+  it('scans root files, role subfolders, and unmanaged deep paths while ignoring transient metadata files', () => {
     const root = createTempRoot();
     const service = new FileStorageService();
     const workspaceRootPath = path.join(root, 'Quality');
@@ -109,11 +109,17 @@ describe('FileStorageService', () => {
 
     writeFileSync(path.join(versionAbsolutePath, 'procedure.docx'), 'working', 'utf8');
     writeFileSync(path.join(versionAbsolutePath, '.DS_Store'), 'hidden metadata', 'utf8');
+    writeFileSync(path.join(versionAbsolutePath, '~$procedure.docx'), 'word lock file', 'utf8');
     mkdirSync(path.join(versionAbsolutePath, 'concept-pdf'), { recursive: true });
     writeFileSync(path.join(versionAbsolutePath, 'concept-pdf', 'procedure.pdf'), 'concept', 'utf8');
     writeFileSync(
       path.join(versionAbsolutePath, 'concept-pdf', '.DS_Store'),
       'hidden metadata',
+      'utf8'
+    );
+    writeFileSync(
+      path.join(versionAbsolutePath, 'concept-pdf', '~$procedure.pptx'),
+      'powerpoint lock file',
       'utf8'
     );
     mkdirSync(path.join(versionAbsolutePath, '.appledouble'), { recursive: true });

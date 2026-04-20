@@ -538,6 +538,74 @@ describe('document workflow integration', () => {
     expect(listedAfterDelete?.healthFlags).not.toContain('missingFiles');
   });
 
+  it('ignores normal saved edits for tracked Word documents', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Word Save Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+
+    const workingSourceFile = path.join(tempRoot, 'incoming', 'word-save.docx');
+    mkdirSync(path.dirname(workingSourceFile), { recursive: true });
+    writeFileSync(workingSourceFile, 'original draft', 'utf8');
+
+    const afterAdd = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'working',
+      sourceFilePaths: [workingSourceFile]
+    });
+    const workingAbsolutePath = path.join(
+      workspaceRootPath,
+      ...afterAdd.files[0]!.filePath.split('/')
+    );
+
+    writeFileSync(workingAbsolutePath, 'edited in word', 'utf8');
+
+    const afterEdit = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+
+    expect(afterEdit.filesystemState).toBe('clean');
+    expect(afterEdit.filesystemChanges.some((change) => change.kind === 'modified')).toBe(false);
+  });
+
+  it('still flags modified drift for non-Word tracked files', () => {
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Pdf Review Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+
+    const conceptPdfSourceFile = path.join(tempRoot, 'incoming', 'review.pdf');
+    mkdirSync(path.dirname(conceptPdfSourceFile), { recursive: true });
+    writeFileSync(conceptPdfSourceFile, 'original pdf', 'utf8');
+
+    const afterAdd = documentService.addVersionFiles(workspaceRootPath, {
+      documentVersionId: versioned.versions[0]!.id,
+      role: 'concept-pdf',
+      sourceFilePaths: [conceptPdfSourceFile]
+    });
+    const conceptPdfAbsolutePath = path.join(
+      workspaceRootPath,
+      ...afterAdd.files[0]!.filePath.split('/')
+    );
+
+    writeFileSync(conceptPdfAbsolutePath, 'externally edited pdf', 'utf8');
+
+    const afterEdit = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
+
+    expect(afterEdit.filesystemState).toBe('dirty');
+    expect(afterEdit.filesystemChanges.some((change) => change.kind === 'modified')).toBe(true);
+  });
+
   it('marks duplicate-content external moves as ambiguous instead of auto-matching them', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Ambiguous Procedure',
