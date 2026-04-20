@@ -841,6 +841,28 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     return runAsActor(runtimeServices, session.user.id, () => services.documentTypeService.delete(rootPath, id));
   });
 
+  ipcMain.handle(IPC_CHANNELS.groupsList, (event, rootPath: string) => {
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'viewer');
+    return services.workspaceCatalogService.listGroups(rootPath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.groupsCreate, (event, rootPath: string, input) => {
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
+    return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.createGroup(rootPath, input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.groupsUpdate, (event, rootPath: string, id: number, input) => {
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
+    return runAsActor(runtimeServices, session.user.id, () =>
+      services.workspaceCatalogService.updateGroup(rootPath, id, input)
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.groupsDelete, (event, rootPath: string, id: number) => {
+    const session = assertWorkspaceAccess(runtimeServices, event, rootPath, 'editDocuments');
+    return runAsActor(runtimeServices, session.user.id, () => services.workspaceCatalogService.deleteGroup(rootPath, id));
+  });
+
   ipcMain.handle(IPC_CHANNELS.projectsList, (event, rootPath: string) => {
     assertWorkspaceAccess(runtimeServices, event, rootPath, 'viewer');
     return services.workspaceCatalogService.listProjects(rootPath);

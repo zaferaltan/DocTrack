@@ -46,6 +46,8 @@ const buildRequest = (overrides: Partial<DocumentExportRequest> = {}): DocumentE
       languageCode: 'EN',
       confidentialityClassId: null,
       confidentialityClassName: null,
+      groupId: null,
+      groupName: null,
       projectId: null,
       projectName: null,
       company: 'Acme',
@@ -63,6 +65,7 @@ const buildRequest = (overrides: Partial<DocumentExportRequest> = {}): DocumentE
   filters: {
     search: 'Operating',
     status: 'All',
+    group: 'All groups',
     project: 'All projects'
   },
   ...overrides

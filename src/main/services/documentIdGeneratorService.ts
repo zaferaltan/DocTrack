@@ -10,6 +10,7 @@ interface DocumentIdGenerationContext {
   languageCode?: string | null;
   company?: string | null;
   department?: string | null;
+  groupName?: string | null;
   projectName?: string | null;
 }
 
@@ -67,6 +68,7 @@ export class DocumentIdGeneratorService {
       languageCode: 'EN',
       company: 'Acme Manufacturing',
       department: 'Quality Assurance',
+      groupName: 'QMS Rollout',
       projectName: 'QMS Rollout'
     });
   }
@@ -178,6 +180,9 @@ export class DocumentIdGeneratorService {
         return this.normalizeSegment(context.company ?? '', 'NA');
       case 'department':
         return this.normalizeSegment(context.department ?? '', 'NA');
+      case 'group':
+      case 'groupname':
+        return this.normalizeSegment(context.groupName ?? '', 'NA');
       case 'project':
       case 'projectname':
         return this.normalizeSegment(context.projectName ?? '', 'NA');

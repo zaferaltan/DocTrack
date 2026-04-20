@@ -29,6 +29,18 @@ const DEFAULT_STATE: AppCatalogState = {
   personalSavedViewsByWorkspace: {}
 };
 
+const migrateLegacyDocumentTableVisibleColumns = (
+  value: unknown
+): ApplicationSettings['documentTableVisibleColumns'] => {
+  if (!Array.isArray(value)) {
+    return normalizeDocumentTableVisibleColumns(value);
+  }
+
+  return normalizeDocumentTableVisibleColumns(
+    value.flatMap((item) => (item === 'project' ? ['group', 'project'] : [item]))
+  );
+};
+
 export class AppCatalogService {
   constructor(private readonly filePath: string) {}
 
@@ -171,7 +183,9 @@ export class AppCatalogService {
 
       return {
         recentWorkspaces,
-        applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value),
+        applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value, {
+          migrateLegacyDocumentColumns: true
+        }),
         personalSavedViewsByWorkspace: this.normalizePersonalSavedViewsByWorkspace(
           value.personalSavedViewsByWorkspace
         )
@@ -183,7 +197,8 @@ export class AppCatalogService {
 
   private normalizeApplicationSettings(
     settings?: Partial<ApplicationSettings>,
-    legacyValue?: Partial<AppCatalogState> & { themeMode?: unknown }
+    legacyValue?: Partial<AppCatalogState> & { themeMode?: unknown },
+    options: { migrateLegacyDocumentColumns?: boolean } = {}
   ): ApplicationSettings {
     const nextSettings = settings ?? {};
     const legacyThemeMode = legacyValue?.themeMode;
@@ -201,9 +216,11 @@ export class AppCatalogService {
           ? nextSettings.launchBehavior
           : DEFAULT_APPLICATION_SETTINGS.launchBehavior,
       defaultWorkspaceView:
-        typeof nextSettings.defaultWorkspaceView === 'string' &&
-        isWorkspaceView(nextSettings.defaultWorkspaceView)
-          ? nextSettings.defaultWorkspaceView
+        (nextSettings.defaultWorkspaceView as string | undefined) === 'projects'
+          ? 'groups'
+          : typeof nextSettings.defaultWorkspaceView === 'string' &&
+              isWorkspaceView(nextSettings.defaultWorkspaceView)
+            ? nextSettings.defaultWorkspaceView
           : DEFAULT_APPLICATION_SETTINGS.defaultWorkspaceView,
       documentDetailViewMode:
         typeof nextSettings.documentDetailViewMode === 'string' &&
@@ -231,9 +248,9 @@ export class AppCatalogService {
         isWorkspaceTabDensity(nextSettings.workspaceTabDensity)
           ? nextSettings.workspaceTabDensity
           : DEFAULT_APPLICATION_SETTINGS.workspaceTabDensity,
-      documentTableVisibleColumns: normalizeDocumentTableVisibleColumns(
-        nextSettings.documentTableVisibleColumns
-      ),
+      documentTableVisibleColumns: options.migrateLegacyDocumentColumns
+        ? migrateLegacyDocumentTableVisibleColumns(nextSettings.documentTableVisibleColumns)
+        : normalizeDocumentTableVisibleColumns(nextSettings.documentTableVisibleColumns),
       keyboardShortcuts: normalizeKeyboardShortcuts(nextSettings.keyboardShortcuts),
       defaultIncludeExampleData:
         typeof nextSettings.defaultIncludeExampleData === 'boolean'
@@ -275,9 +292,57 @@ export class AppCatalogService {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([rootPath]) => typeof rootPath === 'string' && rootPath.trim().length > 0)
-        .map(([rootPath, savedViews]) => [rootPath, normalizeSavedViews(savedViews, 'personal')])
+        .map(([rootPath, savedViews]) => [
+          rootPath,
+          normalizeSavedViews(this.migrateLegacyPersonalSavedViews(savedViews), 'personal')
+        ])
         .filter(([, savedViews]) => savedViews.length > 0)
     );
+  }
+
+  private migrateLegacyPersonalSavedViews(value: unknown): unknown {
+    if (!Array.isArray(value)) {
+      return value;
+    }
+
+    return value.map((item) => {
+      if (!item || typeof item !== 'object') {
+        return item;
+      }
+
+      const candidate = item as {
+        query?: {
+          groupFilter?: unknown;
+          projectFilter?: unknown;
+          rules?: Array<{ field?: unknown }>;
+        };
+      };
+
+      if (!candidate.query || typeof candidate.query !== 'object' || candidate.query.groupFilter !== undefined) {
+        return item;
+      }
+
+      const rules = Array.isArray(candidate.query.rules)
+        ? candidate.query.rules.map((rule) =>
+            rule && typeof rule === 'object' && rule.field === 'project'
+              ? { ...rule, field: 'group' }
+              : rule
+          )
+        : candidate.query.rules;
+
+      return {
+        ...item,
+        query: {
+          ...candidate.query,
+          groupFilter:
+            typeof candidate.query.projectFilter === 'string'
+              ? candidate.query.projectFilter
+              : 'All',
+          projectFilter: 'All',
+          rules
+        }
+      };
+    });
   }
 
   private writeState(state: AppCatalogState): void {

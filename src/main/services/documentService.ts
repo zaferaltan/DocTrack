@@ -81,6 +81,8 @@ interface DocumentListRow {
   LanguageCode: string | null;
   ConfidentialityClassId: number | null;
   ConfidentialityClassName: string | null;
+  GroupId: number | null;
+  GroupName: string | null;
   ProjectId: number | null;
   ProjectName: string | null;
   Company: string;
@@ -110,6 +112,8 @@ interface DocumentRow {
   LanguageCode: string | null;
   ConfidentialityClassId: number | null;
   ConfidentialityClassName: string | null;
+  GroupId: number | null;
+  GroupName: string | null;
   ProjectId: number | null;
   ProjectName: string | null;
   Company: string;
@@ -218,6 +222,8 @@ export class DocumentService {
             l.Code AS LanguageCode,
             d.ConfidentialityClassId,
             cc.Name AS ConfidentialityClassName,
+            d.GroupId,
+            g.Name AS GroupName,
             d.ProjectId,
             p.Name AS ProjectName,
             d.Company,
@@ -239,6 +245,7 @@ export class DocumentService {
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
           LEFT JOIN Languages l ON l.Id = d.LanguageId
           LEFT JOIN ConfidentialityClasses cc ON cc.Id = d.ConfidentialityClassId
+          LEFT JOIN Groups g ON g.Id = d.GroupId
           LEFT JOIN Projects p ON p.Id = d.ProjectId
           ${latestVersionJoin}
           ORDER BY d.ModifiedDate DESC, DisplayDocumentID ASC
@@ -294,6 +301,8 @@ export class DocumentService {
         languageCode: row.LanguageCode,
         confidentialityClassId: row.ConfidentialityClassId,
         confidentialityClassName: row.ConfidentialityClassName,
+        groupId: row.GroupId,
+        groupName: row.GroupName,
         projectId: row.ProjectId,
         projectName: row.ProjectName,
         company: row.Company,
@@ -364,6 +373,12 @@ export class DocumentService {
           input.confidentialityClassId,
           'The selected confidentiality class could not be found.'
         );
+        const groupId = this.normalizeOptionalReference(
+          context.db,
+          'Groups',
+          input.groupId,
+          'The selected group could not be found.'
+        );
         const projectId = this.normalizeOptionalReference(
           context.db,
           'Projects',
@@ -371,6 +386,7 @@ export class DocumentService {
           'The selected project could not be found.'
         );
         const languageCode = this.getLookupValue(context.db, 'Languages', 'Code', languageId);
+        const groupName = this.getLookupValue(context.db, 'Groups', 'Name', groupId);
         const projectName = this.getLookupValue(context.db, 'Projects', 'Name', projectId);
         const company = (input.company ?? context.settings.defaultCompany).trim();
         const department = (input.department ?? context.settings.defaultDepartment).trim();
@@ -385,6 +401,7 @@ export class DocumentService {
           languageCode,
           company,
           department,
+          groupName,
           projectName
         });
         const documentFolderPath = this.fileStorageService.getDocumentFolderRelativePath(
@@ -412,11 +429,12 @@ export class DocumentService {
                 StartDate,
                 LanguageId,
                 ConfidentialityClassId,
+                GroupId,
                 ProjectId,
                 Company,
                 Department,
                 RevisionIntervalMonths
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
@@ -432,6 +450,7 @@ export class DocumentService {
             startDate,
             languageId,
             confidentialityClassId,
+            groupId,
             projectId,
             company,
             department,
@@ -1497,6 +1516,12 @@ export class DocumentService {
         input.confidentialityClassId,
         'The selected confidentiality class could not be found.'
       );
+      const groupId = this.normalizeOptionalReference(
+        context.db,
+        'Groups',
+        input.groupId,
+        'The selected group could not be found.'
+      );
       const projectId = this.normalizeOptionalReference(
         context.db,
         'Projects',
@@ -1521,6 +1546,7 @@ export class DocumentService {
                 StartDate = ?,
                 LanguageId = ?,
                 ConfidentialityClassId = ?,
+                GroupId = ?,
                 ProjectId = ?,
                 Company = ?,
                 Department = ?,
@@ -1537,6 +1563,7 @@ export class DocumentService {
             startDate,
             languageId,
             confidentialityClassId,
+            groupId,
             projectId,
             company,
             department,
@@ -2088,6 +2115,8 @@ export class DocumentService {
       languageCode: document.LanguageCode,
       confidentialityClassId: document.ConfidentialityClassId,
       confidentialityClassName: document.ConfidentialityClassName,
+      groupId: document.GroupId,
+      groupName: document.GroupName,
       projectId: document.ProjectId,
       projectName: document.ProjectName,
       company: document.Company,
@@ -2180,6 +2209,8 @@ export class DocumentService {
             l.Code AS LanguageCode,
             d.ConfidentialityClassId,
             cc.Name AS ConfidentialityClassName,
+            d.GroupId,
+            g.Name AS GroupName,
             d.ProjectId,
             p.Name AS ProjectName,
             d.Company,
@@ -2190,6 +2221,7 @@ export class DocumentService {
           INNER JOIN DocumentTypes dt ON dt.Id = d.DocumentTypeId
           LEFT JOIN Languages l ON l.Id = d.LanguageId
           LEFT JOIN ConfidentialityClasses cc ON cc.Id = d.ConfidentialityClassId
+          LEFT JOIN Groups g ON g.Id = d.GroupId
           LEFT JOIN Projects p ON p.Id = d.ProjectId
           WHERE d.Id = @documentRecordId
         `
@@ -2714,7 +2746,7 @@ export class DocumentService {
 
   private normalizeOptionalReference(
     db: Database.Database,
-    tableName: 'Languages' | 'ConfidentialityClasses' | 'Projects',
+    tableName: 'Languages' | 'ConfidentialityClasses' | 'Groups' | 'Projects',
     value: number | null | undefined,
     errorMessage: string
   ): number | null {
@@ -2739,7 +2771,7 @@ export class DocumentService {
 
   private getLookupValue(
     db: Database.Database,
-    tableName: 'Languages' | 'Projects',
+    tableName: 'Languages' | 'Groups' | 'Projects',
     columnName: 'Code' | 'Name',
     id: number | null
   ): string | null {

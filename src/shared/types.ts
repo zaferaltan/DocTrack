@@ -143,6 +143,11 @@ export interface DocumentType {
   numberPrefix: string;
 }
 
+export interface Group {
+  id: number;
+  name: string;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -196,6 +201,8 @@ export interface DocumentListItem {
   languageCode: string | null;
   confidentialityClassId: number | null;
   confidentialityClassName: string | null;
+  groupId: number | null;
+  groupName: string | null;
   projectId: number | null;
   projectName: string | null;
   company: string;
@@ -228,6 +235,7 @@ export interface DashboardInsight {
   count: number;
   tone: 'default' | 'success' | 'warning' | 'danger';
   status?: DocumentStatus | 'Not started';
+  groupId?: number | null;
   projectId?: number | null;
   healthFlag?: DocumentHealthFlag;
 }
@@ -240,6 +248,12 @@ export interface WorkspaceDashboardSummary {
     id: string;
     label: string;
     count: number;
+  }>;
+  countsByGroup: Array<{
+    id: string;
+    label: string;
+    count: number;
+    groupId: number | null;
   }>;
   countsByProject: Array<{
     id: string;
@@ -258,6 +272,7 @@ export const DOCUMENT_EXPORT_GROUPINGS = [
   'none',
   'documentType',
   'status',
+  'group',
   'project',
   'language',
   'confidentialityClass',
@@ -279,6 +294,7 @@ export interface DocumentExportColumn {
 export interface DocumentExportFilterSummary {
   search: string;
   status: string;
+  group: string;
   project: string;
 }
 
@@ -434,6 +450,8 @@ export interface DocumentDetail {
   languageCode: string | null;
   confidentialityClassId: number | null;
   confidentialityClassName: string | null;
+  groupId: number | null;
+  groupName: string | null;
   projectId: number | null;
   projectName: string | null;
   company: string;
@@ -453,6 +471,7 @@ export interface CreateDocumentInput {
   startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
+  groupId?: number | null;
   projectId?: number | null;
   company?: string;
   department?: string;
@@ -481,6 +500,7 @@ export interface UpdateDocumentInput {
   startDate?: string | null;
   languageId?: number | null;
   confidentialityClassId?: number | null;
+  groupId?: number | null;
   projectId?: number | null;
   company?: string;
   department?: string;
@@ -512,6 +532,10 @@ export interface UpdateLatestVersionInput {
 export interface DocumentTypeInput {
   name: string;
   numberPrefix: string;
+}
+
+export interface GroupInput {
+  name: string;
 }
 
 export interface ProjectInput {
@@ -569,6 +593,7 @@ export interface WorkspaceSummary {
   dashboard: WorkspaceDashboardSummary;
   dashboardLayout: DashboardLayout;
   documentTypes: DocumentType[];
+  groups: Group[];
   projects: Project[];
   templates: TemplateSummary[];
   confidentialityClasses: ConfidentialityClass[];
@@ -720,6 +745,7 @@ export interface RestoreBackupDiffSection {
     | 'workspaceSettings'
     | 'users'
     | 'documentTypes'
+    | 'groups'
     | 'projects'
     | 'confidentialityClasses'
     | 'languages'

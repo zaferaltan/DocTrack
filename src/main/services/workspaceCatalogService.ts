@@ -2,6 +2,8 @@ import type { WorkspaceManager } from '@main/database/workspaceManager';
 import type {
   ConfidentialityClass,
   ConfidentialityClassInput,
+  Group,
+  GroupInput,
   Project,
   ProjectInput,
   WorkspaceLanguage,
@@ -13,6 +15,63 @@ const normalizeCode = (value: string): string => value.trim().toUpperCase();
 
 export class WorkspaceCatalogService {
   constructor(private readonly workspaceManager: WorkspaceManager) {}
+
+  listGroups(rootPath: string): Group[] {
+    const context = this.workspaceManager.getContext(rootPath);
+    const rows = context.db
+      .prepare('SELECT Id, Name FROM Groups ORDER BY Name COLLATE NOCASE ASC')
+      .all() as Array<{ Id: number; Name: string }>;
+
+    return rows.map((row) => ({
+      id: row.Id,
+      name: row.Name
+    }));
+  }
+
+  createGroup(rootPath: string, input: GroupInput): Group {
+    const context = this.workspaceManager.getContext(rootPath);
+    const name = normalizeName(input.name);
+    if (!name) {
+      throw new Error('Group name is required.');
+    }
+
+    const result = context.db.prepare('INSERT INTO Groups (Name) VALUES (?)').run(name);
+    return {
+      id: Number(result.lastInsertRowid),
+      name
+    };
+  }
+
+  updateGroup(rootPath: string, id: number, input: GroupInput): Group {
+    const context = this.workspaceManager.getContext(rootPath);
+    const name = normalizeName(input.name);
+    if (!name) {
+      throw new Error('Group name is required.');
+    }
+
+    const result = context.db.prepare('UPDATE Groups SET Name = ? WHERE Id = ?').run(name, id);
+    if (result.changes === 0) {
+      throw new Error('Group could not be found.');
+    }
+
+    return { id, name };
+  }
+
+  deleteGroup(rootPath: string, id: number): void {
+    const context = this.workspaceManager.getContext(rootPath);
+    const documentsUsingGroup = context.db
+      .prepare('SELECT COUNT(*) AS total FROM Documents WHERE GroupId = @id')
+      .get({ id }) as { total: number } | undefined;
+
+    if ((documentsUsingGroup?.total ?? 0) > 0) {
+      throw new Error('This group is already used by documents and cannot be deleted.');
+    }
+
+    const result = context.db.prepare('DELETE FROM Groups WHERE Id = ?').run(id);
+    if (result.changes === 0) {
+      throw new Error('Group could not be found.');
+    }
+  }
 
   listProjects(rootPath: string): Project[] {
     const context = this.workspaceManager.getContext(rootPath);

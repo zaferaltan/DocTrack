@@ -27,6 +27,8 @@ import type {
   DocumentVersionFile,
   DocumentType,
   DocumentTypeInput,
+  Group,
+  GroupInput,
   OpenWorkspaceResult,
   Project,
   PromoteSavedViewToSharedInput,
@@ -134,6 +136,10 @@ export const IPC_CHANNELS = {
   documentTypesCreate: 'documentTypes:create',
   documentTypesUpdate: 'documentTypes:update',
   documentTypesDelete: 'documentTypes:delete',
+  groupsList: 'groups:list',
+  groupsCreate: 'groups:create',
+  groupsUpdate: 'groups:update',
+  groupsDelete: 'groups:delete',
   projectsList: 'projects:list',
   projectsCreate: 'projects:create',
   projectsUpdate: 'projects:update',
@@ -314,6 +320,12 @@ export interface DocTrackApi {
     list: (rootPath: string) => Promise<DocumentType[]>;
     create: (rootPath: string, input: DocumentTypeInput) => Promise<DocumentType>;
     update: (rootPath: string, id: number, input: DocumentTypeInput) => Promise<DocumentType>;
+    delete: (rootPath: string, id: number) => Promise<void>;
+  };
+  groups: {
+    list: (rootPath: string) => Promise<Group[]>;
+    create: (rootPath: string, input: GroupInput) => Promise<Group>;
+    update: (rootPath: string, id: number, input: GroupInput) => Promise<Group>;
     delete: (rootPath: string, id: number) => Promise<void>;
   };
   projects: {

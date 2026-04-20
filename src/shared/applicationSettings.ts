@@ -20,7 +20,7 @@ export const WORKSPACE_VIEWS = [
   "dashboard",
   "documents",
   "documentTypes",
-  "projects",
+  "groups",
   "templates",
   "classifications",
   "languages",
@@ -44,7 +44,7 @@ export const DEFAULT_DOCUMENT_TABLE_VISIBLE_COLUMNS: DocumentTableColumn[] = [
   "documentType",
   "version",
   "status",
-  "project",
+  "group",
 ];
 
 export type ThemeMode = (typeof THEME_MODES)[number];
@@ -176,9 +176,9 @@ export const WORKSPACE_VIEW_OPTIONS: Array<{
     description: "Open workspaces on the document types view by default.",
   },
   {
-    value: "projects",
-    label: "Projects",
-    description: "Open workspaces on the projects view by default.",
+    value: "groups",
+    label: "Groups",
+    description: "Open workspaces on the groups view by default.",
   },
   {
     value: "templates",
