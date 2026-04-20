@@ -544,7 +544,23 @@ const flushPromises = async () => {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
+    if (vi.isFakeTimers()) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    await Promise.resolve();
+    await Promise.resolve();
   });
+};
+
+const mountedAppCleanups = new Set<() => Promise<void>>();
+
+const cleanupMountedApps = async () => {
+  const cleanups = [...mountedAppCleanups];
+  mountedAppCleanups.clear();
+
+  for (const cleanup of cleanups) {
+    await cleanup();
+  }
 };
 
 const renderApp = async () => {
@@ -557,12 +573,21 @@ const renderApp = async () => {
   });
   await flushPromises();
 
+  const cleanup = async () => {
+    await act(async () => {
+      root.unmount();
+    });
+    if (container.isConnected) {
+      container.remove();
+    }
+  };
+
+  mountedAppCleanups.add(cleanup);
+
   return {
     unmount: async () => {
-      await act(async () => {
-        root.unmount();
-      });
-      container.remove();
+      mountedAppCleanups.delete(cleanup);
+      await cleanup();
     }
   };
 };
@@ -739,9 +764,10 @@ const waitForAnimationFrame = async () => {
 };
 
 describe('App', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // @ts-expect-error React act environment flag for tests.
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    await cleanupMountedApps();
     document.body.innerHTML = '';
     document.documentElement.className = '';
     resetStore();
@@ -760,9 +786,10 @@ describe('App', () => {
     window.confirm = vi.fn(() => true);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    await cleanupMountedApps();
     document.body.innerHTML = '';
     document.documentElement.className = '';
     resetStore();
