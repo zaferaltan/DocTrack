@@ -38,6 +38,7 @@ const defaultDashboard = {
     { id: 'draft', label: 'Draft', count: 1, tone: 'warning' as const, status: 'Draft' as const }
   ],
   countsByType: [{ id: 'Procedure', label: 'Procedure', count: 1 }],
+  countsByGroup: [{ id: 'no-group', label: 'No group', count: 1, groupId: null }],
   countsByProject: [{ id: 'no-project', label: 'No project', count: 1, projectId: null }],
   healthInsights: [],
   recentActivity: []
@@ -106,6 +107,8 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         languageCode: 'EN',
         confidentialityClassId: null,
         confidentialityClassName: null,
+        groupId: null,
+        groupName: null,
         projectId: null,
         projectName: null,
         company: 'Acme',
@@ -134,6 +137,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         numberPrefix: '02'
       }
     ],
+    groups: [],
     projects: [],
     templates: [],
     confidentialityClasses: [],
@@ -216,6 +220,8 @@ const buildDocumentDetail = (overrides: Partial<DocumentDetail> = {}): DocumentD
   languageCode: 'EN',
   confidentialityClassId: null,
   confidentialityClassName: null,
+  groupId: null,
+  groupName: null,
   projectId: null,
   projectName: null,
   company: 'Acme',
@@ -471,6 +477,12 @@ const buildDocTrackMock = (
     },
     documentTypes: {
       list: vi.fn().mockResolvedValue(workspaceResult.summary.documentTypes),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined)
+    },
+    groups: {
+      list: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined)
@@ -1943,6 +1955,8 @@ describe('App', () => {
       languageCode: 'EN',
       confidentialityClassId: null,
       confidentialityClassName: null,
+      groupId: null,
+      groupName: null,
       projectId: null,
       projectName: null,
       company: 'Acme',
@@ -2030,6 +2044,8 @@ describe('App', () => {
       languageCode: 'EN',
       confidentialityClassId: null,
       confidentialityClassName: null,
+      groupId: null,
+      groupName: null,
       projectId: null,
       projectName: null,
       company: 'Acme',
@@ -2121,6 +2137,8 @@ describe('App', () => {
       languageCode: 'EN',
       confidentialityClassId: null,
       confidentialityClassName: null,
+      groupId: null,
+      groupName: null,
       projectId: null,
       projectName: null,
       company: 'Acme',
@@ -2178,6 +2196,7 @@ describe('App', () => {
         query: {
           search: 'Operating',
           statusFilter: 'Draft',
+          groupFilter: 'All',
           projectFilter: 'All',
           healthFilter: 'All',
           rules: [

@@ -5,6 +5,7 @@ export const SAVED_VIEW_SCOPES = ['personal', 'shared'] as const;
 export const SAVED_VIEW_RULE_FIELDS = [
   'documentType',
   'status',
+  'group',
   'project',
   'language',
   'confidentialityClass',
@@ -39,6 +40,7 @@ export const DASHBOARD_WIDGET_TYPES = [
   'statusSummary',
   'healthInsights',
   'typeGrouping',
+  'groupGrouping',
   'projectGrouping',
   'recentActivity',
   'savedView'
@@ -77,6 +79,7 @@ export interface SavedViewRule {
 export interface SavedViewQuery {
   search: string;
   statusFilter: SavedViewStatusFilter;
+  groupFilter: string;
   projectFilter: string;
   healthFilter: SavedViewHealthFilter;
   rules: SavedViewRule[];
@@ -90,6 +93,7 @@ export interface SavedViewPresentation {
 export interface DocumentViewState {
   search: string;
   statusFilter: SavedViewStatusFilter;
+  groupFilter: string;
   projectFilter: string;
   healthFilter: SavedViewHealthFilter;
   rules: SavedViewRule[];
@@ -138,6 +142,8 @@ export interface SavedViewDocumentCandidate {
   author: string;
   languageCode: string | null;
   confidentialityClassName: string | null;
+  groupId: number | null;
+  groupName: string | null;
   projectId: number | null;
   projectName: string | null;
   company: string;
@@ -156,6 +162,7 @@ export interface SavedViewStatusNameRemap {
 const DEFAULT_SAVED_VIEW_QUERY: SavedViewQuery = {
   search: '',
   statusFilter: 'All',
+  groupFilter: 'All',
   projectFilter: 'All',
   healthFilter: 'All',
   rules: []
@@ -169,6 +176,7 @@ export const DEFAULT_SAVED_VIEW_PRESENTATION: SavedViewPresentation = {
 export const DEFAULT_DOCUMENT_VIEW_STATE: DocumentViewState = {
   search: '',
   statusFilter: 'All',
+  groupFilter: 'All',
   projectFilter: 'All',
   healthFilter: 'All',
   rules: [],
@@ -222,9 +230,9 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
       savedViewId: null
     },
     {
-      id: 'project-grouping',
-      type: 'projectGrouping',
-      title: 'Projects',
+      id: 'group-grouping',
+      type: 'groupGrouping',
+      title: 'Groups',
       x: 8,
       y: 3,
       w: 4,
@@ -264,6 +272,10 @@ export const normalizeSavedViewQuery = (value: unknown): SavedViewQuery => {
   return {
     search: typeof candidate.search === 'string' ? candidate.search : DEFAULT_SAVED_VIEW_QUERY.search,
     statusFilter: normalizeSavedViewStatusFilter(candidate.statusFilter),
+    groupFilter:
+      typeof candidate.groupFilter === 'string'
+        ? candidate.groupFilter
+        : DEFAULT_SAVED_VIEW_QUERY.groupFilter,
     projectFilter:
       typeof candidate.projectFilter === 'string'
         ? candidate.projectFilter
@@ -296,6 +308,10 @@ export const normalizeDocumentViewState = (value: unknown): DocumentViewState =>
     search:
       typeof candidate.search === 'string' ? candidate.search : DEFAULT_DOCUMENT_VIEW_STATE.search,
     statusFilter: normalizeSavedViewStatusFilter(candidate.statusFilter),
+    groupFilter:
+      typeof candidate.groupFilter === 'string'
+        ? candidate.groupFilter
+        : DEFAULT_DOCUMENT_VIEW_STATE.groupFilter,
     projectFilter:
       typeof candidate.projectFilter === 'string'
         ? candidate.projectFilter
@@ -403,6 +419,8 @@ export const getDashboardWidgetTypeLabel = (type: DashboardWidgetType): string =
       return 'Document Health';
     case 'typeGrouping':
       return 'Document Types';
+    case 'groupGrouping':
+      return 'Groups';
     case 'projectGrouping':
       return 'Projects';
     case 'recentActivity':
@@ -465,6 +483,7 @@ export const buildDocumentViewStateFromSavedView = (
 ): DocumentViewState => ({
   search: savedView.query.search,
   statusFilter: savedView.query.statusFilter,
+  groupFilter: savedView.query.groupFilter,
   projectFilter: savedView.query.projectFilter,
   healthFilter: savedView.query.healthFilter,
   rules: savedView.query.rules,
@@ -639,6 +658,7 @@ const matchesSavedViewSearch = (
     document.status ?? '',
     document.languageCode ?? '',
     document.confidentialityClassName ?? '',
+    document.groupName ?? '',
     document.projectName ?? '',
     document.company,
     document.department,
@@ -663,12 +683,14 @@ const matchesQuickFilters = (
       : query.statusFilter === 'Not started'
         ? document.status === null
         : document.status === query.statusFilter;
+  const matchesGroup =
+    query.groupFilter === 'All' || String(document.groupId ?? '') === query.groupFilter;
   const matchesProject =
     query.projectFilter === 'All' || String(document.projectId ?? '') === query.projectFilter;
   const matchesHealth =
     query.healthFilter === 'All' || document.healthFlags.includes(query.healthFilter);
 
-  return matchesStatus && matchesProject && matchesHealth;
+  return matchesStatus && matchesGroup && matchesProject && matchesHealth;
 };
 
 const matchesSavedViewRule = (
@@ -745,6 +767,8 @@ const getRuleFieldValue = (
       return document.typeName;
     case 'status':
       return document.status ?? 'Not started';
+    case 'group':
+      return document.groupName ?? (document.groupId === null ? 'No group' : null);
     case 'project':
       return document.projectName ?? (document.projectId === null ? 'No project' : null);
     case 'language':
@@ -812,6 +836,7 @@ const isDocumentTableColumn = (value: string): value is DocumentTableColumn =>
     'author',
     'language',
     'confidentialityClass',
+    'group',
     'project',
     'company',
     'department',
@@ -846,6 +871,8 @@ const getDocumentSortValue = (
       return document.languageCode ?? '';
     case 'confidentialityClass':
       return document.confidentialityClassName ?? '';
+    case 'group':
+      return document.groupName ?? '';
     case 'project':
       return document.projectName ?? '';
     case 'company':

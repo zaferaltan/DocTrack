@@ -34,6 +34,7 @@ const defaultDashboard = {
   totalDocuments: 0,
   countsByStatus: [],
   countsByType: [],
+  countsByGroup: [],
   countsByProject: [],
   healthInsights: [],
   recentActivity: []
@@ -91,6 +92,7 @@ const openWorkspaceResult: OpenWorkspaceResult = {
         numberPrefix: '02'
       }
     ],
+    groups: [],
     projects: [],
     templates: [],
     confidentialityClasses: [],
@@ -182,6 +184,12 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       promoteToShared: vi.fn()
     },
     documentTypes: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn()
+    },
+    groups: {
       list: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -343,6 +351,7 @@ describe('useAppStore', () => {
       query: {
         search: '',
         statusFilter: 'Released',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: [
@@ -376,6 +385,7 @@ describe('useAppStore', () => {
     expect(store.getState().openWorkspaces[workspaceInfo.rootPath]?.documentViewState).toEqual({
       search: '',
       statusFilter: 'Released',
+      groupFilter: 'All',
       projectFilter: 'All',
       healthFilter: 'All',
       rules: [

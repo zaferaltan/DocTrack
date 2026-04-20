@@ -93,6 +93,7 @@ interface AppStoreState {
     rootPath: string,
     input: {
       status?: SavedView['query']['statusFilter'];
+      groupFilter?: string;
       projectFilter?: string;
       healthFlag?: SavedViewHealthFlagValue;
     }
@@ -113,12 +114,14 @@ const EMPTY_WORKSPACE_SUMMARY: Omit<WorkspaceSummary, 'workspace'> = {
     totalDocuments: 0,
     countsByStatus: [],
     countsByType: [],
+    countsByGroup: [],
     countsByProject: [],
     healthInsights: [],
     recentActivity: []
   },
   dashboardLayout: { widgets: [] },
   documentTypes: [],
+  groups: [],
   projects: [],
   templates: [],
   confidentialityClasses: [],
@@ -496,6 +499,7 @@ export const createAppStore = () =>
               documentViewState: {
                 ...DEFAULT_DOCUMENT_VIEW_STATE,
                 statusFilter: input.status ?? 'All',
+                groupFilter: input.groupFilter ?? 'All',
                 projectFilter: input.projectFilter ?? 'All',
                 healthFilter: input.healthFlag ?? 'All'
               }

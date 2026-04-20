@@ -12,6 +12,7 @@ import activityLogSettingsMigration from '../../../migrations/010_activity_log_s
 import alphaVersionSchemeMigration from '../../../migrations/011_alpha_version_scheme.sql?raw';
 import savedViewsAndDashboardMigration from '../../../migrations/012_saved_views_and_dashboard.sql?raw';
 import workspaceLifecycleMigration from '../../../migrations/013_workspace_lifecycle.sql?raw';
+import groupsAndProjectsSplitMigration from '../../../migrations/018_groups_and_projects_split.sql?raw';
 import { nowIso } from '@main/utils/date';
 import { DEFAULT_WORKSPACE_ROLE_DEFINITIONS } from '@shared/workspaceRoles';
 
@@ -410,6 +411,10 @@ const MIGRATIONS: readonly Migration[] = [
   {
     id: '017_workspace_roles',
     run: migrateWorkspaceRoles
+  },
+  {
+    id: '018_groups_and_projects_split',
+    sql: groupsAndProjectsSplitMigration
   }
 ] as const;
 

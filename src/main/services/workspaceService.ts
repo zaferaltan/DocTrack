@@ -197,6 +197,7 @@ export class WorkspaceService {
         dashboard: this.buildDashboardSummary(context, documents),
         dashboardLayout: this.savedViewService.getDashboardLayout(rootPath),
         documentTypes: this.mapTypeRows(typeRows),
+        groups: this.workspaceCatalogService.listGroups(rootPath),
         projects: this.workspaceCatalogService.listProjects(rootPath),
         templates: this.templateService.list(rootPath),
         confidentialityClasses: this.workspaceCatalogService.listConfidentialityClasses(rootPath),
@@ -898,6 +899,20 @@ export class WorkspaceService {
       }))
       .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 
+    const countsByGroup = [...documents.reduce((accumulator, document) => {
+      const key = String(document.groupId ?? '');
+      const item = accumulator.get(key) ?? {
+        id: key || 'no-group',
+        label: document.groupName ?? 'No group',
+        count: 0,
+        groupId: document.groupId ?? null
+      };
+      item.count += 1;
+      accumulator.set(key, item);
+      return accumulator;
+    }, new Map<string, { id: string; label: string; count: number; groupId: number | null }>()).values()]
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+
     const countsByProject = [...documents.reduce((accumulator, document) => {
       const key = String(document.projectId ?? '');
       const item = accumulator.get(key) ?? {
@@ -943,6 +958,7 @@ export class WorkspaceService {
         };
       }),
       countsByType,
+      countsByGroup,
       countsByProject,
       healthInsights,
       recentActivity: context.settings.activityLogEnabled

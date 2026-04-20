@@ -562,6 +562,7 @@ describe('workspace integration', () => {
       query: {
         search: '',
         statusFilter: 'Released',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: [
@@ -629,6 +630,7 @@ describe('workspace integration', () => {
       query: {
         search: '',
         statusFilter: 'Released',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: []
@@ -642,6 +644,7 @@ describe('workspace integration', () => {
       query: {
         search: '',
         statusFilter: 'Archived',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: []
@@ -700,6 +703,7 @@ describe('workspace integration', () => {
       query: {
         search: '',
         statusFilter: 'Archived',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: []
@@ -741,6 +745,7 @@ describe('workspace integration', () => {
       query: {
         search: '',
         statusFilter: 'Draft',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: [

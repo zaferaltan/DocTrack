@@ -289,6 +289,7 @@ export class WorkspaceBackupService {
           this.listDocumentTypes(context.db),
           this.listDocumentTypes(backupDb)
         ),
+        this.buildEntitySection('groups', 'Groups', this.listGroups(context.db), this.listGroups(backupDb)),
         this.buildEntitySection('projects', 'Projects', this.listProjects(context.db), this.listProjects(backupDb)),
         this.buildEntitySection(
           'confidentialityClasses',
@@ -790,6 +791,21 @@ export class WorkspaceBackupService {
     }));
   }
 
+  private listGroups(db: Database.Database): ComparableRow[] {
+    return (
+      db.prepare('SELECT Id, Name FROM Groups ORDER BY Id ASC').all() as Array<{
+        Id: number;
+        Name: string;
+      }>
+    ).map((row) => ({
+      id: `group-${row.Id}`,
+      label: row.Name,
+      fields: {
+        Name: formatFieldValue(row.Name)
+      }
+    }));
+  }
+
   private listProjects(db: Database.Database): ComparableRow[] {
     return (
       db.prepare('SELECT Id, Name FROM Projects ORDER BY Id ASC').all() as Array<{
@@ -849,6 +865,7 @@ export class WorkspaceBackupService {
             d.StartDate,
             d.LanguageId,
             d.ConfidentialityClassId,
+            d.GroupId,
             d.ProjectId,
             d.Company,
             d.Department,
@@ -868,6 +885,7 @@ export class WorkspaceBackupService {
         StartDate: string | null;
         LanguageId: number | null;
         ConfidentialityClassId: number | null;
+        GroupId: number | null;
         ProjectId: number | null;
         Company: string;
         Department: string;
@@ -887,6 +905,7 @@ export class WorkspaceBackupService {
         'Start Date': formatFieldValue(row.StartDate),
         Language: formatFieldValue(row.LanguageId),
         'Confidentiality Class': formatFieldValue(row.ConfidentialityClassId),
+        Group: formatFieldValue(row.GroupId),
         Project: formatFieldValue(row.ProjectId),
         Company: formatFieldValue(row.Company),
         Department: formatFieldValue(row.Department),

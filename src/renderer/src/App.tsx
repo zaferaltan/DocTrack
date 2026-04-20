@@ -206,6 +206,7 @@ import type {
   DocumentVersionFile,
   DocumentType,
   FilePreviewResult,
+  Group,
   IntegrityCheckResult,
   Project,
   PromoteSavedViewToSharedInput,
@@ -335,6 +336,7 @@ const DASHBOARD_RESIZE_HANDLE_CONFIGS = [
 const SAVED_VIEW_RULE_FIELD_LABELS: Record<SavedViewRuleField, string> = {
   documentType: "Document Type",
   status: "Status",
+  group: "Group",
   project: "Project",
   language: "Language",
   confidentialityClass: "Confidentiality Class",
@@ -731,6 +733,7 @@ const buildEditDocumentDialogState = (
   confidentialityClassId: documentDetail.confidentialityClassId
     ? String(documentDetail.confidentialityClassId)
     : "",
+  groupId: documentDetail.groupId ? String(documentDetail.groupId) : "",
   projectId: documentDetail.projectId ? String(documentDetail.projectId) : "",
   company: documentDetail.company,
   department: documentDetail.department,
@@ -825,6 +828,7 @@ interface DocumentDialogState {
   startDate: string;
   languageId: string;
   confidentialityClassId: string;
+  groupId: string;
   projectId: string;
   company: string;
   department: string;
@@ -884,6 +888,7 @@ interface TypeDialogState {
 
 interface ProjectDialogState {
   open: boolean;
+  entity: "group" | "project";
   id?: number;
   name: string;
   isSubmitting: boolean;
@@ -1130,6 +1135,7 @@ const defaultDocumentDialogState: DocumentDialogState = {
   startDate: "",
   languageId: "",
   confidentialityClassId: "",
+  groupId: "",
   projectId: "",
   company: "",
   department: "",
@@ -1188,6 +1194,7 @@ const defaultTypeDialogState: TypeDialogState = {
 
 const defaultProjectDialogState: ProjectDialogState = {
   open: false,
+  entity: "group",
   id: undefined,
   name: "",
   isSubmitting: false,
@@ -1414,8 +1421,10 @@ const buildDocumentIdPreview = (
     languagecode: "EN",
     company: normalizeDocumentIdPreviewSegment("Acme Manufacturing", "NA"),
     department: normalizeDocumentIdPreviewSegment("Quality Assurance", "NA"),
-    project: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
-    projectname: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
+    group: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
+    groupname: normalizeDocumentIdPreviewSegment("QMS Rollout", "NA"),
+    project: normalizeDocumentIdPreviewSegment("ERP Modernization", "NA"),
+    projectname: normalizeDocumentIdPreviewSegment("ERP Modernization", "NA"),
     title: normalizeDocumentIdPreviewSegment("Operating Procedure", "UNTITLED"),
   };
 
@@ -1447,6 +1456,7 @@ const toDocumentUpdateInput = (
     | "author"
     | "languageId"
     | "confidentialityClassId"
+    | "groupId"
     | "projectId"
     | "company"
     | "department"
@@ -1460,6 +1470,7 @@ const toDocumentUpdateInput = (
   startDate: document.startDate,
   languageId: document.languageId,
   confidentialityClassId: document.confidentialityClassId,
+  groupId: document.groupId,
   projectId: document.projectId,
   company: document.company,
   department: document.department,
@@ -1493,6 +1504,10 @@ const getDocumentExportGroupingOptions = (
     { value: "documentType", label: "Document Type" },
     { value: "status", label: "Status" },
   ];
+
+  if (availableColumns.includes("group")) {
+    options.push({ value: "group", label: "Group" });
+  }
 
   if (availableColumns.includes("project")) {
     options.push({ value: "project", label: "Project" });
@@ -2176,8 +2191,7 @@ function App() {
   const activeWorkspaceAvailableColumns =
     activeWorkspace?.settings.visibleDocumentColumns ??
     DEFAULT_WORKSPACE_SETTINGS.visibleDocumentColumns;
-  const workspaceSupportsProjects =
-    activeWorkspaceAvailableColumns.includes("project");
+  const workspaceSupportsGroups = Boolean(activeWorkspace);
   const workspaceSupportsConfidentialityClasses =
     activeWorkspaceAvailableColumns.includes("confidentialityClass");
   const workspaceSupportsLanguages =
@@ -3216,12 +3230,12 @@ function App() {
         keywords: ["documents table search"],
       },
       {
-        id: "view:projects",
-        label: "Go to Projects",
-        view: "projects",
+        id: "view:groups",
+        label: "Go to Groups",
+        view: "groups",
         icon: FolderOpen,
-        enabled: workspaceSupportsProjects,
-        keywords: ["projects"],
+        enabled: workspaceSupportsGroups,
+        keywords: ["groups"],
       },
       {
         id: "view:templates",
@@ -3336,7 +3350,7 @@ function App() {
     setWorkspaceView,
     workspaceSupportsConfidentialityClasses,
     workspaceSupportsLanguages,
-    workspaceSupportsProjects,
+    workspaceSupportsGroups,
     workspaceTabs,
   ]);
 
@@ -3782,6 +3796,9 @@ function App() {
         )
           ? parseOptionalSelectNumber(documentDialog.confidentialityClassId)
           : null,
+        groupId: availableColumns.includes("group")
+          ? parseOptionalSelectNumber(documentDialog.groupId)
+          : null,
         projectId: availableColumns.includes("project")
           ? parseOptionalSelectNumber(documentDialog.projectId)
           : null,
@@ -4119,9 +4136,11 @@ function App() {
       return;
     }
 
+    const entityLabel =
+      projectDialog.entity === "group" ? "Group" : "Project";
     const validationErrors = validateNameDialogState(
       projectDialog.name,
-      "Project name",
+      `${entityLabel} name`,
     );
     if (Object.keys(validationErrors).length > 0) {
       setProjectDialog((state) => ({
@@ -4139,7 +4158,21 @@ function App() {
         validationErrors: {},
       }));
 
-      if (projectDialog.id) {
+      if (projectDialog.entity === "group") {
+        if (projectDialog.id) {
+          await window.docTrack.groups.update(
+            activeWorkspacePath,
+            projectDialog.id,
+            {
+              name: projectDialog.name,
+            },
+          );
+        } else {
+          await window.docTrack.groups.create(activeWorkspacePath, {
+            name: projectDialog.name,
+          });
+        }
+      } else if (projectDialog.id) {
         await window.docTrack.projects.update(
           activeWorkspacePath,
           projectDialog.id,
@@ -4156,12 +4189,45 @@ function App() {
       await refreshWorkspace(activeWorkspacePath);
       setProjectDialog(defaultProjectDialogState);
     } catch (error) {
-      notifyError(error, "Unable to save project.");
+      notifyError(error, `Unable to save ${entityLabel.toLowerCase()}.`);
       setProjectDialog((state) => ({ ...state, isSubmitting: false }));
     }
   };
 
-  const handleDeleteProject = async (project: Project) => {
+  const handleDeleteGroup = async (group: Group) => {
+    if (!activeWorkspacePath) {
+      return;
+    }
+
+    const performDelete = async () => {
+      await window.docTrack.groups.delete(activeWorkspacePath, group.id);
+      await refreshWorkspace(activeWorkspacePath);
+      setNotification({
+        tone: "success",
+        message: `"${group.name}" removed from this workspace.`,
+      });
+    };
+
+    if (applicationSettings.confirmDestructiveActions) {
+      openConfirmationDialog({
+        title: "Delete Group",
+        description: `Delete "${group.name}" from this workspace. Documents already linked to it must be reassigned first.`,
+        confirmLabel: "Delete Group",
+        tone: "destructive",
+        detailLines: [],
+        onConfirm: performDelete,
+      });
+      return;
+    }
+
+    try {
+      await performDelete();
+    } catch (error) {
+      notifyError(error, "Unable to delete group.");
+    }
+  };
+
+  const handleDeleteProjectDefinition = async (project: Project) => {
     if (!activeWorkspacePath) {
       return;
     }
@@ -4532,9 +4598,9 @@ function App() {
     }
   };
 
-  const handleAssignProjectToDocument = async (
+  const handleAssignGroupToDocument = async (
     document: DocumentListItem,
-    nextProjectId: string,
+    nextGroupId: string,
   ) => {
     if (!activeWorkspacePath) {
       return;
@@ -4545,7 +4611,7 @@ function App() {
         activeWorkspacePath,
         {
           ...toDocumentUpdateInput(document),
-          projectId: parseOptionalSelectNumber(nextProjectId),
+          groupId: parseOptionalSelectNumber(nextGroupId),
         },
       );
       await refreshWorkspace(activeWorkspacePath);
@@ -4553,7 +4619,7 @@ function App() {
         setSelectedDocumentDetail(detail);
       }
     } catch (error) {
-      notifyError(error, "Unable to assign the document to a project.");
+      notifyError(error, "Unable to assign the document to a group.");
     }
   };
 
@@ -6251,8 +6317,8 @@ function App() {
     );
   } else if (
     activeWorkspace.selectedView === "documents" ||
-    (activeWorkspace.selectedView === "projects" &&
-      !workspaceSupportsProjects) ||
+    (activeWorkspace.selectedView === "groups" &&
+      !workspaceSupportsGroups) ||
     (activeWorkspace.selectedView === "classifications" &&
       !workspaceSupportsConfidentialityClasses) ||
     (activeWorkspace.selectedView === "languages" &&
@@ -6469,24 +6535,29 @@ function App() {
         onDeleteType={handleDeleteDocumentType}
       />
     );
-  } else if (activeWorkspace.selectedView === "projects") {
+  } else if (activeWorkspace.selectedView === "groups") {
     activeWorkspaceContent = (
-      <ProjectsView
+      <GroupsView
         workspace={activeWorkspace}
         onCreateProject={() =>
-          setProjectDialog({ ...defaultProjectDialogState, open: true })
+          setProjectDialog({
+            ...defaultProjectDialogState,
+            open: true,
+            entity: "group",
+          })
         }
         onEditProject={(project) =>
           setProjectDialog({
             open: true,
+            entity: "group",
             id: project.id,
             name: project.name,
             isSubmitting: false,
             validationErrors: {},
           })
         }
-        onDeleteProject={handleDeleteProject}
-        onAssignProject={handleAssignProjectToDocument}
+        onDeleteProject={handleDeleteGroup}
+        onAssignProject={handleAssignGroupToDocument}
       />
     );
   } else if (activeWorkspace.selectedView === "templates") {
@@ -6873,15 +6944,15 @@ function App() {
                 setWorkspaceView(activeWorkspacePath, "documents")
               }
             />
-            {workspaceSupportsProjects ? (
+            {workspaceSupportsGroups ? (
               <SidebarButton
                 icon={FolderOpen}
-                label="Projects"
-                active={activeWorkspace?.selectedView === "projects"}
+                label="Groups"
+                active={activeWorkspace?.selectedView === "groups"}
                 disabled={!hasActiveWorkspaceAccess}
                 onClick={() =>
                   activeWorkspacePath &&
-                  setWorkspaceView(activeWorkspacePath, "projects")
+                  setWorkspaceView(activeWorkspacePath, "groups")
                 }
               />
             ) : null}
@@ -7116,10 +7187,29 @@ function App() {
           (user) => !user.archived,
         )}
         templates={activeWorkspace?.templates ?? []}
+        groups={activeWorkspace?.groups ?? []}
         projects={activeWorkspace?.projects ?? []}
         confidentialityClasses={activeWorkspace?.confidentialityClasses ?? []}
         languages={activeWorkspace?.languages ?? []}
         availableColumns={activeWorkspaceAvailableColumns}
+        onCreateProject={() =>
+          setProjectDialog({
+            ...defaultProjectDialogState,
+            open: true,
+            entity: "project",
+          })
+        }
+        onEditProject={(project) =>
+          setProjectDialog({
+            open: true,
+            entity: "project",
+            id: project.id,
+            name: project.name,
+            isSubmitting: false,
+            validationErrors: {},
+          })
+        }
+        onDeleteProject={handleDeleteProjectDefinition}
       />
 
       <VersionDialog
@@ -8352,7 +8442,7 @@ function WelcomeView({
           <div>
             <div className="text-base font-semibold">Recent Workspaces</div>
             <div className="text-[13px] text-muted-foreground">
-              Fast re-entry into the last offline projects you touched
+              Fast re-entry into the last offline workspaces you touched
             </div>
           </div>
           <History className="h-5 w-5 text-muted-foreground" />
@@ -8414,6 +8504,7 @@ function DashboardView({
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onOpenDocuments: (drilldown: {
     status?: DocumentStatus | "Not started";
+    groupFilter?: string;
     projectFilter?: string;
     healthFlag?: DocumentHealthFlag;
   }) => void;
@@ -9139,6 +9230,28 @@ function DashboardView({
                         </div>
                       ) : null}
 
+                      {widget.type === "groupGrouping" ? (
+                        <div className="space-y-2">
+                          {workspace.dashboard.countsByGroup.map((item) => (
+                            <button
+                              key={item.id}
+                              className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left transition hover:bg-accent"
+                              onClick={() =>
+                                onOpenDocuments({
+                                  groupFilter:
+                                    item.groupId === null
+                                      ? ""
+                                      : String(item.groupId),
+                                })
+                              }
+                            >
+                              <span className="text-[13px]">{item.label}</span>
+                              <Badge variant="outline">{item.count}</Badge>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
                       {widget.type === "projectGrouping" ? (
                         <div className="space-y-2">
                           {workspace.dashboard.countsByProject.map((item) => (
@@ -9389,6 +9502,7 @@ function DashboardView({
                 <option value="statusSummary">Status Summary</option>
                 <option value="healthInsights">Document Health</option>
                 <option value="typeGrouping">Document Types</option>
+                <option value="groupGrouping">Groups</option>
                 <option value="projectGrouping">Projects</option>
                 <option value="recentActivity">Recent Activity</option>
               </Select>
@@ -9593,6 +9707,7 @@ function DocumentsView({
   );
   const [isSidebarEntered, setIsSidebarEntered] = useState(false);
   const availableColumns = workspace.settings.visibleDocumentColumns;
+  const groupFeatureEnabled = availableColumns.includes("group");
   const projectFeatureEnabled = availableColumns.includes("project");
   const deferredSearch = useDeferredValue(documentViewState.search);
   const detailViewMode = applicationSettings.documentDetailViewMode;
@@ -9732,6 +9847,7 @@ function DocumentsView({
       filterDocumentsBySavedViewQuery(workspace.documents, {
         search: deferredSearch.trim(),
         statusFilter: documentViewState.statusFilter,
+        groupFilter: groupFeatureEnabled ? documentViewState.groupFilter : "All",
         projectFilter: projectFeatureEnabled
           ? documentViewState.projectFilter
           : "All",
@@ -9741,9 +9857,11 @@ function DocumentsView({
     [
       deferredSearch,
       documentViewState.healthFilter,
+      documentViewState.groupFilter,
       documentViewState.projectFilter,
       documentViewState.rules,
       documentViewState.statusFilter,
+      groupFeatureEnabled,
       projectFeatureEnabled,
       workspace.documents,
     ],
@@ -9770,6 +9888,8 @@ function DocumentsView({
         return document.languageCode ?? "";
       case "confidentialityClass":
         return document.confidentialityClassName ?? "";
+      case "group":
+        return document.groupName ?? "";
       case "project":
         return document.projectName ?? "";
       case "company":
@@ -9883,10 +10003,26 @@ function DocumentsView({
         ),
       },
       {
+        id: "group",
+        accessorFn: (row) => row.groupName ?? "",
+        header: columnHeader("Group"),
+        cell: ({ row }) =>
+          row.original.groupName ? (
+            <span>{row.original.groupName}</span>
+          ) : (
+            <span className="text-muted-foreground">No group</span>
+          ),
+      },
+      {
         id: "project",
         accessorFn: (row) => row.projectName ?? "",
         header: columnHeader("Project"),
-        cell: ({ row }) => <span>{row.original.projectName ?? "—"}</span>,
+        cell: ({ row }) =>
+          row.original.projectName ? (
+            <span>{row.original.projectName}</span>
+          ) : (
+            <span className="text-muted-foreground">No project</span>
+          ),
       },
       {
         id: "company",
@@ -10168,6 +10304,13 @@ function DocumentsView({
       exportDialog.scope === "current-table"
         ? currentTableRows
         : wholeWorkspaceRows;
+    const selectedGroup =
+      exportDialog.scope === "current-table" && groupFeatureEnabled
+        ? (workspace.groups.find(
+            (group) => String(group.id) === documentViewState.groupFilter,
+          )?.name ??
+          (documentViewState.groupFilter === "" ? "No group" : "All groups"))
+        : "";
     const selectedProject =
       exportDialog.scope === "current-table" && projectFeatureEnabled
         ? (workspace.projects.find(
@@ -10200,11 +10343,13 @@ function DocumentsView({
             ? {
                 search: deferredSearch.trim(),
                 status: documentViewState.statusFilter,
+                group: selectedGroup,
                 project: selectedProject,
               }
             : {
                 search: "",
                 status: "All",
+                group: "",
                 project: "",
               },
       });
@@ -10218,6 +10363,7 @@ function DocumentsView({
   const currentSavedViewQuery: SavedViewQuery = {
     search: documentViewState.search,
     statusFilter: documentViewState.statusFilter,
+    groupFilter: groupFeatureEnabled ? documentViewState.groupFilter : "All",
     projectFilter: projectFeatureEnabled
       ? documentViewState.projectFilter
       : "All",
@@ -10685,7 +10831,7 @@ function DocumentsView({
                   id="doc-search"
                   data-doc-search="true"
                   className="pl-10"
-                  placeholder="ID, title, type, author, project, status, metadata..."
+                  placeholder="ID, title, type, author, group, project, status, metadata..."
                   value={documentViewState.search}
                   onChange={(event) => {
                     startTransition(() => {
@@ -10727,6 +10873,28 @@ function DocumentsView({
                 ))}
               </div>
             </div>
+
+            {groupFeatureEnabled ? (
+              <Field label="Group">
+                <Select
+                  value={documentViewState.groupFilter}
+                  onChange={(event) =>
+                    onDocumentViewStateChange((current) => ({
+                      ...current,
+                      groupFilter: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="All">All groups</option>
+                  {workspace.groups.map((group) => (
+                    <option key={group.id} value={String(group.id)}>
+                      {group.name}
+                    </option>
+                  ))}
+                  <option value="">No group</option>
+                </Select>
+              </Field>
+            ) : null}
 
             {/* Project filter */}
             {projectFeatureEnabled ? (
@@ -11730,6 +11898,20 @@ function renderSavedViewRuleValueInput({
         {workspace.statuses.map((item) => (
           <option key={item} value={item}>
             {item}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+
+  if (rule.field === "group") {
+    return (
+      <Select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choose a group</option>
+        <option value="No group">No group</option>
+        {workspace.groups.map((item) => (
+          <option key={item.id} value={item.name}>
+            {item.name}
           </option>
         ))}
       </Select>
@@ -12820,6 +13002,11 @@ function DocumentDetailSurface({
           show: availableColumns.includes("confidentialityClass"),
         },
         {
+          label: "Group",
+          value: documentDetail.groupName ?? "—",
+          show: availableColumns.includes("group"),
+        },
+        {
           label: "Project",
           value: documentDetail.projectName ?? "—",
           show: availableColumns.includes("project"),
@@ -13305,7 +13492,7 @@ function DocumentTypesView({
   );
 }
 
-function ProjectsView({
+function GroupsView({
   workspace,
   onCreateProject,
   onEditProject,
@@ -13314,8 +13501,8 @@ function ProjectsView({
 }: {
   workspace: ReturnType<typeof useAppStore.getState>["openWorkspaces"][string];
   onCreateProject: () => void;
-  onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
+  onEditProject: (project: Group) => void;
+  onDeleteProject: (project: Group) => void;
   onAssignProject: (document: DocumentListItem, nextProjectId: string) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -13325,7 +13512,7 @@ function ProjectsView({
   const [projectFilter, setProjectFilter] = useState("all");
   const deferredSearch = useDeferredValue(search);
   const totalAssignedDocuments = workspace.documents.filter(
-    (document) => document.projectId !== null,
+    (document) => document.groupId !== null,
   ).length;
   const filteredDocuments = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
@@ -13338,7 +13525,7 @@ function ProjectsView({
             document.documentId,
             document.title,
             document.typeName,
-            document.projectName ?? "",
+            document.groupName ?? "",
           ]
             .join(" ")
             .toLowerCase()
@@ -13347,12 +13534,12 @@ function ProjectsView({
           assignmentFilter === "all"
             ? true
             : assignmentFilter === "assigned"
-              ? document.projectId !== null
-              : document.projectId === null;
+              ? document.groupId !== null
+              : document.groupId === null;
         const matchesProject =
           projectFilter === "all"
             ? true
-            : String(document.projectId ?? "") === projectFilter;
+            : String(document.groupId ?? "") === projectFilter;
 
         return matchesSearch && matchesAssignment && matchesProject;
       })
@@ -13368,24 +13555,24 @@ function ProjectsView({
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
           <div>
-            <div className="text-lg font-semibold">Projects</div>
+            <div className="text-lg font-semibold">Groups</div>
             <div className="mt-1 text-[13px] text-muted-foreground">
-              Group related documents inside one workspace project.
+              Group related documents inside one workspace group.
             </div>
           </div>
           <Button onClick={onCreateProject}>
             <Plus className="h-4 w-4" />
-            Add Project
+            Add Group
           </Button>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-border bg-background px-4 py-3">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Total Projects
+              Total Groups
             </div>
             <div className="mt-2 text-2xl font-semibold">
-              {workspace.projects.length}
+              {workspace.groups.length}
             </div>
           </div>
           <div className="rounded-xl border border-border bg-background px-4 py-3">
@@ -13399,15 +13586,15 @@ function ProjectsView({
         </div>
 
         <div className="mt-4 max-h-[640px] space-y-2.5 overflow-y-auto pr-1">
-          {workspace.projects.length === 0 ? (
+          {workspace.groups.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-              No projects yet. Create a project, then assign existing documents
+              No groups yet. Create a group, then assign existing documents
               from the panel on the right.
             </div>
           ) : (
-            workspace.projects.map((project) => {
+            workspace.groups.map((project) => {
               const documentCount = workspace.documents.filter(
-                (document) => document.projectId === project.id,
+                (document) => document.groupId === project.id,
               ).length;
 
               return (
@@ -13424,7 +13611,7 @@ function ProjectsView({
                         {documentCount} document{documentCount === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <Badge variant="outline">Workspace project</Badge>
+                    <Badge variant="outline">Workspace group</Badge>
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Button
@@ -13454,7 +13641,7 @@ function ProjectsView({
         <div className="border-b border-border/80 pb-3">
           <div className="text-lg font-semibold">Assign Documents</div>
           <div className="mt-1 text-[13px] text-muted-foreground">
-            Quickly move existing documents into a project or clear the
+            Quickly move existing documents into a group or clear the
             assignment.
           </div>
         </div>
@@ -13465,7 +13652,7 @@ function ProjectsView({
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
-                placeholder="Search by title, ID, type, or project"
+                placeholder="Search by title, ID, type, or group"
                 className="pl-9"
                 onChange={(event) => setSearch(event.target.value)}
               />
@@ -13485,14 +13672,14 @@ function ProjectsView({
               <option value="unassigned">Unassigned only</option>
             </Select>
           </Field>
-          <Field label="Project Filter">
+          <Field label="Group Filter">
             <Select
               value={projectFilter}
               onChange={(event) => setProjectFilter(event.target.value)}
             >
-              <option value="all">All projects</option>
-              <option value="">No project</option>
-              {workspace.projects.map((project) => (
+              <option value="all">All groups</option>
+              <option value="">No group</option>
+              {workspace.groups.map((project) => (
                 <option key={project.id} value={String(project.id)}>
                   {project.name}
                 </option>
@@ -13516,11 +13703,11 @@ function ProjectsView({
           {workspace.documents.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
               No documents yet. Create a document first, then assign it to a
-              project here.
+              group here.
             </div>
           ) : filteredDocuments.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-background px-4 py-5 text-[13px] text-muted-foreground">
-              No documents match the current project filters.
+              No documents match the current group filters.
             </div>
           ) : (
             filteredDocuments.map((document) => (
@@ -13538,7 +13725,7 @@ function ProjectsView({
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{document.typeName}</span>
                     <span>•</span>
-                    <span>{document.projectName ?? "No project"}</span>
+                    <span>{document.groupName ?? "No group"}</span>
                     {document.status ? (
                       <>
                         <span>•</span>
@@ -13547,15 +13734,15 @@ function ProjectsView({
                     ) : null}
                   </div>
                 </div>
-                <Field label="Project">
+                <Field label="Group">
                   <Select
-                    value={document.projectId ? String(document.projectId) : ""}
+                    value={document.groupId ? String(document.groupId) : ""}
                     onChange={(event) =>
                       void onAssignProject(document, event.target.value)
                     }
                   >
-                    <option value="">No project</option>
-                    {workspace.projects.map((project) => (
+                    <option value="">No group</option>
+                    {workspace.groups.map((project) => (
                       <option key={project.id} value={String(project.id)}>
                         {project.name}
                       </option>
@@ -16534,10 +16721,14 @@ function DocumentDialog({
   userSystemEnabled,
   workspaceUsers,
   templates,
+  groups,
   projects,
   confidentialityClasses,
   languages,
   availableColumns,
+  onCreateProject,
+  onEditProject,
+  onDeleteProject,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -16548,16 +16739,21 @@ function DocumentDialog({
   userSystemEnabled: boolean;
   workspaceUsers: WorkspaceUser[];
   templates: TemplateSummary[];
+  groups: Group[];
   projects: Project[];
   confidentialityClasses: ConfidentialityClass[];
   languages: WorkspaceLanguage[];
   availableColumns: DocumentTableColumn[];
+  onCreateProject: () => void;
+  onEditProject: (project: Project) => void;
+  onDeleteProject: (project: Project) => void;
 }) {
   const showAuthor = availableColumns.includes("author");
   const showLanguage = availableColumns.includes("language");
   const showConfidentialityClass = availableColumns.includes(
     "confidentialityClass",
   );
+  const showGroup = availableColumns.includes("group");
   const showProject = availableColumns.includes("project");
   const showCompany = availableColumns.includes("company");
   const showDepartment = availableColumns.includes("department");
@@ -16565,10 +16761,14 @@ function DocumentDialog({
   const showRevisionInterval = availableColumns.includes(
     "revisionIntervalMonths",
   );
+  const showMetadataFields =
+    showLanguage || showConfidentialityClass || showGroup || showProject;
+  const showClassificationFields = showLanguage || showConfidentialityClass;
+  const showAssignmentFields = showGroup || showProject;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="w-[min(96vw,1040px)] max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {state.mode === "create" ? "Create Document" : "Edit Document"}
@@ -16576,15 +16776,15 @@ function DocumentDialog({
           <DialogDescription>
             {state.mode === "create"
               ? "Create the document shell first. DocTrack will generate the document ID and physical folder immediately, and you can add versions and files afterward."
-              : "Update the document metadata used in the table, detail view, and project assignments."}
+              : "Update the document metadata used in the table, detail view, and group/project assignments."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid gap-5">
           <div
             className={cn(
               "grid gap-4",
-              showAuthor || showStartDate ? "md:grid-cols-3" : "md:grid-cols-1",
+              showAuthor || showStartDate ? "xl:grid-cols-3" : "md:grid-cols-1",
             )}
           >
             <Field label="Title" error={state.validationErrors.title}>
@@ -16661,7 +16861,7 @@ function DocumentDialog({
           </div>
 
           {state.mode === "create" ? (
-            <>
+            <div className="grid gap-4 xl:grid-cols-3">
               <Field
                 label="Document Type"
                 error={state.validationErrors.documentTypeId}
@@ -16734,72 +16934,173 @@ function DocumentDialog({
                     : "Leave this empty to create a metadata-only document shell first."}
                 </div>
               </Field>
-            </>
+            </div>
           ) : null}
 
-          {showLanguage || showConfidentialityClass || showProject ? (
-            <div className="grid gap-4 md:grid-cols-3">
-              {showLanguage ? (
-                <Field label="Language">
-                  <Select
-                    value={state.languageId}
-                    onChange={(event) =>
-                      onStateChange((current) => ({
-                        ...current,
-                        languageId: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">No language</option>
-                    {languages.map((language) => (
-                      <option key={language.id} value={String(language.id)}>
-                        {language.code}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+          {showMetadataFields ? (
+            <div className="grid gap-4">
+              {showClassificationFields ? (
+                <div
+                  className={cn(
+                    "grid gap-4",
+                    showLanguage && showConfidentialityClass
+                      ? "md:grid-cols-2"
+                      : "grid-cols-1",
+                  )}
+                >
+                  {showLanguage ? (
+                    <Field label="Language">
+                      <Select
+                        value={state.languageId}
+                        onChange={(event) =>
+                          onStateChange((current) => ({
+                            ...current,
+                            languageId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">No language</option>
+                        {languages.map((language) => (
+                          <option key={language.id} value={String(language.id)}>
+                            {language.code}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : null}
+
+                  {showConfidentialityClass ? (
+                    <Field label="Confidentiality Class">
+                      <Select
+                        value={state.confidentialityClassId}
+                        onChange={(event) =>
+                          onStateChange((current) => ({
+                            ...current,
+                            confidentialityClassId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">No class</option>
+                        {confidentialityClasses.map((item) => (
+                          <option key={item.id} value={String(item.id)}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : null}
+                </div>
               ) : null}
 
-              {showConfidentialityClass ? (
-                <Field label="Confidentiality Class">
-                  <Select
-                    value={state.confidentialityClassId}
-                    onChange={(event) =>
-                      onStateChange((current) => ({
-                        ...current,
-                        confidentialityClassId: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">No class</option>
-                    {confidentialityClasses.map((item) => (
-                      <option key={item.id} value={String(item.id)}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : null}
+              {showAssignmentFields ? (
+                <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                  <div className="mb-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      Assignments
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Use groups for internal organization and projects for reusable metadata.
+                    </div>
+                  </div>
 
-              {showProject ? (
-                <Field label="Project">
-                  <Select
-                    value={state.projectId}
-                    onChange={(event) =>
-                      onStateChange((current) => ({
-                        ...current,
-                        projectId: event.target.value,
-                      }))
-                    }
+                  <div
+                    className={cn(
+                      "grid gap-4",
+                      showGroup && showProject ? "xl:grid-cols-2" : "grid-cols-1",
+                    )}
                   >
-                    <option value="">No project</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={String(project.id)}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                    {showGroup ? (
+                      <Field label="Group">
+                        <Select
+                          value={state.groupId}
+                          onChange={(event) =>
+                            onStateChange((current) => ({
+                              ...current,
+                              groupId: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">No group</option>
+                          {groups.map((group) => (
+                            <option key={group.id} value={String(group.id)}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                    ) : null}
+
+                    {showProject ? (
+                      <Field label="Project">
+                        <div className="space-y-3">
+                          <Select
+                            value={state.projectId}
+                            onChange={(event) =>
+                              onStateChange((current) => ({
+                                ...current,
+                                projectId: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">No project</option>
+                            {projects.map((project) => (
+                              <option key={project.id} value={String(project.id)}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </Select>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-center"
+                              onClick={onCreateProject}
+                            >
+                              <Plus className="h-4 w-4" />
+                              New
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-center"
+                              disabled={!state.projectId}
+                              onClick={() => {
+                                const selectedProject = projects.find(
+                                  (project) => String(project.id) === state.projectId,
+                                );
+                                if (selectedProject) {
+                                  onEditProject(selectedProject);
+                                }
+                              }}
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              Rename
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-center"
+                              disabled={!state.projectId}
+                              onClick={() => {
+                                const selectedProject = projects.find(
+                                  (project) => String(project.id) === state.projectId,
+                                );
+                                if (selectedProject) {
+                                  onDeleteProject(selectedProject);
+                                }
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </Field>
+                    ) : null}
+                  </div>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -16865,11 +17166,19 @@ function DocumentDialog({
           ) : null}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="mt-2 flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button disabled={state.isSubmitting} onClick={() => void onSubmit()}>
+          <Button
+            className="w-full sm:w-auto"
+            disabled={state.isSubmitting}
+            onClick={() => void onSubmit()}
+          >
             {state.isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -17314,22 +17623,28 @@ function ProjectDialog({
   onStateChange: React.Dispatch<React.SetStateAction<ProjectDialogState>>;
   onSubmit: () => Promise<void>;
 }) {
+  const entityLabel = state.entity === "group" ? "Group" : "Project";
+  const entityDescription =
+    state.entity === "group"
+      ? "Groups let multiple documents be grouped inside the workspace."
+      : "Projects are reusable document metadata values available in this workspace.";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[540px]">
         <DialogHeader>
           <DialogTitle>
-            {state.id ? "Edit Project" : "Create Project"}
+            {state.id ? `Edit ${entityLabel}` : `Create ${entityLabel}`}
           </DialogTitle>
-          <DialogDescription>
-            Projects let multiple documents be grouped inside the workspace.
-          </DialogDescription>
+          <DialogDescription>{entityDescription}</DialogDescription>
         </DialogHeader>
 
-        <Field label="Project Name" error={state.validationErrors.name}>
+        <Field label={`${entityLabel} Name`} error={state.validationErrors.name}>
           <Input
             aria-invalid={Boolean(state.validationErrors.name)}
-            placeholder="QMS Rollout"
+            placeholder={
+              state.entity === "group" ? "QMS Rollout" : "ERP Modernization"
+            }
             value={state.name}
             onChange={(event) =>
               onStateChange((current) =>
@@ -17351,7 +17666,7 @@ function ProjectDialog({
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            Save Project
+            {`Save ${entityLabel}`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -19910,3 +20225,6 @@ function columnHeader(label: string) {
 }
 
 export default App;
+
+
+

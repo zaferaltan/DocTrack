@@ -169,6 +169,13 @@ const api: DocTrackApi = {
       ipcRenderer.invoke(IPC_CHANNELS.documentTypesUpdate, filePath, id, input),
     delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.documentTypesDelete, filePath, id)
   },
+  groups: {
+    list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.groupsList, filePath),
+    create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.groupsCreate, filePath, input),
+    update: (filePath, id, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.groupsUpdate, filePath, id, input),
+    delete: (filePath, id) => ipcRenderer.invoke(IPC_CHANNELS.groupsDelete, filePath, id)
+  },
   projects: {
     list: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.projectsList, filePath),
     create: (filePath, input) => ipcRenderer.invoke(IPC_CHANNELS.projectsCreate, filePath, input),

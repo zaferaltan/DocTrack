@@ -203,6 +203,7 @@ describe('app catalog service', () => {
       query: {
         search: '',
         statusFilter: 'All',
+        groupFilter: 'All',
         projectFilter: 'All',
         healthFilter: 'All',
         rules: [
@@ -285,6 +286,7 @@ describe('app catalog service', () => {
         query: {
           search: '',
           statusFilter: 'bad',
+          groupFilter: 'All',
           projectFilter: 'All',
           healthFilter: 'All',
           rules: [

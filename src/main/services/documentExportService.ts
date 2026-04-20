@@ -46,6 +46,7 @@ const GROUPING_LABELS: Record<DocumentExportGrouping, string> = {
   none: 'No grouping',
   documentType: 'Document Type',
   status: 'Status',
+  group: 'Group',
   project: 'Project',
   language: 'Language',
   confidentialityClass: 'Confidentiality Class',
@@ -57,6 +58,7 @@ const GROUPING_LABELS: Record<DocumentExportGrouping, string> = {
 const EMPTY_GROUP_LABELS: Record<Exclude<DocumentExportGrouping, 'none'>, string> = {
   documentType: 'Uncategorized',
   status: 'Not started',
+  group: 'No group',
   project: 'No project',
   language: 'No language',
   confidentialityClass: 'No classification',
@@ -76,6 +78,7 @@ const PDF_CARD_FIELD_ORDER: DocumentTableColumn[] = [
   'author',
   'language',
   'confidentialityClass',
+  'group',
   'project',
   'company',
   'department',
@@ -197,21 +200,23 @@ export const getDocumentExportCellValue = (
     case 'documentType':
       return document.typeName;
     case 'version':
-      return document.latestVersionLabel ?? '—';
+      return document.latestVersionLabel ?? '-';
     case 'status':
       return document.status ?? 'Not started';
     case 'author':
-      return document.author || '—';
+      return document.author || '-';
     case 'language':
-      return document.languageCode ?? '—';
+      return document.languageCode ?? '-';
     case 'confidentialityClass':
-      return document.confidentialityClassName ?? '—';
+      return document.confidentialityClassName ?? '-';
+    case 'group':
+      return document.groupName ?? '-';
     case 'project':
-      return document.projectName ?? '—';
+      return document.projectName ?? '-';
     case 'company':
-      return document.company || '—';
+      return document.company || '-';
     case 'department':
-      return document.department || '—';
+      return document.department || '-';
     case 'startDate':
       return formatDateShort(document.startDate);
     case 'createdDate':
@@ -221,13 +226,13 @@ export const getDocumentExportCellValue = (
     case 'releasedDate':
       return formatDateShort(document.releasedDate);
     case 'reviewedBy':
-      return document.reviewedBy || '—';
+      return document.reviewedBy || '-';
     case 'approvedBy':
-      return document.approvedBy || '—';
+      return document.approvedBy || '-';
     case 'revisionIntervalMonths':
-      return document.revisionIntervalMonths ? `${document.revisionIntervalMonths} months` : '—';
+      return document.revisionIntervalMonths ? `${document.revisionIntervalMonths} months` : '-';
     case 'revisionDescription':
-      return document.revisionDescription || '—';
+      return document.revisionDescription || '-';
     default:
       return '';
   }
@@ -244,12 +249,17 @@ export const buildCsvDocument = (request: DocumentExportRequest): string => {
   return `\uFEFF${[header, ...rows].join('\r\n')}`;
 };
 
-const getGroupValue = (document: DocumentListItem, groupBy: Exclude<DocumentExportGrouping, 'none'>): string => {
+const getGroupValue = (
+  document: DocumentListItem,
+  groupBy: Exclude<DocumentExportGrouping, 'none'>
+): string => {
   switch (groupBy) {
     case 'documentType':
       return document.typeName || EMPTY_GROUP_LABELS[groupBy];
     case 'status':
       return document.status ?? EMPTY_GROUP_LABELS[groupBy];
+    case 'group':
+      return document.groupName ?? EMPTY_GROUP_LABELS[groupBy];
     case 'project':
       return document.projectName ?? EMPTY_GROUP_LABELS[groupBy];
     case 'language':
@@ -317,6 +327,9 @@ const buildFilterSummaryItems = (request: DocumentExportRequest): string[] => {
   }
   if (request.filters.status && request.filters.status !== 'All') {
     items.push(`Status: ${request.filters.status}`);
+  }
+  if (request.filters.group && request.filters.group !== 'All groups') {
+    items.push(`Group: ${request.filters.group}`);
   }
   if (request.filters.project && request.filters.project !== 'All projects') {
     items.push(`Project: ${request.filters.project}`);
@@ -936,3 +949,4 @@ export class DocumentExportService {
     }
   }
 }
+

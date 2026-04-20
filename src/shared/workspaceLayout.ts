@@ -28,6 +28,7 @@ export const DOCUMENT_TABLE_COLUMNS = [
   'author',
   'language',
   'confidentialityClass',
+  'group',
   'project',
   'company',
   'department',
@@ -194,7 +195,8 @@ export const DOCUMENT_ID_TEMPLATE_PLACEHOLDER_OPTIONS: Array<{
   { placeholder: '<language>', label: 'Language code or XX', example: 'EN' },
   { placeholder: '<company>', label: 'Company name', example: 'ACME-MANUFACTURING' },
   { placeholder: '<department>', label: 'Department name', example: 'QUALITY-ASSURANCE' },
-  { placeholder: '<project>', label: 'Project name', example: 'QMS-ROLLOUT' },
+  { placeholder: '<group>', label: 'Group name', example: 'QMS-ROLLOUT' },
+  { placeholder: '<project>', label: 'Project name', example: 'ERP-MODERNIZATION' },
   { placeholder: '<title>', label: 'Document title', example: 'OPERATING-PROCEDURE' },
   { placeholder: '<sequence:5>', label: 'Padded sequence number', example: '00001' }
 ];
@@ -211,6 +213,7 @@ export const DOCUMENT_TABLE_COLUMN_OPTIONS: Array<{
   { value: 'author', label: 'Author' },
   { value: 'language', label: 'Language' },
   { value: 'confidentialityClass', label: 'Confidentiality Class' },
+  { value: 'group', label: 'Group' },
   { value: 'project', label: 'Project' },
   { value: 'company', label: 'Company' },
   { value: 'department', label: 'Department' },
