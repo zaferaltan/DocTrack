@@ -85,6 +85,7 @@ describe('WorkspaceFilesystemWatcherService', () => {
 
     service.ensureWatching('/workspace');
     watcherHandlers.get('add')?.('/workspace/Documents/~$maintenance-plan.docx');
+    watcherHandlers.get('change')?.('/workspace/Documents/~WRD0000.tmp');
     watcherHandlers.get('change')?.('/workspace/Documents/working-copy.docx');
     vi.advanceTimersByTime(50);
 

@@ -110,6 +110,7 @@ describe('FileStorageService', () => {
     writeFileSync(path.join(versionAbsolutePath, 'procedure.docx'), 'working', 'utf8');
     writeFileSync(path.join(versionAbsolutePath, '.DS_Store'), 'hidden metadata', 'utf8');
     writeFileSync(path.join(versionAbsolutePath, '~$procedure.docx'), 'word lock file', 'utf8');
+    writeFileSync(path.join(versionAbsolutePath, '~WRD0000.tmp'), 'word temp file', 'utf8');
     mkdirSync(path.join(versionAbsolutePath, 'concept-pdf'), { recursive: true });
     writeFileSync(path.join(versionAbsolutePath, 'concept-pdf', 'procedure.pdf'), 'concept', 'utf8');
     writeFileSync(
@@ -120,6 +121,11 @@ describe('FileStorageService', () => {
     writeFileSync(
       path.join(versionAbsolutePath, 'concept-pdf', '~$procedure.pptx'),
       'powerpoint lock file',
+      'utf8'
+    );
+    writeFileSync(
+      path.join(versionAbsolutePath, 'concept-pdf', '~WRL0001.tmp'),
+      'word temp file',
       'utf8'
     );
     mkdirSync(path.join(versionAbsolutePath, '.appledouble'), { recursive: true });

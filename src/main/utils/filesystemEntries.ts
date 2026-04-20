@@ -51,8 +51,11 @@ export const isIgnoredWorkspaceFilesystemEntryName = (name: string): boolean => 
 
   const normalizedName = name.toLowerCase();
   return (
-    normalizedName.startsWith('~$') &&
-    TRANSIENT_OFFICE_LOCK_FILE_EXTENSIONS.has(path.extname(normalizedName))
+    (
+      normalizedName.startsWith('~$') &&
+      TRANSIENT_OFFICE_LOCK_FILE_EXTENSIONS.has(path.extname(normalizedName))
+    ) ||
+    (normalizedName.startsWith('~wr') && path.extname(normalizedName) === '.tmp')
   );
 };
 
