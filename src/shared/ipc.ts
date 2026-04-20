@@ -56,6 +56,8 @@ import type {
   WorkspaceInfo,
   WorkspaceRoleSettings,
   WorkspaceRoleSettingsUpdateInput,
+  WorkspaceRepairIssue,
+  WorkspaceScanResult,
   RecentActivityItem,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
@@ -95,6 +97,9 @@ export const IPC_CHANNELS = {
   workspaceGetRestoreDiff: 'workspace:getRestoreDiff',
   workspaceRestoreBackup: 'workspace:restoreBackup',
   workspaceIntegrityCheck: 'workspace:integrityCheck',
+  workspaceScanForRepairs: 'workspace:scanForRepairs',
+  workspaceApplyRepairs: 'workspace:applyRepairs',
+  uiOpenRepairWorkspace: 'ui:openRepairWorkspace',
   dialogPickWorkspaceCreatePath: 'dialog:pickWorkspaceCreatePath',
   dialogPickWorkspaceOpenPath: 'dialog:pickWorkspaceOpenPath',
   dialogPickWorkspaceLogoFile: 'dialog:pickWorkspaceLogoFile',
@@ -229,9 +234,14 @@ export interface DocTrackApi {
     getRestoreDiff: (rootPath: string, backupId: string) => Promise<RestoreBackupDiffResult>;
     restoreBackup: (rootPath: string, input: RestoreBackupInput) => Promise<OpenWorkspaceResult>;
     integrityCheck: (rootPath: string) => Promise<IntegrityCheckResult>;
+    scanForRepairs: (rootPath: string) => Promise<WorkspaceScanResult>;
+    applyRepairs: (rootPath: string, issues: WorkspaceRepairIssue[]) => Promise<WorkspaceScanResult>;
     onFilesystemDrift: (
       listener: (event: WorkspaceFilesystemDriftEvent) => void
     ) => () => void;
+  };
+  ui: {
+    onOpenRepairWorkspace: (listener: () => void) => () => void;
   };
   dialogs: {
     pickWorkspaceCreatePath: (workspaceName?: string) => Promise<string | null>;

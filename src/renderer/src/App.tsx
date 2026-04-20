@@ -57,6 +57,7 @@ import {
   X,
   FileText,
   Grid3x3,
+  Wrench as WrenchIcon,
 } from "lucide-react";
 import {
   flexRender,
@@ -231,6 +232,8 @@ import type {
   WorkspaceRolePermissions,
   WorkspaceRoleSettings,
   WorkspaceRoleSettingsUpdateInput,
+  WorkspaceRepairIssue,
+  WorkspaceScanResult,
   WorkspaceSettingsUpdateInput,
   WorkspaceSummary,
   WorkspaceUser,
@@ -1005,6 +1008,14 @@ interface RenameFileDialogState {
   nextFileName: string;
   isSubmitting: boolean;
   validationErrors: ValidationErrors;
+}
+
+interface RepairWorkspaceDialogState {
+  open: boolean;
+  scanResult: WorkspaceScanResult | null;
+  isScanning: boolean;
+  isApplying: boolean;
+  error: string;
 }
 
 type CommandPaletteMode =
@@ -2135,6 +2146,14 @@ function App() {
   const [deleteRecordsDialog, setDeleteRecordsDialog] = useState(
     defaultDeleteRecordsDialogState,
   );
+  const [repairWorkspaceDialog, setRepairWorkspaceDialog] =
+    useState<RepairWorkspaceDialogState>({
+      open: false,
+      scanResult: null,
+      isScanning: false,
+      isApplying: false,
+      error: "",
+    });
   const [confirmationDialog, setConfirmationDialog] = useState(
     defaultConfirmationDialogState,
   );
@@ -2425,10 +2444,18 @@ function App() {
           );
         }
 
-        setNotification({
-          tone: "success",
-          message: `Filesystem changes were detected in "${openWorkspaces[rootPath]?.workspace.name ?? "workspace"}". Review pending file drift before reconciling.`,
-        });
+        const freshWorkspace = useAppStore.getState().openWorkspaces[rootPath];
+        const hasActionableDrift = freshWorkspace?.documents.some(
+          (doc) =>
+            doc.healthFlags.includes("missingFiles") ||
+            doc.healthFlags.includes("unmanagedPaths"),
+        );
+        if (hasActionableDrift) {
+          setNotification({
+            tone: "success",
+            message: `Filesystem changes were detected in "${freshWorkspace?.workspace.name ?? "workspace"}". Review pending file drift before reconciling.`,
+          });
+        }
       } catch (error) {
         notifyError(
           error,
@@ -2473,6 +2500,44 @@ function App() {
 
     return unsubscribe;
   }, [handleWorkspaceFilesystemDrift]);
+
+  const handleOpenRepairWorkspace = useEffectEvent(async (): Promise<void> => {
+    if (!activeWorkspacePath) return;
+    setRepairWorkspaceDialog({ open: true, scanResult: null, isScanning: true, isApplying: false, error: "" });
+    try {
+      const result = await window.docTrack.workspace.scanForRepairs(activeWorkspacePath);
+      setRepairWorkspaceDialog((prev) => ({ ...prev, scanResult: result, isScanning: false }));
+    } catch (error) {
+      setRepairWorkspaceDialog((prev) => ({
+        ...prev,
+        isScanning: false,
+        error: getErrorMessage(error, "Workspace scan failed."),
+      }));
+    }
+  });
+
+  const handleApplyRepairs = useEffectEvent(async (issues: WorkspaceRepairIssue[]): Promise<void> => {
+    if (!activeWorkspacePath) return;
+    setRepairWorkspaceDialog((prev) => ({ ...prev, isApplying: true, error: "" }));
+    try {
+      const result = await window.docTrack.workspace.applyRepairs(activeWorkspacePath, issues);
+      await refreshWorkspace(activeWorkspacePath);
+      setRepairWorkspaceDialog((prev) => ({ ...prev, scanResult: result, isApplying: false }));
+    } catch (error) {
+      setRepairWorkspaceDialog((prev) => ({
+        ...prev,
+        isApplying: false,
+        error: getErrorMessage(error, "Failed to apply repairs."),
+      }));
+    }
+  });
+
+  useEffect(() => {
+    const unsubscribe = window.docTrack.ui.onOpenRepairWorkspace(() => {
+      void handleOpenRepairWorkspace();
+    });
+    return unsubscribe;
+  }, [handleOpenRepairWorkspace]);
 
   useEffect(() => {
     let isMounted = true;
@@ -7520,6 +7585,18 @@ function App() {
               : defaultVersionComparisonDialogState,
           )
         }
+      />
+
+      <RepairWorkspaceDialog
+        state={repairWorkspaceDialog}
+        onOpenChange={(open) =>
+          setRepairWorkspaceDialog((prev) =>
+            open
+              ? prev
+              : { open: false, scanResult: null, isScanning: false, isApplying: false, error: "" },
+          )
+        }
+        onApplyRepairs={handleApplyRepairs}
       />
     </div>
   );
@@ -20222,6 +20299,96 @@ function columnHeader(label: string) {
       </button>
     );
   };
+}
+
+function RepairWorkspaceDialog({
+  state,
+  onOpenChange,
+  onApplyRepairs,
+}: {
+  state: RepairWorkspaceDialogState;
+  onOpenChange: (open: boolean) => void;
+  onApplyRepairs: (issues: WorkspaceRepairIssue[]) => Promise<void>;
+}) {
+  const isBusy = state.isScanning || state.isApplying;
+  const issues = state.scanResult?.issues ?? [];
+  const isHealthy = !state.isScanning && !state.error && state.scanResult !== null && issues.length === 0;
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(94vw,700px)] max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Repair Workspace</DialogTitle>
+          <DialogDescription>
+            Scans for documents stored in the wrong folder due to a document
+            type rename and offers to move them to the correct location.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-auto">
+          {state.isScanning ? (
+            <div className="flex h-[200px] items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Scanning workspace…
+            </div>
+          ) : state.error ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              {state.error}
+            </div>
+          ) : isHealthy ? (
+            <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+              No issues found. Your workspace folder structure is healthy.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {issues.map((issue) => (
+                <div
+                  key={issue.documentRecordId}
+                  className="rounded-xl border border-border bg-card p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold">
+                      {issue.documentId} — {issue.title}
+                    </div>
+                    <Badge variant="outline">misplaced</Badge>
+                  </div>
+                  <div className="mt-2 grid gap-1.5 rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
+                    <div className="grid grid-cols-[4rem_1fr] gap-1">
+                      <span className="font-medium text-foreground">Current</span>
+                      <span className="font-mono">{issue.currentPath}</span>
+                    </div>
+                    <div className="grid grid-cols-[4rem_1fr] gap-1">
+                      <span className="font-medium text-foreground">Target</span>
+                      <span className="font-mono">{issue.expectedPath}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isBusy}>
+            {isHealthy || state.error ? "Close" : "Cancel"}
+          </Button>
+          {!isHealthy && !state.isScanning && !state.error && issues.length > 0 && (
+            <Button
+              disabled={isBusy}
+              onClick={() => void onApplyRepairs(issues)}
+            >
+              {state.isApplying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <WrenchIcon className="h-4 w-4" />
+              )}
+              Apply {issues.length} Fix{issues.length === 1 ? "" : "es"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default App;

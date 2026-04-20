@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { app, BrowserWindow, type BrowserWindow as BrowserWindowType } from 'electron';
+import { app, BrowserWindow, Menu, type BrowserWindow as BrowserWindowType } from 'electron';
 import { AppCatalogService } from '@main/catalog/appCatalogService';
 import { WorkspaceManager } from '@main/database/workspaceManager';
 import { registerIpcHandlers } from '@main/ipc';
@@ -135,6 +135,27 @@ app.whenReady().then(async () => {
     actorContextService,
     prepareForAppQuit: disposeServices
   });
+
+  const appMenu = Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+    { role: 'fileMenu' as const },
+    { role: 'editMenu' as const },
+    { role: 'viewMenu' as const },
+    { role: 'windowMenu' as const },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Repair Workspace\u2026',
+          click: () => {
+            const focused = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+            focused?.webContents.send(IPC_CHANNELS.uiOpenRepairWorkspace);
+          }
+        }
+      ]
+    }
+  ]);
+  Menu.setApplicationMenu(appMenu);
 
   const broadcastAppUpdateState = (): void => {
     const state = appUpdaterService.getState();

@@ -574,7 +574,7 @@ describe('document workflow integration', () => {
     expect(afterEdit.filesystemChanges.some((change) => change.kind === 'modified')).toBe(false);
   });
 
-  it('still flags modified drift for non-Word tracked files', () => {
+  it('ignores content-only changes for PDFs and all other non-Word tracked files', () => {
     const created = documentService.create(workspaceRootPath, {
       title: 'Pdf Review Procedure',
       documentTypeId: 2,
@@ -604,8 +604,8 @@ describe('document workflow integration', () => {
 
     const afterEdit = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);
 
-    expect(afterEdit.filesystemState).toBe('dirty');
-    expect(afterEdit.filesystemChanges.some((change) => change.kind === 'modified')).toBe(true);
+    expect(afterEdit.filesystemState).toBe('clean');
+    expect(afterEdit.filesystemChanges.some((change) => change.kind === 'modified')).toBe(false);
   });
 
   it('marks duplicate-content external moves as ambiguous instead of auto-matching them', () => {

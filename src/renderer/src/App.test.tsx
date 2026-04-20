@@ -404,6 +404,8 @@ const buildDocTrackMock = (
         issueCount: 0,
         issues: []
       }),
+      scanForRepairs: vi.fn().mockResolvedValue({ issues: [] }),
+      applyRepairs: vi.fn().mockResolvedValue({ issues: [] }),
       onFilesystemDrift: vi.fn().mockImplementation(() => () => undefined)
     },
     dialogs: {
@@ -533,6 +535,9 @@ const buildDocTrackMock = (
       ),
       quitAndInstall: vi.fn().mockResolvedValue(undefined),
       onStateChange: vi.fn().mockImplementation(() => () => undefined)
+    },
+    ui: {
+      onOpenRepairWorkspace: vi.fn().mockImplementation(() => () => undefined)
     }
   } satisfies DocTrackApi;
 

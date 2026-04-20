@@ -570,6 +570,19 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
     return services.workspaceService.integrityCheck(rootPath);
   });
 
+  ipcMain.handle(IPC_CHANNELS.workspaceScanForRepairs, (event, rootPath: string) => {
+    assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
+    return services.workspaceService.scanForRepairs(rootPath);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.workspaceApplyRepairs,
+    (event, rootPath: string, issues: import('@shared/types').WorkspaceRepairIssue[]) => {
+      assertWorkspaceAccess(runtimeServices, event, rootPath, 'manageWorkspaceMaintenance');
+      return services.workspaceService.applyRepairs(rootPath, issues);
+    }
+  );
+
   ipcMain.handle(IPC_CHANNELS.dialogPickWorkspaceCreatePath, async (_event, workspaceName?: string) => {
     const result = await dialog.showOpenDialog({
       title: workspaceName ? `Choose a location for "${workspaceName}"` : 'Choose Workspace Location',

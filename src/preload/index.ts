@@ -55,6 +55,9 @@ const api: DocTrackApi = {
     restoreBackup: (rootPath, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceRestoreBackup, rootPath, input),
     integrityCheck: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceIntegrityCheck, rootPath),
+    scanForRepairs: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.workspaceScanForRepairs, rootPath),
+    applyRepairs: (rootPath, issues) =>
+      ipcRenderer.invoke(IPC_CHANNELS.workspaceApplyRepairs, rootPath, issues),
     onFilesystemDrift: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, payload: Parameters<typeof listener>[0]) => {
         listener(payload);
@@ -224,6 +227,17 @@ const api: DocTrackApi = {
       ipcRenderer.on(IPC_CHANNELS.appUpdatesStateChanged, wrappedListener);
       return () => {
         ipcRenderer.removeListener(IPC_CHANNELS.appUpdatesStateChanged, wrappedListener);
+      };
+    }
+  },
+  ui: {
+    onOpenRepairWorkspace: (listener) => {
+      const wrappedListener = () => {
+        listener();
+      };
+      ipcRenderer.on(IPC_CHANNELS.uiOpenRepairWorkspace, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.uiOpenRepairWorkspace, wrappedListener);
       };
     }
   }

@@ -138,6 +138,8 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       getRestoreDiff: vi.fn(),
       restoreBackup: vi.fn(),
       integrityCheck: vi.fn(),
+      scanForRepairs: vi.fn().mockResolvedValue({ issues: [] }),
+      applyRepairs: vi.fn().mockResolvedValue({ issues: [] }),
       onFilesystemDrift: vi.fn().mockImplementation(() => () => undefined)
     },
     dialogs: {
@@ -239,6 +241,9 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       downloadUpdate: vi.fn(),
       quitAndInstall: vi.fn(),
       onStateChange: vi.fn().mockImplementation(() => () => undefined)
+    },
+    ui: {
+      onOpenRepairWorkspace: vi.fn().mockImplementation(() => () => undefined)
     }
   };
 

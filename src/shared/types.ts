@@ -687,6 +687,19 @@ export interface PromoteSavedViewToSharedResult {
   savedView: SavedView;
 }
 
+export interface WorkspaceRepairIssue {
+  kind: 'misplacedDocument';
+  documentRecordId: number;
+  documentId: string;
+  title: string;
+  currentPath: string;
+  expectedPath: string;
+}
+
+export interface WorkspaceScanResult {
+  issues: WorkspaceRepairIssue[];
+}
+
 export interface UpdateDashboardLayoutInput {
   layout: DashboardLayout;
 }

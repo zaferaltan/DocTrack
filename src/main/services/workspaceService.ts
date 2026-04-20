@@ -42,6 +42,8 @@ import type {
   WorkspaceCreateInput,
   WorkspaceDashboardSummary,
   WorkspaceInfo,
+  WorkspaceRepairIssue,
+  WorkspaceScanResult,
   WorkspaceSummary,
   WorkspaceSettingsUpdateInput
 } from '@shared/types';
@@ -49,6 +51,7 @@ import {
   DEFAULT_WORKSPACE_SETTINGS,
   WORKSPACE_DATABASE_FILE_NAME,
   WORKSPACE_ROOT_DIRECTORY_SETTING_KEYS,
+  buildDocumentFolderRelativePath,
   getWorkspaceDatabaseDirectoryRelativePath,
   isValidWorkspaceRootDirectoryName,
   normalizeWorkspaceRootDirectoryNames,
@@ -438,6 +441,113 @@ export class WorkspaceService {
 
   integrityCheck(rootPath: string): IntegrityCheckResult {
     return this.workspaceBackupService.integrityCheck(rootPath);
+  }
+
+  scanForRepairs(rootPath: string): WorkspaceScanResult {
+    const context = this.workspaceManager.getContext(rootPath);
+    const rows = context.db
+      .prepare(
+        `SELECT d.Id, d.DocumentID, d.Title, d.DocumentFolderPath, t.Name AS TypeName
+         FROM Documents d
+         INNER JOIN DocumentTypes t ON t.Id = d.DocumentTypeId
+         ORDER BY d.Id ASC`
+      )
+      .all() as Array<{
+        Id: number;
+        DocumentID: string;
+        Title: string;
+        DocumentFolderPath: string;
+        TypeName: string;
+      }>;
+
+    const issues: WorkspaceRepairIssue[] = [];
+
+    for (const row of rows) {
+      const expectedPath = buildDocumentFolderRelativePath(
+        context.settings,
+        row.TypeName,
+        row.DocumentID,
+        row.Title
+      );
+      const normalizedCurrent = this.fileStorageService.normalizeRelativePath(row.DocumentFolderPath);
+      const normalizedExpected = this.fileStorageService.normalizeRelativePath(expectedPath);
+
+      if (normalizedCurrent !== normalizedExpected) {
+        issues.push({
+          kind: 'misplacedDocument',
+          documentRecordId: row.Id,
+          documentId: row.DocumentID,
+          title: row.Title,
+          currentPath: normalizedCurrent,
+          expectedPath: normalizedExpected
+        });
+      }
+    }
+
+    return { issues };
+  }
+
+  applyRepairs(rootPath: string, issues: WorkspaceRepairIssue[]): WorkspaceScanResult {
+    const context = this.workspaceManager.getContext(rootPath);
+
+    for (const issue of issues) {
+      if (issue.kind !== 'misplacedDocument') {
+        continue;
+      }
+
+      this.fileStorageService.moveDocumentFolder(
+        context.rootPath,
+        issue.currentPath,
+        issue.expectedPath,
+        context.settings
+      );
+
+      try {
+        context.db.transaction(() => {
+          context.db
+            .prepare('UPDATE Documents SET DocumentFolderPath = ? WHERE Id = ?')
+            .run(issue.expectedPath, issue.documentRecordId);
+
+          const fileRows = context.db
+            .prepare(
+              `SELECT f.Id, f.FilePath
+               FROM DocumentVersionFiles f
+               INNER JOIN DocumentVersions v ON v.Id = f.DocumentVersionId
+               WHERE v.DocumentId = ?`
+            )
+            .all(issue.documentRecordId) as Array<{ Id: number; FilePath: string }>;
+
+          const updateFilePath = context.db.prepare(
+            'UPDATE DocumentVersionFiles SET FilePath = ? WHERE Id = ?'
+          );
+          const currentPrefix = issue.currentPath;
+          const nextPrefix = issue.expectedPath;
+
+          for (const file of fileRows) {
+            const normalizedPath = this.fileStorageService.normalizeRelativePath(file.FilePath);
+            const prefix = `${this.fileStorageService.normalizeRelativePath(currentPrefix)}/`;
+            const rewritten = normalizedPath.startsWith(prefix)
+              ? `${this.fileStorageService.normalizeRelativePath(nextPrefix)}/${normalizedPath.slice(prefix.length)}`
+              : normalizedPath;
+            updateFilePath.run(rewritten, file.Id);
+          }
+        })();
+      } catch (error) {
+        try {
+          this.fileStorageService.moveDocumentFolder(
+            context.rootPath,
+            issue.expectedPath,
+            issue.currentPath,
+            context.settings
+          );
+        } catch {
+          // Rollback failed — surface original error.
+        }
+        throw error;
+      }
+    }
+
+    return this.scanForRepairs(rootPath);
   }
 
   private getIntegrityWarnings(rootPath: string): string[] {

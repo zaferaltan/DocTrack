@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { shell } from 'electron';
@@ -1341,12 +1341,15 @@ export class DocumentService {
     this.workspaceBackupService?.createBackup(rootPath, 'safety');
 
     const filesByRole = sourceFilePaths.reduce((accumulator, sourceFilePath) => {
-      const role = this.suggestRoleForFile(path.basename(sourceFilePath));
+      const role = this.inferRoleFromPath(sourceFilePath);
       const group = accumulator.get(role) ?? [];
       group.push(sourceFilePath);
       accumulator.set(role, group);
       return accumulator;
     }, new Map<DocumentVersionFileRole, string[]>());
+
+    // Track files that were copied to a different location so we can delete the originals afterward.
+    const movedSourceFiles: string[] = [];
 
     context.db.transaction(() => {
       const insert = context.db.prepare(
@@ -1384,6 +1387,7 @@ export class DocumentService {
             continue;
           }
 
+          movedSourceFiles.push(sourceFilePath);
           importedFiles.push(
             ...this.fileStorageService.importManagedFiles(
               context.rootPath,
@@ -1430,9 +1434,24 @@ export class DocumentService {
         this.fileStorageService.normalizeRelativePath(path.relative(context.rootPath, sourceFilePath))
       )
     );
+
+    // Delete source files that were copied to a different (correct) location.
+    for (const movedSourceFile of movedSourceFiles) {
+      if (existsSync(movedSourceFile)) {
+        unlinkSync(movedSourceFile);
+      }
+    }
+
+    // If the import argument was a directory (not one of the individual files), remove it.
     if (!managedRelativePaths.has(normalizedRelativePath)) {
       rmSync(targetAbsolutePath, { recursive: true, force: true });
     }
+
+    const versionFolderPath = this.fileStorageService.getVersionFolderRelativePath(
+      document.DocumentFolderPath,
+      version.VersionLabel
+    );
+    this.fileStorageService.cleanupEmptyRoleDirectoriesInVersionFolder(context.rootPath, versionFolderPath);
 
     return this.syncVersionFiles(rootPath, version.Id);
   }
@@ -2408,6 +2427,14 @@ export class DocumentService {
     }
 
     return flags;
+  }
+
+  private inferRoleFromPath(absoluteFilePath: string): DocumentVersionFileRole {
+    const parentDirName = path.basename(path.dirname(absoluteFilePath));
+    if (isDocumentVersionFileRole(parentDirName)) {
+      return parentDirName as DocumentVersionFileRole;
+    }
+    return this.suggestRoleForFile(path.basename(absoluteFilePath));
   }
 
   private suggestRoleForFile(fileName: string): DocumentVersionFileRole {

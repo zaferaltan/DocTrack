@@ -136,6 +136,41 @@ export class FileStorageService {
     );
   }
 
+  renameDocumentTypeDirectory(
+    rootPath: string,
+    oldTypeName: string,
+    newTypeName: string,
+    settings: Pick<WorkspaceSettings, 'documentsDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS
+  ): void {
+    const oldAbsolutePath = this.getDocumentTypeDirectory(rootPath, oldTypeName, settings);
+    const newAbsolutePath = this.getDocumentTypeDirectory(rootPath, newTypeName, settings);
+
+    if (oldAbsolutePath === newAbsolutePath) {
+      return;
+    }
+
+    if (!existsSync(oldAbsolutePath)) {
+      this.ensureDocumentTypeDirectory(rootPath, newTypeName, settings);
+      return;
+    }
+
+    if (existsSync(newAbsolutePath)) {
+      throw new Error(
+        'A folder for the new document type name already exists on disk. Rename aborted to prevent data loss.'
+      );
+    }
+
+    this.withFilesystemWatchPaused(rootPath, () => {
+      mkdirSync(path.dirname(newAbsolutePath), { recursive: true });
+      this.suppressFilesystemEvents(rootPath, 1500);
+      renameSync(oldAbsolutePath, newAbsolutePath);
+      this.cleanupEmptyDirectories(
+        path.dirname(oldAbsolutePath),
+        this.getWorkspaceDocumentsDirectory(rootPath, settings)
+      );
+    });
+  }
+
   getTemplateFolderRelativePath(
     templateId: string,
     settings: Pick<WorkspaceSettings, 'templatesDirectoryName'> = DEFAULT_WORKSPACE_SETTINGS

@@ -59,5 +59,7 @@ export const isIgnoredWorkspaceFilesystemEntryName = (name: string): boolean => 
   );
 };
 
-export const shouldIgnoreTrackedFileContentDrift = (fileName: string): boolean =>
-  WORD_PROCESSING_FILE_EXTENSIONS.has(path.extname(fileName.trim().toLowerCase()));
+// Content-only changes at the same path (same name, same location, different bytes) are never
+// surfaced as drift warnings. Only structural changes — renames, moves, removals — matter to
+// DocTrack. This applies to all file types, not just word-processing documents.
+export const shouldIgnoreTrackedFileContentDrift = (_fileName: string): boolean => true;
