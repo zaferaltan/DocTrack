@@ -180,29 +180,29 @@ export const createAppStore = () =>
     isBootstrapped: false,
     notification: undefined,
     bootstrap: async () => {
-      let [recentWorkspaces, applicationSettings, openWorkspaceInfos] = await Promise.all([
+      let [recentWorkspaces, previousSessionWorkspaces, applicationSettings, openWorkspaceInfos] = await Promise.all([
         window.docTrack.workspace.listRecent(),
+        window.docTrack.workspace.listPreviousSession(),
         window.docTrack.appSettings.get(),
         window.docTrack.workspace.listOpen()
       ]);
 
       if (
         openWorkspaceInfos.length === 0 &&
-        applicationSettings.launchBehavior === 'reopen-last-workspace'
+        applicationSettings.launchBehavior === 'reopen-previous-session'
       ) {
-        const mostRecentWorkspace = recentWorkspaces[0];
-
-        if (mostRecentWorkspace) {
+        for (const workspace of previousSessionWorkspaces) {
           try {
-            await window.docTrack.workspace.open(mostRecentWorkspace.rootPath);
-            [recentWorkspaces, openWorkspaceInfos] = await Promise.all([
-              window.docTrack.workspace.listRecent(),
-              window.docTrack.workspace.listOpen()
-            ]);
+            await window.docTrack.workspace.open(workspace.rootPath);
           } catch {
-            openWorkspaceInfos = [];
+            // Ignore missing or unavailable workspaces and continue restoring the rest.
           }
         }
+
+        [recentWorkspaces, openWorkspaceInfos] = await Promise.all([
+          window.docTrack.workspace.listRecent(),
+          window.docTrack.workspace.listOpen()
+        ]);
       }
 
       const summaries = await Promise.all(

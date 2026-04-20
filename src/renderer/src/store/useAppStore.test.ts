@@ -111,6 +111,7 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
       close: vi.fn(),
       listOpen: vi.fn().mockResolvedValue([workspaceInfo]),
       listRecent: vi.fn().mockResolvedValue([]),
+      listPreviousSession: vi.fn().mockResolvedValue([]),
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(openWorkspaceResult),
       signIn: vi.fn().mockResolvedValue(openWorkspaceResult),
@@ -254,14 +255,14 @@ const installDocTrackMock = (applicationSettings = DEFAULT_APPLICATION_SETTINGS)
 };
 
 describe('useAppStore', () => {
-  it('reopens the most recent workspace during bootstrap and applies the default workspace view', async () => {
+  it('reopens the previous session during bootstrap and applies the default workspace view', async () => {
     const docTrack = installDocTrackMock({
       ...DEFAULT_APPLICATION_SETTINGS,
-      launchBehavior: 'reopen-last-workspace',
+      launchBehavior: 'reopen-previous-session',
       defaultWorkspaceView: 'documentTypes',
       defaultDocumentsVisualization: 'timeline'
     });
-    docTrack.workspace.listRecent.mockResolvedValueOnce([
+    docTrack.workspace.listPreviousSession.mockResolvedValueOnce([
       {
         rootPath: workspaceInfo.rootPath,
         name: workspaceInfo.name,

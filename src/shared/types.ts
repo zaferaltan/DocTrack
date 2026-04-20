@@ -828,6 +828,7 @@ export interface ExampleSeedOptions {
 
 export interface AppCatalogState {
   recentWorkspaces: RecentWorkspace[];
+  previousSessionWorkspaces: RecentWorkspace[];
   applicationSettings: ApplicationSettings;
   personalSavedViewsByWorkspace: Record<string, SavedView[]>;
   completedAppUpdate: CompletedAppUpdate | null;

@@ -7,7 +7,7 @@ import {
 export const THEME_MODES = ["light", "dark", "system"] as const;
 export const APPLICATION_LAUNCH_BEHAVIORS = [
   "home",
-  "reopen-last-workspace",
+  "reopen-previous-session",
 ] as const;
 export const DOCUMENT_DETAIL_VIEW_MODES = ["sidebar", "modal", "page"] as const;
 export const DOCUMENTS_VISUALIZATION_MODES = [
@@ -147,10 +147,10 @@ export const APPLICATION_LAUNCH_BEHAVIOR_OPTIONS: Array<{
       "Start on the welcome screen and let the user choose what to open.",
   },
   {
-    value: "reopen-last-workspace",
-    label: "Reopen last workspace",
+    value: "reopen-previous-session",
+    label: "Reopen previous session",
     description:
-      "Reopen the most recent workspace automatically when nothing is already open.",
+      "Reopen all workspaces that were open before the app closed when nothing is already open.",
   },
 ];
 

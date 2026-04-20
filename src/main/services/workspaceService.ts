@@ -145,6 +145,7 @@ export class WorkspaceService {
       message: `Workspace "${context.workspace.name}" was created.`
     });
     this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath, context.settings);
+    this.persistPreviousSessionWorkspaces();
 
     return this.getSummary(context.rootPath);
   }
@@ -160,12 +161,15 @@ export class WorkspaceService {
       eventType: 'workspace.opened',
       message: `Workspace "${context.workspace.name}" was opened.`
     });
+    this.persistPreviousSessionWorkspaces();
     return this.getSummary(rootPath, this.getIntegrityWarnings(rootPath));
   }
 
   close(rootPath: string) {
     this.workspaceFilesystemWatcherService?.closeWatching(rootPath);
-    return this.workspaceManager.closeWorkspace(rootPath);
+    const openWorkspaces = this.workspaceManager.closeWorkspace(rootPath);
+    this.persistPreviousSessionWorkspaces();
+    return openWorkspaces;
   }
 
   listOpen() {
@@ -584,6 +588,15 @@ export class WorkspaceService {
   private getIntegrityWarnings(rootPath: string): string[] {
     const integrity = this.workspaceBackupService.integrityCheck(rootPath);
     return integrity.issues.slice(0, 10).map((issue) => issue.message);
+  }
+
+  private persistPreviousSessionWorkspaces(): void {
+    this.catalogService.updatePreviousSessionWorkspaces(
+      this.workspaceManager.listOpenWorkspaces().map((workspace) => ({
+        rootPath: workspace.rootPath,
+        name: workspace.name
+      }))
+    );
   }
 
   private restoreBackupIntoCurrentWorkspace(rootPath: string, backupId: string): WorkspaceSummaryResult {

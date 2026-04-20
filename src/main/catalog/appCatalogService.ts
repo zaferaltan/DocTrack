@@ -26,6 +26,7 @@ import { nowIso } from '@main/utils/date';
 
 const DEFAULT_STATE: AppCatalogState = {
   recentWorkspaces: [],
+  previousSessionWorkspaces: [],
   applicationSettings: { ...DEFAULT_APPLICATION_SETTINGS },
   personalSavedViewsByWorkspace: {},
   completedAppUpdate: null
@@ -50,6 +51,10 @@ export class AppCatalogService {
     return this.readState().recentWorkspaces;
   }
 
+  listPreviousSessionWorkspaces(): RecentWorkspace[] {
+    return this.readState().previousSessionWorkspaces;
+  }
+
   touchRecentWorkspace(workspace: Pick<RecentWorkspace, 'rootPath' | 'name'>): RecentWorkspace[] {
     const state = this.readState();
     const updated: RecentWorkspace = {
@@ -71,6 +76,20 @@ export class AppCatalogService {
     state.recentWorkspaces = state.recentWorkspaces.filter((item) => item.rootPath !== rootPath);
     this.writeState(state);
     return state.recentWorkspaces;
+  }
+
+  updatePreviousSessionWorkspaces(
+    workspaces: Array<Pick<RecentWorkspace, 'rootPath' | 'name'>>
+  ): RecentWorkspace[] {
+    const state = this.readState();
+    state.previousSessionWorkspaces = workspaces.map((workspace) => ({
+      ...workspace,
+      lastOpenedDate:
+        state.recentWorkspaces.find((item) => item.rootPath === workspace.rootPath)?.lastOpenedDate ??
+        nowIso()
+    }));
+    this.writeState(state);
+    return state.previousSessionWorkspaces;
   }
 
   getApplicationSettings(): ApplicationSettings {
@@ -169,40 +188,14 @@ export class AppCatalogService {
 
     try {
       const value = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppCatalogState>;
-      const recentWorkspaces = Array.isArray(value.recentWorkspaces)
-        ? value.recentWorkspaces
-            .map((item) => {
-              if (!item || typeof item !== 'object') {
-                return undefined;
-              }
-
-              const candidate = item as Partial<RecentWorkspace> & { filePath?: string };
-              const rootPath =
-                typeof candidate.rootPath === 'string'
-                  ? candidate.rootPath
-                  : typeof candidate.filePath === 'string'
-                    ? candidate.filePath
-                    : undefined;
-
-              if (
-                !rootPath ||
-                typeof candidate.name !== 'string' ||
-                typeof candidate.lastOpenedDate !== 'string'
-              ) {
-                return undefined;
-              }
-
-              return {
-                rootPath,
-                name: candidate.name,
-                lastOpenedDate: candidate.lastOpenedDate
-              };
-            })
-            .filter((item): item is RecentWorkspace => item !== undefined)
-        : [];
+      const recentWorkspaces = this.normalizeRecentWorkspaces(value.recentWorkspaces);
+      const previousSessionWorkspaces = this.normalizeRecentWorkspaces(
+        value.previousSessionWorkspaces
+      );
 
       return {
         recentWorkspaces,
+        previousSessionWorkspaces,
         applicationSettings: this.normalizeApplicationSettings(value.applicationSettings, value, {
           migrateLegacyDocumentColumns: true
         }),
@@ -214,6 +207,40 @@ export class AppCatalogService {
     } catch {
       return { ...DEFAULT_STATE };
     }
+  }
+
+  private normalizeRecentWorkspaces(value: unknown): RecentWorkspace[] {
+    return Array.isArray(value)
+      ? value
+          .map((item) => {
+            if (!item || typeof item !== 'object') {
+              return undefined;
+            }
+
+            const candidate = item as Partial<RecentWorkspace> & { filePath?: string };
+            const rootPath =
+              typeof candidate.rootPath === 'string'
+                ? candidate.rootPath
+                : typeof candidate.filePath === 'string'
+                  ? candidate.filePath
+                  : undefined;
+
+            if (
+              !rootPath ||
+              typeof candidate.name !== 'string' ||
+              typeof candidate.lastOpenedDate !== 'string'
+            ) {
+              return undefined;
+            }
+
+            return {
+              rootPath,
+              name: candidate.name,
+              lastOpenedDate: candidate.lastOpenedDate
+            };
+          })
+          .filter((item): item is RecentWorkspace => item !== undefined)
+      : [];
   }
 
   private normalizeCompletedAppUpdate(value: unknown): CompletedAppUpdate | null {

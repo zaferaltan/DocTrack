@@ -324,6 +324,13 @@ const buildDocTrackMock = (
           lastOpenedDate: '2026-03-28T12:00:00.000Z'
         }
       ]),
+      listPreviousSession: vi.fn().mockResolvedValue([
+        {
+          rootPath: workspaceInfo.rootPath,
+          name: workspaceInfo.name,
+          lastOpenedDate: '2026-03-28T12:00:00.000Z'
+        }
+      ]),
       dismissRecent: vi.fn().mockResolvedValue([]),
       getSummary: vi.fn().mockResolvedValue(workspaceResult),
       signIn: vi.fn().mockResolvedValue(workspaceResult),

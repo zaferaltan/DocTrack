@@ -29,6 +29,7 @@ describe('app catalog service', () => {
     const service = createService();
 
     expect(service.listRecentWorkspaces()).toEqual([]);
+    expect(service.listPreviousSessionWorkspaces()).toEqual([]);
     expect(service.getApplicationSettings()).toEqual(DEFAULT_APPLICATION_SETTINGS);
     expect(service.getCompletedAppUpdate()).toBeNull();
   });
@@ -38,7 +39,7 @@ describe('app catalog service', () => {
     const settings: ApplicationSettings = {
       ...DEFAULT_APPLICATION_SETTINGS,
       themeMode: 'dark',
-      launchBehavior: 'reopen-last-workspace',
+      launchBehavior: 'reopen-previous-session',
       defaultWorkspaceView: 'documentTypes',
       documentDetailViewMode: 'modal',
       defaultDocumentsVisualization: 'kanban',
@@ -74,6 +75,38 @@ describe('app catalog service', () => {
       })
     ]);
     expect(reopened.getApplicationSettings()).toEqual(settings);
+  });
+
+  it('persists previous session workspaces separately from recents', () => {
+    const service = createService();
+
+    service.touchRecentWorkspace({
+      rootPath: '/Workspaces/Quality',
+      name: 'Quality'
+    });
+    service.updatePreviousSessionWorkspaces([
+      {
+        rootPath: '/Workspaces/Quality',
+        name: 'Quality'
+      },
+      {
+        rootPath: '/Workspaces/Operations',
+        name: 'Operations'
+      }
+    ]);
+
+    const reopened = new AppCatalogService(path.join(tempRoot, 'catalog.json'));
+
+    expect(reopened.listPreviousSessionWorkspaces()).toEqual([
+      expect.objectContaining({
+        rootPath: '/Workspaces/Quality',
+        name: 'Quality'
+      }),
+      expect.objectContaining({
+        rootPath: '/Workspaces/Operations',
+        name: 'Operations'
+      })
+    ]);
   });
 
   it('preserves sidebar widths below the old fixed pixel minimum', () => {

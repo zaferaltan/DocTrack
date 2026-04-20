@@ -70,6 +70,7 @@ export const IPC_CHANNELS = {
   workspaceClose: 'workspace:close',
   workspaceListOpen: 'workspace:listOpen',
   workspaceListRecent: 'workspace:listRecent',
+  workspaceListPreviousSession: 'workspace:listPreviousSession',
   workspaceDismissRecent: 'workspace:dismissRecent',
   workspaceGetSummary: 'workspace:getSummary',
   workspaceGetDashboard: 'workspace:getDashboard',
@@ -179,6 +180,7 @@ export interface DocTrackApi {
     close: (rootPath: string) => Promise<WorkspaceInfo[]>;
     listOpen: () => Promise<WorkspaceInfo[]>;
     listRecent: () => Promise<RecentWorkspace[]>;
+    listPreviousSession: () => Promise<RecentWorkspace[]>;
     dismissRecent: (rootPath: string) => Promise<RecentWorkspace[]>;
     getSummary: (rootPath: string) => Promise<OpenWorkspaceResult>;
     getDashboard: (rootPath: string) => Promise<WorkspaceDashboardSummary>;

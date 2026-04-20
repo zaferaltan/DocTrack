@@ -326,6 +326,9 @@ export const registerIpcHandlers = (services: ServiceContainer): void => {
 
   ipcMain.handle(IPC_CHANNELS.workspaceListOpen, () => runtimeServices.workspaceService.listOpen());
   ipcMain.handle(IPC_CHANNELS.workspaceListRecent, () => runtimeServices.workspaceService.listRecent());
+  ipcMain.handle(IPC_CHANNELS.workspaceListPreviousSession, () =>
+    runtimeServices.catalogService.listPreviousSessionWorkspaces()
+  );
   ipcMain.handle(IPC_CHANNELS.workspaceDismissRecent, (_event, rootPath: string) =>
     runtimeServices.workspaceService.dismissRecent(rootPath)
   );
