@@ -37,7 +37,7 @@ vi.mock('electron', () => ({
 }));
 
 const INTEGRATION_HOOK_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 10000;
-const WINDOWS_FILESYSTEM_TEST_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 5000;
+const WINDOWS_SLOW_TEST_TIMEOUT_MS = process.platform === 'win32' ? 30000 : 5000;
 
 describe('workspace integration', () => {
   let tempRoot: string;
@@ -146,7 +146,9 @@ describe('workspace integration', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   }, INTEGRATION_HOOK_TIMEOUT_MS);
 
-  it('creates a workspace folder with starter type folders and both workspace settings', () => {
+  it(
+    'creates a workspace folder with starter type folders and both workspace settings',
+    () => {
     const result = workspaceService.create({
       name: 'Quality',
       parentPath: tempRoot,
@@ -189,7 +191,9 @@ describe('workspace integration', () => {
     expect(result.summary.templates).toEqual([]);
     expect(result.summary.dashboardLayout).toEqual(DEFAULT_DASHBOARD_LAYOUT);
     expect(result.summary.savedViews).toEqual([]);
-  });
+    },
+    WINDOWS_SLOW_TEST_TIMEOUT_MS
+  );
 
   it('deletes the empty document type folder when an unused type is removed', () => {
     const result = workspaceService.create({
@@ -211,7 +215,7 @@ describe('workspace integration', () => {
     documentTypeService.delete(workspaceRootPath, procedureType!.id);
 
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(false);
-  }, WINDOWS_FILESYSTEM_TEST_TIMEOUT_MS);
+  }, WINDOWS_SLOW_TEST_TIMEOUT_MS);
 
   it('can create a workspace with the user system disabled', () => {
     const result = workspaceService.create({
@@ -293,27 +297,31 @@ describe('workspace integration', () => {
     ]);
   });
 
-  it('does not allow the final active workspace user to be deactivated', () => {
-    const result = workspaceService.create({
-      name: 'Protected Workspace',
-      parentPath: tempRoot,
-      settings: {
-        ...DEFAULT_WORKSPACE_SETTINGS
-      },
-      includeExampleData: false,
-      initialAdmin: {
-        username: 'admin',
-        displayName: 'Workspace Admin',
-        password: 'admin1234'
-      }
-    });
+  it(
+    'does not allow the final active workspace user to be deactivated',
+    () => {
+      const result = workspaceService.create({
+        name: 'Protected Workspace',
+        parentPath: tempRoot,
+        settings: {
+          ...DEFAULT_WORKSPACE_SETTINGS
+        },
+        includeExampleData: false,
+        initialAdmin: {
+          username: 'admin',
+          displayName: 'Workspace Admin',
+          password: 'admin1234'
+        }
+      });
 
-    const [adminUser] = workspaceUserService.list(result.workspace.rootPath);
+      const [adminUser] = workspaceUserService.list(result.workspace.rootPath);
 
-    expect(() =>
-      workspaceUserService.deactivate(result.workspace.rootPath, adminUser.id)
-    ).toThrow('At least one active workspace user must remain.');
-  });
+      expect(() =>
+        workspaceUserService.deactivate(result.workspace.rootPath, adminUser.id)
+      ).toThrow('At least one active workspace user must remain.');
+    },
+    WINDOWS_SLOW_TEST_TIMEOUT_MS
+  );
 
   it('can recover access by creating a new admin when no active users remain', () => {
     const result = workspaceService.create({
