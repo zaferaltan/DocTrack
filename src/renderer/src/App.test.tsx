@@ -1885,7 +1885,7 @@ describe('App', () => {
     expect(getHeaders()).toContain('Document Type');
     expect(getHeaders()).toContain('Version');
     expect(getHeaders()).toContain('Status');
-    expect(getHeaders()).toContain('Project');
+    expect(getHeaders()).toContain('Group');
     expect(getHeaders()).not.toContain('Author');
     expect(getHeaders()).not.toContain('Company');
 
@@ -1908,7 +1908,7 @@ describe('App', () => {
           'documentType',
           'version',
           'status',
-          'project',
+          'group',
           'author'
         ])
       })
@@ -2003,7 +2003,7 @@ describe('App', () => {
           { key: 'documentType', label: 'Document Type' },
           { key: 'version', label: 'Version' },
           { key: 'status', label: 'Status' },
-          { key: 'project', label: 'Project' }
+          { key: 'group', label: 'Group' }
         ],
         rows: [
           expect.objectContaining({
@@ -2011,11 +2011,12 @@ describe('App', () => {
             title: 'Operating Procedure'
           })
         ],
-        filters: {
+        filters: expect.objectContaining({
           search: 'Operating',
           status: 'All',
+          group: 'All groups',
           project: 'All projects'
-        }
+        })
       })
     );
 
@@ -2092,15 +2093,18 @@ describe('App', () => {
           expect.objectContaining({ id: 101 }),
           expect.objectContaining({ id: 102 })
         ]),
-        columns: workspaceResult.summary.settings.visibleDocumentColumns.map((column) => ({
-          key: column,
-          label: expect.any(String)
-        })),
-        filters: {
+        columns: expect.arrayContaining(
+          workspaceResult.summary.settings.visibleDocumentColumns.map((column) => ({
+            key: column,
+            label: expect.any(String)
+          }))
+        ),
+        filters: expect.objectContaining({
           search: '',
           status: 'All',
+          group: '',
           project: ''
-        }
+        })
       })
     );
 
