@@ -1833,7 +1833,7 @@ const filterCommandPaletteCommands = (
 
 const stopRowAction = (event: React.MouseEvent) => event.stopPropagation();
 const getErrorMessage = (error: unknown, fallbackMessage: string): string =>
-  formatUserFacingError(error, fallbackMessage);
+  formatUserFacingError(error, fallbackMessage).userMessage;
 
 const validateWorkspaceRootDirectorySettings = (
   settings: WorkspaceSettings,
@@ -2288,9 +2288,13 @@ function App() {
     completedAppUpdateDialog.open;
   const notifyError = useEffectEvent(
     (error: unknown, fallbackMessage: string): void => {
+      const result = formatUserFacingError(error, fallbackMessage);
+      if (import.meta.env.DEV && result.diagnosticMessage) {
+        console.error("[DocTrack]", result.diagnosticMessage, error);
+      }
       setNotification({
         tone: "error",
-        message: getErrorMessage(error, fallbackMessage),
+        message: result.userMessage,
       });
     },
   );

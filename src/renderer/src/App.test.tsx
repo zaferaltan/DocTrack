@@ -3599,4 +3599,92 @@ describe('App', () => {
 
     await view.unmount();
   });
+
+  it('sanitizes service unavailable errors shown in global notifications', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.appUpdates.checkForUpdates = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Error invoking remote method 'app:update': Workspace session service is unavailable.")
+      );
+    const view = await renderApp();
+
+    await click(getButton('Settings'));
+    await click(getButton('Check for Updates', getDialog()));
+
+    expect(normalizeText(document.body.textContent)).toContain(
+      'That action is temporarily unavailable. Please try again.'
+    );
+    expect(normalizeText(document.body.textContent)).not.toContain('service is unavailable');
+    expect(normalizeText(document.body.textContent)).not.toContain('Error invoking remote method');
+
+    await view.unmount();
+  });
+
+  it('sanitizes raw SQLite errors in global notifications', async () => {
+    const docTrack = buildDocTrackMock();
+    docTrack.workspace.updateSettings = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          "Error invoking remote method 'workspace:update': SqliteError: database disk image is malformed"
+        )
+      );
+    const view = await renderApp();
+
+    await click(getButton('Workspace Settings'));
+    const dialog = getDialog();
+    await changeSelect(
+      getLabeledControl(dialog, 'Version Document ID Management', 'select') as HTMLSelectElement,
+      'version-specific-document-id'
+    );
+    await click(getButton('Save Settings'));
+
+    expect(normalizeText(document.body.textContent)).toContain('Unable to save workspace settings.');
+    expect(normalizeText(document.body.textContent)).not.toContain('SqliteError');
+    expect(normalizeText(document.body.textContent)).not.toContain('Error invoking remote method');
+
+    await view.unmount();
+  });
+
+  it('sanitizes service unavailable errors in the sign-in inline error field', async () => {
+    const lockedWorkspaceResult: OpenWorkspaceResult = {
+      kind: 'unauthenticated',
+      workspace: workspaceInfo,
+      summary: {
+        ...cloneWorkspaceResult().summary,
+        workspace: workspaceInfo,
+        users: workspaceUsers
+      },
+      users: workspaceUsers,
+      canRecoverAccess: false,
+      session: null
+    };
+    const docTrack = buildDocTrackMock(
+      { ...DEFAULT_APPLICATION_SETTINGS, themeMode: 'light' },
+      lockedWorkspaceResult
+    );
+    docTrack.workspace.signIn.mockRejectedValue(
+      new Error('Workspace user service is unavailable.')
+    );
+
+    const view = await renderApp();
+
+    await changeInput(
+      getLabeledControl(document.body, 'User', 'input') as HTMLInputElement,
+      'jordan'
+    );
+    await changeInput(
+      getLabeledControl(document.body, 'Password or PIN', 'input') as HTMLInputElement,
+      'wrongpassword'
+    );
+    await click(getButton('Sign In'));
+
+    expect(normalizeText(document.body.textContent)).toContain(
+      'That action is temporarily unavailable. Please try again.'
+    );
+    expect(normalizeText(document.body.textContent)).not.toContain('service is unavailable');
+
+    await view.unmount();
+  });
 });
