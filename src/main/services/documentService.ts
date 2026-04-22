@@ -962,6 +962,16 @@ export class DocumentService {
   getVersionFilesystemPreview(rootPath: string, documentVersionId: number): DocumentVersion {
     const context = this.workspaceManager.getContext(rootPath);
     const version = this.getVersionRow(context.db, documentVersionId);
+    if (context.settings.fileOrganizationMode === 'role-subfolders') {
+      const document = this.getDocumentRow(context.db, version.DocumentId);
+      this.fileStorageService.ensureVersionRoleDirectories(
+        context.rootPath,
+        this.fileStorageService.getVersionFolderRelativePath(
+          document.DocumentFolderPath,
+          version.VersionLabel
+        )
+      );
+    }
     const preview = this.buildVersionFilesystemPreview(context, version);
     return this.getVersionFromDatabase(context.db, documentVersionId, preview);
   }
@@ -1451,7 +1461,11 @@ export class DocumentService {
       document.DocumentFolderPath,
       version.VersionLabel
     );
-    this.fileStorageService.cleanupEmptyRoleDirectoriesInVersionFolder(context.rootPath, versionFolderPath);
+    if (context.settings.fileOrganizationMode === 'role-subfolders') {
+      this.fileStorageService.ensureVersionRoleDirectories(context.rootPath, versionFolderPath);
+    } else {
+      this.fileStorageService.cleanupEmptyRoleDirectoriesInVersionFolder(context.rootPath, versionFolderPath);
+    }
 
     return this.syncVersionFiles(rootPath, version.Id);
   }

@@ -129,10 +129,10 @@ export class WorkspaceService {
       this.persistWorkspaceLifecycle(workspaceContext, nextLifecycle);
       workspaceContext.lifecycle = nextLifecycle;
       this.seedStarterTypes(workspaceContext.db);
-      this.ensureDocumentTypeDirectories(workspaceContext);
       if (input.includeExampleData ?? true) {
         this.seedExampleData(workspaceContext);
       }
+      this.ensurePersistentFilesystemStructure(workspaceContext);
     });
 
     this.catalogService.touchRecentWorkspace({
@@ -152,6 +152,7 @@ export class WorkspaceService {
 
   open(rootPath: string): WorkspaceSummaryResult {
     const context = this.workspaceManager.openWorkspace(rootPath);
+    this.ensurePersistentFilesystemStructure(context);
     this.workspaceFilesystemWatcherService?.ensureWatching(context.rootPath, context.settings);
     this.catalogService.touchRecentWorkspace({
       rootPath: context.rootPath,
@@ -346,7 +347,7 @@ export class WorkspaceService {
       context.settings = nextSettings;
       context.lifecycle = nextLifecycle;
       this.refreshContextLayoutPaths(context);
-      this.ensureDocumentTypeDirectories(context);
+      this.ensurePersistentFilesystemStructure(context);
       this.workspaceFilesystemWatcherService?.ensureWatching(rootPath, context.settings);
     }
 
@@ -1173,6 +1174,40 @@ export class WorkspaceService {
       typeNames.map((type) => type.Name),
       context.settings
     );
+  }
+
+  private ensurePersistentFilesystemStructure(context: WorkspaceContext): void {
+    this.ensureDocumentTypeDirectories(context);
+
+    const documentRows = context.db
+      .prepare('SELECT DocumentFolderPath FROM Documents ORDER BY Id ASC')
+      .all() as Array<{ DocumentFolderPath: string }>;
+
+    for (const row of documentRows) {
+      this.fileStorageService.ensureDocumentFolder(context.rootPath, row.DocumentFolderPath);
+    }
+
+    if (context.settings.fileOrganizationMode !== 'role-subfolders') {
+      return;
+    }
+
+    const versionRows = context.db
+      .prepare(
+        `SELECT d.DocumentFolderPath, v.VersionLabel
+         FROM DocumentVersions v
+         INNER JOIN Documents d ON d.Id = v.DocumentId
+         ORDER BY v.Id ASC`
+      )
+      .all() as Array<{ DocumentFolderPath: string; VersionLabel: string }>;
+
+    for (const row of versionRows) {
+      this.fileStorageService.ensureVersionFolder(
+        context.rootPath,
+        context.settings,
+        row.DocumentFolderPath,
+        row.VersionLabel
+      );
+    }
   }
 
   private migrateWorkspaceStorageLayout(

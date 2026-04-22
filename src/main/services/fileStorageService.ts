@@ -324,12 +324,17 @@ export class FileStorageService {
     mkdirSync(versionFolderPath, { recursive: true });
 
     if (settings.fileOrganizationMode === 'role-subfolders') {
-      for (const roleDirectoryName of getRecognizedRoleDirectoryNames()) {
-        mkdirSync(path.join(versionFolderPath, roleDirectoryName), { recursive: true });
-      }
+      this.ensureRoleDirectories(versionFolderPath);
     }
 
     return versionFolderPath;
+  }
+
+  ensureVersionRoleDirectories(rootPath: string, versionFolderPath: string): void {
+    const versionFolderAbsolutePath = this.resolveStoredFilePath(rootPath, versionFolderPath, true);
+    this.suppressFilesystemEvents(rootPath);
+    mkdirSync(versionFolderAbsolutePath, { recursive: true });
+    this.ensureRoleDirectories(versionFolderAbsolutePath);
   }
 
   getStoredRelativePath(
@@ -696,7 +701,7 @@ export class FileStorageService {
         continue;
       }
 
-      this.cleanupEmptyRoleDirectory(path.join(versionFolderAbsolutePath, entry.name));
+      this.cleanupEmptyRoleDirectory(path.join(versionFolderAbsolutePath, entry.name), true);
     }
   }
 
@@ -768,13 +773,23 @@ export class FileStorageService {
     return hash.digest('hex');
   }
 
-  private cleanupEmptyRoleDirectory(directoryPath: string): void {
+  private ensureRoleDirectories(versionFolderAbsolutePath: string): void {
+    for (const roleDirectoryName of getRecognizedRoleDirectoryNames()) {
+      mkdirSync(path.join(versionFolderAbsolutePath, roleDirectoryName), { recursive: true });
+    }
+  }
+
+  private cleanupEmptyRoleDirectory(directoryPath: string, removeRecognizedRoleDirectory = false): void {
     if (!existsSync(directoryPath)) {
       return;
     }
 
     const directoryName = path.basename(directoryPath);
-    if (readdirSync(directoryPath).length > 0 || !isRecognizedRoleDirectoryName(directoryName)) {
+    if (!isRecognizedRoleDirectoryName(directoryName)) {
+      return;
+    }
+
+    if (!removeRecognizedRoleDirectory || readdirSync(directoryPath).length > 0) {
       return;
     }
 

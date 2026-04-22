@@ -151,7 +151,7 @@ describe('FileStorageService', () => {
     ]);
   });
 
-  it('moves managed files and cleans up empty role folders', () => {
+  it('moves managed files and preserves empty role folders in role-subfolder mode', () => {
     const root = createTempRoot();
     const service = new FileStorageService();
     const workspaceRootPath = path.join(root, 'Quality');
@@ -181,13 +181,16 @@ describe('FileStorageService', () => {
     expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).toContain(
       'other'
     );
-    expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).not.toContain(
+    expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).toContain(
       'working'
     );
 
     service.deleteManagedFile(workspaceRootPath, moved.relativePath);
 
     expect(existsSync(path.join(workspaceRootPath, ...moved.relativePath.split('/')))).toBe(false);
+    expect(readdirSync(path.join(workspaceRootPath, 'Documents', 'Procedure', '01202600001', '001'))).toEqual(
+      expect.arrayContaining(['working', 'concept-pdf', 'final-pdf', 'other'])
+    );
   });
 
   it('pauses filesystem watching while deleting a document folder', () => {

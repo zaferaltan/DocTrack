@@ -520,6 +520,10 @@ describe('document workflow integration', () => {
       'concept-pdf',
       'working'
     ]);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'working'))).toBe(true);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'concept-pdf'))).toBe(true);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'final-pdf'))).toBe(true);
+    expect(existsSync(path.join(versionFolderAbsolutePath, 'other'))).toBe(true);
 
     rmSync(renamedAbsolutePath, { force: true });
     const afterDelete = documentService.syncVersionFiles(workspaceRootPath, versioned.versions[0]!.id);

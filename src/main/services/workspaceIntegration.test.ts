@@ -217,6 +217,49 @@ describe('workspace integration', () => {
     expect(existsSync(path.join(workspaceRootPath, 'Documents', 'Procedure'))).toBe(false);
   }, WINDOWS_SLOW_TEST_TIMEOUT_MS);
 
+  it('restores persistent empty type and role folders when reopening a workspace', () => {
+    const result = workspaceService.create({
+      name: 'Persistent Structure',
+      parentPath: tempRoot,
+      settings: {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        storageLayoutPreset: 'stable-id',
+        fileOrganizationMode: 'role-subfolders'
+      },
+      includeExampleData: false
+    });
+    const workspaceRootPath = result.workspace.rootPath;
+    const created = documentService.create(workspaceRootPath, {
+      title: 'Persistent Procedure',
+      documentTypeId: 2,
+      author: 'Taylor Reed',
+      versionScheme: 'numeric-3'
+    });
+    const versioned = documentService.createVersion(workspaceRootPath, {
+      documentRecordId: created.id,
+      revisionDescription: 'Initial version'
+    });
+    const emptyTypeFolder = path.join(workspaceRootPath, 'Documents', 'Specification');
+    const emptyRoleFolder = path.join(
+      workspaceRootPath,
+      ...created.documentFolderPath.split('/'),
+      versioned.versions[0]!.versionLabel,
+      'final-pdf'
+    );
+
+    rmSync(emptyTypeFolder, { recursive: true, force: true });
+    rmSync(emptyRoleFolder, { recursive: true, force: true });
+
+    expect(existsSync(emptyTypeFolder)).toBe(false);
+    expect(existsSync(emptyRoleFolder)).toBe(false);
+
+    workspaceService.close(workspaceRootPath);
+    workspaceService.open(workspaceRootPath);
+
+    expect(existsSync(emptyTypeFolder)).toBe(true);
+    expect(existsSync(emptyRoleFolder)).toBe(true);
+  }, WINDOWS_SLOW_TEST_TIMEOUT_MS);
+
   it('can create a workspace with the user system disabled', () => {
     const result = workspaceService.create({
       name: 'Open Workspace',
