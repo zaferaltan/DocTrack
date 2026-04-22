@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## General Coding Guidelines
+
+- Always make sure that when changing code, you also update the tests when neccesary so there are no mismatches.
+
 ## Backwards Compatibility Guidelines
 
 As AI agents, you must always prioritize maintaining backwards compatibility in all development activities. This ensures that users can seamlessly update the application without losing access to their existing data or workspaces.
