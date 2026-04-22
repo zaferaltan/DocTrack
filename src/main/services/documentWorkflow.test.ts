@@ -441,6 +441,12 @@ describe('document workflow integration', () => {
   });
 
   it('previews manual filesystem changes without mutating tracked files until reconciliation is applied', () => {
+    workspaceService.updateSettings(workspaceRootPath, {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      storageLayoutPreset: 'stable-id',
+      fileOrganizationMode: 'role-subfolders'
+    });
+
     const created = documentService.create(workspaceRootPath, {
       title: 'Operating Procedure',
       documentTypeId: 2,
